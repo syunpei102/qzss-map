@@ -346,7 +346,7 @@ function maxZoomForBounds(bounds) {
   return diagonal > 0 && diagonal < 0.6 ? 11 : 9;
 }
 
-function flyToBounds(bounds, pad = 24) {
+function flyToBounds(bounds, pad = 24, maxZoomOverride = null) {
   if (!isFinite(bounds[0])) return;
   const clamped = clampBoundsToJapanVicinity(bounds);
   if (!clamped) return;
@@ -372,7 +372,7 @@ function flyToBounds(bounds, pad = 24) {
     [[bounds[0], bounds[1]], [bounds[2], bounds[3]]],
     {
       padding,
-      maxZoom: maxZoomForBounds(bounds),
+      maxZoom: maxZoomOverride ?? maxZoomForBounds(bounds),
       duration: 800,
     }
   );
@@ -761,7 +761,7 @@ function buildEventFromLAlert(report) {
 // 地域コードが同時に含まれ、しかも地域ごとに個別に解除されうるため、
 // 「1通報=1イベント」を前提にした activeEvents の統合ロジックとは
 // 相性が悪い。表示(地図のレイヤー・自動ズーム・パネル)は
-// syncMapFromActiveEvents/renderEventsPanel 側でactiveEventsと
+// syncActiveEventLayers/updateCameraForActiveEvents/renderEventsPanel 側でactiveEventsと
 // まとめて扱う。
 // ==================================================
 let weatherSites = new Map(); // key: 地域コード -> {code, name, subCategories:[...], bounds, ...}
@@ -882,10 +882,15 @@ let patrolTimer = null;
 let patrolIndex = 0;
 let currentPatrolCode = null;
 
+// 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
+// 寄りすぎると周辺の地理的な文脈(隣接県との位置関係等)が分からなく
+// なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
+const WEATHER_PATROL_MAX_ZOOM = 8;
+
 function zoomToWeatherCode(code) {
   const feature = weatherFeaturesByCode.get(code);
   if (!feature) return;
-  flyToBounds(geometryBounds(feature.geometry), 40);
+  flyToBounds(geometryBounds(feature.geometry), 40, WEATHER_PATROL_MAX_ZOOM);
 }
 
 function updateFocusOutline() {
@@ -948,6 +953,23 @@ function kickPatrolIfIdle() {
   if (currentPatrolCode === null && weatherSites.size > 0 && activeEvents.size === 0) {
     schedulePatrolNext(0);
   }
+}
+
+// 巡回中に別の地域の警報・注意報が新しく発表された場合、次の巡回の
+// 順番を待たず、その新しい地域をすぐズームインして見せる。
+// 見せ終わったら通常の巡回に戻る(codes配列内での位置を追跡し直し、
+// 他の地域を飛ばしたり、同じ地域をすぐ繰り返したりしないようにする)
+function interruptPatrolForNewRegion(code) {
+  if (activeEvents.size > 0) return; // 地震等が優先中なら割り込まない
+  const codes = [...weatherSites.keys()];
+  const idx = codes.indexOf(code);
+  if (idx === -1) return;
+  currentPatrolCode = code;
+  patrolIndex = idx + 1;
+  zoomToWeatherCode(code);
+  updateFocusOutline();
+  renderEventsPanel();
+  schedulePatrolNext(PATROL_DWELL_MS);
 }
 
 function buildEventFromReport(report) {
@@ -1157,7 +1179,8 @@ function addActiveEvent(eventData, ttlMs = null) {
     currentPatrolCode = null;
     updateFocusOutline();
   }
-  syncMapFromActiveEvents();
+  syncActiveEventLayers();
+  updateCameraForActiveEvents(record);
   renderEventsPanel();
 }
 
@@ -1221,7 +1244,10 @@ function mergeIntoActiveEvent(record, eventData, report) {
   record.updatedAt = Date.now();
 
   record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
-  syncMapFromActiveEvents();
+  syncActiveEventLayers();
+  // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
+  // そちらを優先してズームする
+  updateCameraForActiveEvents(record);
   renderEventsPanel();
 }
 
@@ -1232,7 +1258,10 @@ function removeActiveEvent(id) {
   if (record.markers.hypocenterLabel) record.markers.hypocenterLabel.remove();
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
-  syncMapFromActiveEvents();
+  syncActiveEventLayers();
+  // 何を優先すべきか特に無い(消えた側なので)。残っている全体を
+  // 見せるか、何も残っていなければ通常の待機表示に戻す
+  updateCameraForActiveEvents(null);
   renderEventsPanel();
 }
 
@@ -1282,14 +1311,16 @@ function stopTsunamiBlink() {
 
 // アクティブな全イベントを合算して、レイヤーのフィルタ/色と
 // ズーム範囲(併記表示のためのズームアウト)を再計算する
-function syncMapFromActiveEvents() {
+// レイヤーの塗り/フィルタだけを更新する(カメラは動かさない)。
+// 「同時に複数箇所が発表されていても、新しく発表された方を優先して
+// ズーム表示する」ため、カメラ移動は呼び出し側(addActiveEvent等)が
+// updateCameraForActiveEvents で個別に指示する形にしている。
+function syncActiveEventLayers() {
   if (!map || !map.getLayer('prefecture-fill')) return;
 
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
   const municipalityColorByCode = new Map();
-  const boundsList = [];
-  const tsunamiBoundsList = [];
   const ellipseFeatures = [];
   let tsunamiActive = false;
 
@@ -1304,17 +1335,7 @@ function syncMapFromActiveEvents() {
         geometry: record.geo.ellipse.polygon,
       });
     }
-    if (record.bounds) boundsList.push(record.bounds);
-    if (record.tsunamiWarningActive) {
-      tsunamiActive = true;
-      for (const t of record.geo.tsunami) {
-        const feature = tsunamiFeaturesByCode.get(t.code);
-        if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
-      }
-    }
-  }
-  for (const site of weatherSites.values()) {
-    if (site.bounds) boundsList.push(site.bounds);
+    if (record.tsunamiWarningActive) tsunamiActive = true;
   }
 
   if (map.getSource('lalert-ellipses')) {
@@ -1349,7 +1370,7 @@ function syncMapFromActiveEvents() {
   // 描画を軽くするため起動時に読み込まず、Lアラート(市区町村指定)が
   // 実際に届いた時にバックグラウンドで読み込む(ensureMunicipalityLayer)。
   // まだ読み込まれていない間は何もしない(読み込み完了後に改めて
-  // syncMapFromActiveEventsが呼ばれる)
+  // syncActiveEventLayersが呼ばれる)
   if (map.getLayer('municipality-fill')) {
     if (municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
@@ -1364,11 +1385,44 @@ function syncMapFromActiveEvents() {
     }
   }
 
+}
+
+// カメラ位置を決める。preferredRecord を渡すと「今まさに新規追加/更新された
+// イベント」を最優先でズーム表示する(複数箇所が同時にアクティブでも、
+// 新しく発表された方が見える、という挙動のため)。ただし津波警報が
+// 出ている間は、何が新しく届いたかによらず津波の対象沿岸を最優先で見せる
+// (人命に関わる優先度が最も高いため)。
+function updateCameraForActiveEvents(preferredRecord) {
+  if (!map) return;
+
+  let tsunamiActive = false;
+  const tsunamiBoundsList = [];
+  for (const record of activeEvents.values()) {
+    if (!record.tsunamiWarningActive) continue;
+    tsunamiActive = true;
+    for (const t of record.geo.tsunami) {
+      const feature = tsunamiFeaturesByCode.get(t.code);
+      if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
+    }
+  }
   if (tsunamiActive && tsunamiBoundsList.length) {
-    // 津波警報が出ている間は、広い予報区(EEWの都道府県など)との
-    // 合算ではなく、津波の対象沿岸そのものへタイトにズームする
     flyToBounds(unionBounds(tsunamiBoundsList), 16);
-  } else if (boundsList.length) {
+    return;
+  }
+
+  if (preferredRecord && preferredRecord.bounds) {
+    flyToBounds(preferredRecord.bounds, 24);
+    return;
+  }
+
+  // 気象警報(weatherSites)はここには含めない。気象警報のカメラ制御は
+  // 巡回(patrolStep/interruptPatrolForNewRegion)が専任で行うため、
+  // ここで一緒にunion fitしてしまうと、巡回とカメラを取り合ってしまう
+  const boundsList = [];
+  for (const record of activeEvents.values()) {
+    if (record.bounds) boundsList.push(record.bounds);
+  }
+  if (boundsList.length) {
     // オートズーム: アクティブな全イベントが収まるようにズームアウト/フィット
     // (パディングを詰めて、対象地域によりズームインする)
     flyToBounds(unionBounds(boundsList), 24);
@@ -1617,7 +1671,7 @@ function renderReport(report) {
     const names = report.weather_forecast_regions || [];
     const subCats = report.weather_related_disaster_sub_categories || [];
     const resolved = report.information_type_no === 2 || report.weather_warning_state === '解除';
-    let addedNewRegion = false;
+    const newlyAddedCodes = [];
     let removedFocusedRegion = false;
     codes.forEach((code, i) => {
       if (resolved) {
@@ -1625,7 +1679,7 @@ function renderReport(report) {
         return;
       }
       const existing = weatherSites.get(code);
-      if (!existing) addedNewRegion = true;
+      if (!existing) newlyAddedCodes.push(code);
       const subCategory = subCats[i];
       const mergedSubCategories = existing
         ? [...new Set([...existing.subCategories, subCategory].filter(Boolean))]
@@ -1645,11 +1699,19 @@ function renderReport(report) {
       });
     });
     updateWeatherDisplay();
-    syncMapFromActiveEvents();
+    syncActiveEventLayers();
     renderEventsPanel();
-    // 新しい地域が増えた時は休止中の巡回をすぐ起動し、巡回中に表示していた
-    // 地域が解除された時はすぐ次の地域へ進める
-    if (addedNewRegion) kickPatrolIfIdle();
+    // 新しい地域が増えた場合: 巡回が休止中ならすぐ起動し、既に巡回中なら
+    // 順番を待たずその新しい地域へ割り込んでズームする(複数箇所が
+    // 同時にアクティブでも、新しく発表された方を優先して見せるため)
+    if (newlyAddedCodes.length) {
+      if (currentPatrolCode === null) {
+        kickPatrolIfIdle();
+      } else {
+        interruptPatrolForNewRegion(newlyAddedCodes[0]);
+      }
+    }
+    // 巡回中に表示していた地域が解除された場合は、すぐ次の地域へ進める
     if (removedFocusedRegion) schedulePatrolNext(0);
     return;
   }
@@ -1923,7 +1985,8 @@ async function loadMunicipalityLayer() {
       record.bounds = record.bounds ? unionBounds([record.bounds, featureBounds]) : featureBounds;
       record.pendingMunicipalityCode = null;
     }
-    syncMapFromActiveEvents();
+    syncActiveEventLayers();
+    updateCameraForActiveEvents(null);
   } catch (err) {
     console.error('市区町村データの読み込みに失敗しました:', err);
   }
