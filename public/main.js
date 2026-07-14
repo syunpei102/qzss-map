@@ -1510,11 +1510,11 @@ function renderEventsPanel() {
   ];
 
   if (!visibleRecords.length) {
-    container.innerHTML = `
-      <div class="report-card">
-        <div class="report-badge">待機中</div>
-        <div class="report-title">受信を待っています…</div>
-      </div>`;
+    // 何もアクティブでなく、気象警報の巡回でズームしている地域も無い場合は
+    // パネルは何も表示しない(地図上の描画だけを見せる)。時刻・オンライン
+    // 状態などのヘッダー部分は別途常時表示されているので、ここが空でも
+    // 「アプリが止まっている」ようには見えない
+    container.innerHTML = '';
     return;
   }
 
