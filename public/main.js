@@ -605,7 +605,15 @@ function buildEventFromJAlert(report) {
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
   const color = JALERT_SEVERITY_COLOR[jalertSeverityKey(report)];
-  for (const name of areas) {
+  // ミサイル発射等、対象地域が「全国」として一括で発表されることがある。
+  // prefectures.geojsonには都道府県ごとの地物しか無く「全国」という
+  // 地物は存在しないため、そのままではどこにも塗られず「対象地域なのに
+  // 地図上には何も描画されない」ように見えてしまう。実質的に全都道府県が
+  // 対象という意味なので、47都道府県すべてに展開する
+  const targetNames = areas.includes('全国')
+    ? [...prefectureFeaturesByName.keys()]
+    : areas;
+  for (const name of targetNames) {
     const feature = prefectureFeaturesByName.get(name);
     if (!feature) continue;
     // Jアラートは震度のような段階がないため、バッジ(label)は付けず塗りつぶしのみ
