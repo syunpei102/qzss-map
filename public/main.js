@@ -1410,6 +1410,20 @@ function updateCameraForActiveEvents(preferredRecord) {
     return;
   }
 
+  // 明示的な優先イベントが指定されていない場合(再接続時の一括再送や、
+  // 市区町村データの遅延読み込み完了時など)は、直近に更新されたイベントを
+  // 優先候補として補う。これが無いと「誰が新しいか分からないので全部
+  // union fitする」しかできず、例えば札幌と那覇のLアラートが両方
+  // 保留から同時に解決した時に、日本全体を映す中途半端なズームになって
+  // しまう(実際に発生を確認して修正した)
+  if (!preferredRecord) {
+    let latest = null;
+    for (const record of activeEvents.values()) {
+      if (record.bounds && (!latest || record.updatedAt > latest.updatedAt)) latest = record;
+    }
+    preferredRecord = latest;
+  }
+
   if (preferredRecord && preferredRecord.bounds) {
     flyToBounds(preferredRecord.bounds, 24);
     return;
@@ -1417,7 +1431,9 @@ function updateCameraForActiveEvents(preferredRecord) {
 
   // 気象警報(weatherSites)はここには含めない。気象警報のカメラ制御は
   // 巡回(patrolStep/interruptPatrolForNewRegion)が専任で行うため、
-  // ここで一緒にunion fitしてしまうと、巡回とカメラを取り合ってしまう
+  // ここで一緒にunion fitしてしまうと、巡回とカメラを取り合ってしまう。
+  // (ここに到達するのは、活動中のイベントが1件もboundsを持たない
+  // 稀なケースのみ)
   const boundsList = [];
   for (const record of activeEvents.values()) {
     if (record.bounds) boundsList.push(record.bounds);
