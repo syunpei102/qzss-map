@@ -195,6 +195,33 @@ function geometryBounds(geometry) {
   return [minX, minY, maxX, maxY];
 }
 
+// 都道府県ジオメトリの「主要な陸地」だけでズーム範囲を決める。
+// 東京都(小笠原諸島)や鹿児島県(奄美群島)のように、本土から大きく
+// 離れた属島を含む都道府県だと、単純な座標の最小・最大(bounding box)
+// では離島に引っ張られて中心が本土から大きくズレてしまう(例: 東京都
+// 単体だと中心が父島沖になり、本土が画面外になってしまう)。
+// MultiPolygonの場合は、bbox面積が最大のポリゴン(=本土)だけを使う
+function mainLandBounds(geometry) {
+  if (geometry.type !== 'MultiPolygon') return geometryBounds(geometry);
+  let best = null;
+  let bestArea = -1;
+  for (const rings of geometry.coordinates) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    eachCoordinate(rings, ([x, y]) => {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    });
+    const area = (maxX - minX) * (maxY - minY);
+    if (area > bestArea) {
+      bestArea = area;
+      best = [minX, minY, maxX, maxY];
+    }
+  }
+  return best || geometryBounds(geometry);
+}
+
 function geometryCentroid(geometry) {
   let sumX = 0, sumY = 0, n = 0;
   eachCoordinate(geometry.coordinates, ([x, y]) => {
@@ -631,7 +658,7 @@ function buildEventFromJAlert(report) {
     if (!feature) continue;
     // Jアラートは震度のような段階がないため、バッジ(label)は付けず塗りつぶしのみ
     geo.prefectures.push({ id: feature.properties.id, color, label: null, textColor: '#fff' });
-    boundsList.push(geometryBounds(feature.geometry));
+    boundsList.push(mainLandBounds(feature.geometry));
   }
 
   return {
@@ -1015,7 +1042,7 @@ function buildEventFromReport(report) {
     for (const id of prefIds) {
       geo.prefectures.push({ id, color: '#ff2800', label: null, textColor: '#fff' });
       const feature = prefectureFeaturesById.get(id);
-      if (feature) boundsList.push(geometryBounds(feature.geometry));
+      if (feature) boundsList.push(mainLandBounds(feature.geometry));
     }
   }
 
@@ -1036,7 +1063,7 @@ function buildEventFromReport(report) {
       const textColor = SEISMIC_INTENSITY_TEXT_COLORS[intensityCodes[i]] || '#111';
       geo.prefectures.push({ id, color, label, textColor });
       const feature = prefectureFeaturesById.get(id);
-      if (feature) boundsList.push(geometryBounds(feature.geometry));
+      if (feature) boundsList.push(mainLandBounds(feature.geometry));
     });
   }
 
