@@ -577,6 +577,19 @@ function jalertSeverityJa(report) {
   return JALERT_SEVERITY_JA[jalertSeverityKey(report)];
 }
 
+// CAP標準の継続時間(a8_hazard_duration)も英語の説明文でしか届かない
+// (azarashiのqzss_dcx_camf_a8_hazard_duration定義で取りうる値は4種類のみ)
+const HAZARD_DURATION_JA = {
+  'Unknown': '不明',
+  'Duration < 6H': '6時間未満',
+  '6H <= Duration < 12H': '6〜12時間',
+  '12H <= Duration < 24H': '12〜24時間',
+};
+
+function hazardDurationJa(text) {
+  return HAZARD_DURATION_JA[text] || text;
+}
+
 function jalertSeverityClass(report) {
   const key = jalertSeverityKey(report);
   if (key === 'Extreme') return 'sev-emergency';
@@ -732,7 +745,7 @@ function buildEventFromLAlert(report) {
   }
 
   if (report.a11_japanese_library_ja) rows.push(['指示', report.a11_japanese_library_ja]);
-  if (report.a8_hazard_duration) rows.push(['継続時間', report.a8_hazard_duration]);
+  if (report.a8_hazard_duration) rows.push(['継続時間', hazardDurationJa(report.a8_hazard_duration)]);
 
   return {
     isTestData: !!report.is_test_data,
