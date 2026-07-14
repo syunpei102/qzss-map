@@ -867,6 +867,89 @@ function updateWeatherDisplay() {
   map.setPaintProperty('weather-outline', 'line-color', matchExpr);
 }
 
+// ==================================================
+// 気象警報が出ている地域を、1箇所ずつ順番にズームインして巡回する
+// - 地震・津波・Jアラート・Lアラート等(activeEvents)が1件でもアクティブな
+//   間は、そちらの表示を優先し、巡回によるカメラ移動は行わない
+//   (巡回タイマー自体は動き続け、activeEventsが無くなったら自動的に再開する)
+// - 一通り巡回し終えたら、PATROL_CYCLE_PAUSE_MS(既定5分)休止してから再開する
+// - パネルには気象警報の全カードを常時表示するので、巡回が動かすのは
+//   あくまで地図のカメラ位置と輪郭の強調表示だけ
+// ==================================================
+const PATROL_DWELL_MS = 20000; // 1つの地域を表示し続ける時間
+const PATROL_CYCLE_PAUSE_MS = 5 * 60 * 1000; // 一周した後の休止時間
+let patrolTimer = null;
+let patrolIndex = 0;
+let currentPatrolCode = null;
+
+function zoomToWeatherCode(code) {
+  const feature = weatherFeaturesByCode.get(code);
+  if (!feature) return;
+  flyToBounds(geometryBounds(feature.geometry), 40);
+}
+
+function updateFocusOutline() {
+  if (!map || !map.getLayer('weather-focus-outline')) return;
+  const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode) ? [currentPatrolCode] : [];
+  map.setFilter('weather-focus-outline', ['in', ['get', 'code'], ['literal', codes]]);
+}
+
+function schedulePatrolNext(delayMs) {
+  if (patrolTimer) clearTimeout(patrolTimer);
+  patrolTimer = setTimeout(patrolStep, delayMs);
+}
+
+function patrolStep() {
+  // activeEvents(地震・津波・Jアラート・Lアラート等)がある間は、
+  // そちらの表示を優先する。カメラは動かさず、少し後にまた確認する
+  if (activeEvents.size > 0) {
+    schedulePatrolNext(PATROL_DWELL_MS);
+    return;
+  }
+
+  const codes = [...weatherSites.keys()];
+  if (!codes.length) {
+    if (currentPatrolCode !== null) {
+      currentPatrolCode = null;
+      updateFocusOutline();
+      renderEventsPanel();
+      const view = getDefaultView();
+      map.easeTo({ center: view.center, zoom: view.zoom, duration: 1000 });
+    }
+    patrolIndex = 0;
+    schedulePatrolNext(PATROL_DWELL_MS); // 警報が出ていないか定期的に確認する
+    return;
+  }
+
+  if (patrolIndex >= codes.length) {
+    // 一通り巡回し終えたので、いったん全体表示に戻して休止する
+    patrolIndex = 0;
+    currentPatrolCode = null;
+    const view = getDefaultView();
+    map.easeTo({ center: view.center, zoom: view.zoom, duration: 1000 });
+    updateFocusOutline();
+    renderEventsPanel();
+    schedulePatrolNext(PATROL_CYCLE_PAUSE_MS);
+    return;
+  }
+
+  const code = codes[patrolIndex];
+  currentPatrolCode = code;
+  zoomToWeatherCode(code);
+  updateFocusOutline();
+  renderEventsPanel();
+  patrolIndex += 1;
+  schedulePatrolNext(PATROL_DWELL_MS);
+}
+
+// 警報が0件の状態から新しく発表された時は、次の定期チェックを待たず
+// すぐに巡回を始める
+function kickPatrolIfIdle() {
+  if (currentPatrolCode === null && weatherSites.size > 0 && activeEvents.size === 0) {
+    schedulePatrolNext(0);
+  }
+}
+
 function buildEventFromReport(report) {
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
@@ -1067,6 +1150,13 @@ function addActiveEvent(eventData, ttlMs = null) {
 
   record.timer = ttlMs ? setTimeout(() => removeActiveEvent(id), ttlMs) : null;
   activeEvents.set(id, record);
+  // 地震・津波・Jアラート・Lアラート等が発生した場合、地図はそちらに
+  // ズームするため、それまで気象警報の巡回で表示していた地域の
+  // カード/輪郭強調は(カメラが実際にはもうそこを見ていないので)消す
+  if (currentPatrolCode !== null) {
+    currentPatrolCode = null;
+    updateFocusOutline();
+  }
   syncMapFromActiveEvents();
   renderEventsPanel();
 }
@@ -1157,7 +1247,10 @@ function clearAllActiveEvents() {
   for (const id of [...activeEvents.keys()]) removeActiveEvent(id);
   weatherSites.clear();
   otherReports.clear();
+  currentPatrolCode = null;
+  patrolIndex = 0;
   updateWeatherDisplay();
+  updateFocusOutline();
   renderEventsPanel();
 }
 
@@ -1279,17 +1372,22 @@ function syncMapFromActiveEvents() {
     // オートズーム: アクティブな全イベントが収まるようにズームアウト/フィット
     // (パディングを詰めて、対象地域によりズームインする)
     flyToBounds(unionBounds(boundsList), 24);
-  } else {
-    // 何もアクティブでなければ日本全体表示に戻す
+  } else if (currentPatrolCode === null) {
+    // 何もアクティブでなく、気象警報の巡回もしていなければ日本全体表示に戻す。
+    // 巡回中(currentPatrolCode有り)は、そちらがカメラを管理しているので
+    // ここでは何もしない(勝手にリセットして巡回とカメラの取り合いに
+    // ならないようにする)
     const view = getDefaultView();
     map.easeTo({ center: view.center, zoom: view.zoom, duration: 1200 });
   }
 }
 
 // 気象警報(weatherSites)・その他(otherReports)は
-// activeEventsとは別のMapで管理しているが、パネルには他の通報と
-// 同じカード形式で、更新時刻順にまとめて表示する(「1つの地図・
-// 1つのパネルに全部表示する」という統合方針のため)
+// activeEventsとは別のMapで管理している。気象警報は同時に何十件も
+// アクティブになりうるため、他の通報と違って「常時全件表示」にはせず、
+// 地図が実際にズームインして見せている(=巡回中の)地域のカードだけを
+// パネルにも表示する(地図はどこか別の場所を見ているのに、パネルには
+// 無関係な地域の情報が並んでいる、という食い違いを防ぐため)
 function weatherSiteCard(site) {
   const worst = worstSubCategory(site.subCategories);
   return {
@@ -1297,7 +1395,7 @@ function weatherSiteCard(site) {
     satelliteId: site.satelliteId,
     satellitePrn: site.satellitePrn,
     badges: [{ text: worst || '気象', class: weatherSeverityBadgeClass(worst) }],
-    title: site.name,
+    title: `📍 ${site.name}`,
     meta: `更新 ${nowTimeString()}`,
     rows: [['種別', site.subCategories.join('・')]],
     updatedAt: site.updatedAt,
@@ -1321,9 +1419,10 @@ function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
 
+  const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
   const visibleRecords = [
     ...activeEvents.values(),
-    ...[...weatherSites.values()].map(weatherSiteCard),
+    ...(focusedWeatherSite ? [weatherSiteCard(focusedWeatherSite)] : []),
     ...[...otherReports.values()].map(otherReportCard),
   ];
 
@@ -1518,12 +1617,15 @@ function renderReport(report) {
     const names = report.weather_forecast_regions || [];
     const subCats = report.weather_related_disaster_sub_categories || [];
     const resolved = report.information_type_no === 2 || report.weather_warning_state === '解除';
+    let addedNewRegion = false;
+    let removedFocusedRegion = false;
     codes.forEach((code, i) => {
       if (resolved) {
-        weatherSites.delete(code);
+        if (weatherSites.delete(code) && currentPatrolCode === code) removedFocusedRegion = true;
         return;
       }
       const existing = weatherSites.get(code);
+      if (!existing) addedNewRegion = true;
       const subCategory = subCats[i];
       const mergedSubCategories = existing
         ? [...new Set([...existing.subCategories, subCategory].filter(Boolean))]
@@ -1545,6 +1647,10 @@ function renderReport(report) {
     updateWeatherDisplay();
     syncMapFromActiveEvents();
     renderEventsPanel();
+    // 新しい地域が増えた時は休止中の巡回をすぐ起動し、巡回中に表示していた
+    // 地域が解除された時はすぐ次の地域へ進める
+    if (addedNewRegion) kickPatrolIfIdle();
+    if (removedFocusedRegion) schedulePatrolNext(0);
     return;
   }
 
@@ -1666,11 +1772,13 @@ async function initMap() {
       id: 'fallback-landmass-fill',
       type: 'fill',
       source: 'fallback-landmass',
-      // 本物のベクトルタイル(minzoom=4)が表示され始めたら、下に完全に
-      // 隠れて見えなくなるだけの塗りつぶしを描き続ける意味が無い。
-      // ラズパイ等GPUが非力な環境での無駄な描画コストを削るため、
-      // タイルが出てくるより手前で打ち切る
-      maxzoom: 5,
+      // 注意: 以前ここに maxzoom:5(本物のタイルに隠れて見えないので
+      // 打ち切る)という「軽量化」を入れたが、実際には下地のpmtiles
+      // (base_slim_final.pmtiles)自体の実データがzoom7までしか無く、
+      // それを超えるズームでオーバーズーム表示が効かない/効きが悪い
+      // ケースがあり、結果としてzoom5〜7超で背景が何も描画されない
+      // (対象エリア以外が真っ暗)不具合を起こした。塗り自体は軽い
+      // 処理なので、無効化はせず常時描画に戻す
       paint: { 'fill-color': 'rgba(140,140,140,1)' },
     },
     '行政区画'
@@ -1738,6 +1846,15 @@ async function initMap() {
     filter: ['in', ['get', 'code'], ['literal', []]],
     paint: { 'line-color': WEATHER_WARNING_COLOR, 'line-width': 1.5 },
   });
+  // 巡回でズームインしている対象地域の輪郭を白い太線で強調する
+  // (どこの話をしているのかが一目で分かるように)
+  map.addLayer({
+    id: 'weather-focus-outline',
+    type: 'line',
+    source: 'weather-regions',
+    filter: ['in', ['get', 'code'], ['literal', []]],
+    paint: { 'line-color': '#ffffff', 'line-width': 4 },
+  });
 
   // 段階2: 使用頻度が低い/主要な情報表示に必須ではないデータは、ここまでの
   // 「警報エリアを塗れる」状態が整った後に、バックグラウンドで読み込む。
@@ -1745,6 +1862,10 @@ async function initMap() {
   // 初回表示・操作可能になるタイミングを優先する。
   loadEpicenterLookupTable();
   loadMunicipalityLayer();
+
+  // 気象警報の巡回ループを開始する(最初は警報が無いはずなので、
+  // 実質的に「定期的に確認するだけ」の待機状態から始まる)
+  schedulePatrolNext(PATROL_DWELL_MS);
 }
 
 // 震央地名コード→中心座標のルックアップテーブル。EEW速報等で座標が
