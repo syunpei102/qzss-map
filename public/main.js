@@ -683,7 +683,7 @@ function buildEventFromJAlert(report) {
     // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
     // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
     // 寄りすぎてしまうことがあるため、県の形が分かる程度の上限に固定する
-    boundsMaxZoom: 9,
+    boundsMaxZoom: 7.5,
   };
 }
 
@@ -884,6 +884,23 @@ function regionDisplayName(code, rawName) {
 }
 
 function buildEventFromOtherCategory(report) {
+  const rows = [];
+  // 洪水(11): 対象河川と警戒レベルをそれぞれの欄で表示する
+  // (以前はdescriptionの1行目だけで、河川名が出ないことがあった)
+  if (Array.isArray(report.flood_forecast_regions) && report.flood_forecast_regions.length) {
+    rows.push(['対象河川', report.flood_forecast_regions.join('、')]);
+  }
+  if (Array.isArray(report.flood_warning_levels) && report.flood_warning_levels.length) {
+    rows.push(['警戒レベル', [...new Set(report.flood_warning_levels)].join('、')]);
+  }
+  // 火山(8)・降灰(9): 火山名と警報種別
+  if (report.volcano_name) rows.push(['火山', report.volcano_name]);
+  if (report.volcanic_warning_code) rows.push(['警報', report.volcanic_warning_code]);
+  if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
+    rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
+  }
+  const firstLine = (report.description || '').split('\n').map((l) => l.trim()).find(Boolean);
+  if (firstLine) rows.push(['内容', firstLine]);
   return {
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,
@@ -894,7 +911,7 @@ function buildEventFromOtherCategory(report) {
       ? `${report.disaster_category}${report.information_type && report.information_type !== '発表' ? `(${report.information_type})` : ''}`
       : report.type,
     meta: `受信 ${nowTimeString()}`,
-    rows: (report.description || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 1).map((l) => ['内容', l]),
+    rows,
     updatedAt: Date.now(),
   };
 }
@@ -936,7 +953,7 @@ let currentPatrolCode = null;
 // 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
 // 寄りすぎると周辺の地理的な文脈(隣接県との位置関係等)が分からなく
 // なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
-const WEATHER_PATROL_MAX_ZOOM = 8;
+const WEATHER_PATROL_MAX_ZOOM = 7.5;
 
 function zoomToWeatherCode(code) {
   const feature = weatherFeaturesByCode.get(code);
@@ -957,8 +974,16 @@ function schedulePatrolNext(delayMs) {
 
 function patrolStep() {
   // activeEvents(地震・津波・Jアラート・Lアラート等)がある間は、
-  // そちらの表示を優先する。カメラは動かさず、少し後にまた確認する
+  // そちらの表示を優先する。新規の気象警報への割り込みズーム
+  // (interruptPatrolForNewRegion)で一時的にカメラを借りていた場合は、
+  // ここで重要イベント側へ返す
   if (activeEvents.size > 0) {
+    if (currentPatrolCode !== null) {
+      currentPatrolCode = null;
+      updateFocusOutline();
+      updateCameraForActiveEvents(null);
+      renderEventsPanel();
+    }
     schedulePatrolNext(PATROL_DWELL_MS);
     return;
   }
@@ -1011,7 +1036,10 @@ function kickPatrolIfIdle() {
 // 見せ終わったら通常の巡回に戻る(codes配列内での位置を追跡し直し、
 // 他の地域を飛ばしたり、同じ地域をすぐ繰り返したりしないようにする)
 function interruptPatrolForNewRegion(code) {
-  if (activeEvents.size > 0) return; // 地震等が優先中なら割り込まない
+  // 津波警報などの重要イベントが表示中でも、新しく発表された気象警報は
+  // 一度割り込んでズーム表示する(PATROL_DWELL_MS経過後、patrolStepが
+  // 重要イベント側へカメラを返す)。「新しく発表された情報を必ず見せる」
+  // という方針をイベント種別によらず一貫させるため
   const codes = [...weatherSites.keys()];
   const idx = codes.indexOf(code);
   if (idx === -1) return;
@@ -1123,7 +1151,7 @@ function buildEventFromReport(report) {
     // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
     // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
     // 寄りすぎてしまうことがあるため、県の形が分かる程度の上限に固定する
-    boundsMaxZoom: 9,
+    boundsMaxZoom: 7.5,
   };
 }
 
@@ -1177,6 +1205,7 @@ function findMatchingGroup(report, eventData) {
 
   if (epicenterRaw != null || occurrenceTime != null) {
     for (const record of activeEvents.values()) {
+      if (record.ttlMs) continue; // 取消・解除などの短時間通知カードには統合しない
       if (epicenterRaw != null && record.epicenterRaw === epicenterRaw) return record;
       if (occurrenceTime != null && record.occurrenceTime === occurrenceTime) return record;
     }
@@ -1187,6 +1216,12 @@ function findMatchingGroup(report, eventData) {
   const now = Date.now();
   let best = null;
   for (const record of activeEvents.values()) {
+    // 取消・解除・デコードエラーなどの短時間通知カード(ttl付き)は
+    // 「地震グループ」ではないため統合先にしない。以前これが原因で、
+    // EEW取消の直後に届いた津波警報が「取消」通知カードへ統合されて
+    // しまい、通知カードの自動消滅タイマー(10秒)と一緒に津波警報の
+    // 表示ごと消えるという重大なバグがあった
+    if (record.ttlMs) continue;
     if (now - record.updatedAt > RECENT_MS) continue;
     if (eventData.bounds && record.bounds && !boundsAreNear(eventData.bounds, record.bounds)) continue;
     if (!best || record.updatedAt > best.updatedAt) best = record;
@@ -1195,19 +1230,13 @@ function findMatchingGroup(report, eventData) {
 }
 
 function createHypocenterMarkers(hypocenter) {
+  // 震央の地名はパネルの「震央」欄に表示しているため、地図上の✕マークに
+  // 地名ラベルは付けない(沖合の震源で海上に地名が浮かぶのは煩わしいため)
   const markers = { hypocenter: null, hypocenterLabel: null };
-  const { lon, lat, label } = hypocenter;
+  const { lon, lat } = hypocenter;
   markers.hypocenter = new maplibregl.Marker({ element: createCrossMarkerElement(), anchor: 'center' })
     .setLngLat([lon, lat])
     .addTo(map);
-  if (label) {
-    const el = document.createElement('div');
-    el.className = 'epicenter-label';
-    el.textContent = label;
-    markers.hypocenterLabel = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -18] })
-      .setLngLat([lon, lat])
-      .addTo(map);
-  }
   return markers;
 }
 
@@ -1324,7 +1353,11 @@ function mergeIntoActiveEvent(record, eventData, report) {
   record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
   syncActiveEventLayers();
   // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
-  // そちらを優先してズームする
+  // そちらを優先してズームする(気象警報の巡回フォーカスは解除する)
+  if (currentPatrolCode !== null) {
+    currentPatrolCode = null;
+    updateFocusOutline();
+  }
   updateCameraForActiveEvents(record);
   renderEventsPanel();
 }
@@ -1337,9 +1370,13 @@ function removeActiveEvent(id) {
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
   syncActiveEventLayers();
-  // 何を優先すべきか特に無い(消えた側なので)。残っている全体を
-  // 見せるか、何も残っていなければ通常の待機表示に戻す
-  updateCameraForActiveEvents(null);
+  // 何を優先すべきか特に無い(消えた側なので)。残っている中で直近の
+  // ものを見せるか、何も残っていなければ通常の待機表示に戻す。
+  // ただし気象警報の巡回/割り込み(currentPatrolCode)がカメラを持って
+  // いる間は横取りしない(巡回が終われば patrolStep が復帰させる)
+  if (currentPatrolCode === null) {
+    updateCameraForActiveEvents(null);
+  }
   renderEventsPanel();
 }
 
@@ -1479,7 +1516,7 @@ let focusedEventIds = new Set();
 // 都道府県全体ではなく、実際に警報が出ている沿岸そのものを見せた方が
 // 分かりやすいが、寄りすぎると逆にどこの県か分からなくなるため、
 // 通常のprefecture単位より少し狭いが県の形は分かる程度の上限にする
-const TSUNAMI_FOCUS_MAX_ZOOM = 8;
+const TSUNAMI_FOCUS_MAX_ZOOM = 7.5;
 
 function updateCameraForActiveEvents(preferredRecord) {
   if (!map) return;
@@ -1520,6 +1557,29 @@ function updateCameraForActiveEvents(preferredRecord) {
   if (preferredRecord && preferredRecord.bounds) {
     flyToBounds(preferredRecord.bounds, 24, preferredRecord.boundsMaxZoom ?? null);
     focusedEventIds = new Set([preferredRecord.id]);
+    return;
+  }
+
+  // 位置情報を持たないイベント(取消・解除の短時間通知カード、
+  // デコードエラー、対象地域を特定できないJアラート等)。カメラは
+  // 残っている他のイベント(あれば直近のもの)に合わせつつ、パネルには
+  // この通知も表示する(bounds有無でフォーカスを決めると、これらの
+  // 通知カードが一切表示されない不具合になる)
+  if (preferredRecord) {
+    let latest = null;
+    for (const record of activeEvents.values()) {
+      if (record.bounds && (!latest || record.updatedAt > latest.updatedAt)) latest = record;
+    }
+    if (latest) {
+      flyToBounds(latest.bounds, 24, latest.boundsMaxZoom ?? null);
+      focusedEventIds = new Set([preferredRecord.id, latest.id]);
+    } else {
+      focusedEventIds = new Set([preferredRecord.id]);
+      if (currentPatrolCode === null) {
+        const view = getDefaultView();
+        map.easeTo({ center: view.center, zoom: view.zoom, duration: 1200 });
+      }
+    }
     return;
   }
 
@@ -1592,18 +1652,19 @@ function renderEventsPanel() {
   if (!container) return;
 
   // パネルには「地図が今まさにズームして見せている対象」だけを出す。
-  // 地震・津波・Jアラート・Lアラート等(activeEvents)がズームフォーカス
-  // 中はそれだけ、そうでなく気象警報の巡回中はその地域だけ、どちらでも
-  // 無い(=全体表示に戻っている)時だけ、その他の通報(南海トラフ/火山/
-  // 降灰/洪水。これらは特定の位置にズームする仕組みが無いため)を出す
+  // currentPatrolCodeが立っている間は巡回(または新規気象警報への
+  // 割り込み)がカメラを持っているのでその地域だけ、そうでなければ
+  // ズームフォーカス中のactiveEvents(地震・津波・Jアラート・Lアラート等)、
+  // どちらでも無い(=全体表示に戻っている)時だけ、その他の通報
+  // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す
   const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
 
   let visibleRecords;
-  if (focusedEvents.length) {
-    visibleRecords = focusedEvents;
-  } else if (focusedWeatherSite) {
+  if (focusedWeatherSite) {
     visibleRecords = [weatherSiteCard(focusedWeatherSite)];
+  } else if (focusedEvents.length) {
+    visibleRecords = focusedEvents;
   } else {
     visibleRecords = [...otherReports.values()].map(otherReportCard);
   }
@@ -1816,6 +1877,7 @@ function renderReport(report) {
       const feature = weatherFeaturesByCode.get(code);
       weatherSites.set(code, {
         code,
+        rawName, // 地域名の無い再送時に existing.rawName で引き継ぐため保存必須
         name: regionDisplayName(code, rawName),
         subCategories: mergedSubCategories,
         description: report.description || (existing && existing.description) || '',
@@ -1832,13 +1894,9 @@ function renderReport(report) {
     // 新しい地域が増えた場合: 巡回が休止中ならすぐ起動し、既に巡回中なら
     // 順番を待たずその新しい地域へ割り込んでズームする(複数箇所が
     // 同時にアクティブでも、新しく発表された方を優先して見せるため)
-    if (newlyAddedCodes.length) {
-      if (currentPatrolCode === null) {
-        kickPatrolIfIdle();
-      } else {
-        interruptPatrolForNewRegion(newlyAddedCodes[0]);
-      }
-    }
+    // 新しい地域の警報は、巡回中・休止中・重要イベント表示中を問わず
+    // すぐ割り込みズームで見せる(その後は通常の巡回/重要イベントに復帰)
+    if (newlyAddedCodes.length) interruptPatrolForNewRegion(newlyAddedCodes[0]);
     // 巡回中に表示していた地域が解除された場合は、すぐ次の地域へ進める
     if (removedFocusedRegion) schedulePatrolNext(0);
     return;
@@ -1877,6 +1935,24 @@ function renderReport(report) {
 
   const event = buildEventFromReport(report);
   if (!isRelevantToTargetRegion(event)) return;
+
+  // 立て続けの地震(余震)対応: 新しい緊急地震速報が届いた時、既に表示中の
+  // 近隣の地震イベント(前の地震の震度速報など)が残っていると、古い震度の
+  // 塗りつぶしと新しい速報の塗りつぶしが混ざって紛らわしい。同じ地震
+  // グループ、または地理的に近い既存の地震イベントは一旦取り下げて、
+  // 最新の緊急地震速報の表示に切り替える
+  if (report.disaster_category_no === 1) {
+    for (const [id, record] of [...activeEvents]) {
+      if (![1, 2, 3].includes(record.disasterCategoryNo)) continue;
+      const sameGroup =
+        (record.epicenterRaw != null && record.epicenterRaw === report.seismic_epicenter_raw) ||
+        (record.occurrenceTime && record.occurrenceTime === report.occurrence_time_of_earthquake);
+      const near = event.bounds && record.bounds && boundsAreNear(event.bounds, record.bounds);
+      if (sameGroup || near) removeActiveEvent(id);
+    }
+    addActiveEvent(event);
+    return;
+  }
 
   const match = findMatchingGroup(report, event);
   if (match) mergeIntoActiveEvent(match, event, report);

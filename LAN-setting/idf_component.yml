@@ -1,0 +1,5 @@
+# main/idf_component.yml
+# ESP-IDF Component Manager用の依存定義
+dependencies:
+  espressif/usb_host_cdc_acm: "^2.0.0"
+  idf: ">=5.0.0"
