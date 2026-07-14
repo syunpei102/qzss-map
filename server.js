@@ -57,11 +57,12 @@ app.get("/push/vapid-public-key", (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY, enabled: PUSH_ENABLED });
 });
 
-// 重要情報側は、そもそも地図に表示している対象(緊急地震速報・震源・
-// 震度速報・津波・Jアラート)を全て通知する。ラズパイ側で既に
-// 重要度フィルタ済みなので、届いた時点でカテゴリを絞る必要はほぼ
-// ないが、念のためHeartbeat等を除外する。
-const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 5]);
+// 地図に表示している対象(緊急地震速報・震源・震度速報・津波・
+// 南海トラフ・火山・降灰・気象警報・洪水)を全て通知する。ラズパイ側で
+// 既に重要度フィルタ済みなので、届いた時点でカテゴリを絞る必要はほぼ
+// ないが、念のためHeartbeat等を除外する。台風(12)は表示自体をしない
+// ため通知もしない。
+const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 8, 9, 10, 11]);
 
 function shouldNotify(report) {
   if (!PUSH_ENABLED || !report) return false;
@@ -128,7 +129,11 @@ function notificationTitleFor(report) {
     const hazard = LALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "災害情報";
     title = report.a1_message_type === "All Clear" ? `Lアラート解除: ${hazard}` : `Lアラート: ${hazard}`;
   } else {
-    const titles = { 1: "緊急地震速報", 2: "震源に関する情報", 3: "震度速報", 5: "津波情報" };
+    const titles = {
+      1: "緊急地震速報", 2: "震源に関する情報", 3: "震度速報", 5: "津波情報",
+      4: "南海トラフ地震関連情報", 8: "噴火警報・予報", 9: "降灰予報",
+      10: "気象警報・注意報", 11: "洪水予報",
+    };
     title = titles[report.disaster_category_no] || report.disaster_category || "防災情報";
   }
   if (report.is_test_data) return `[テスト]${title}`;
@@ -156,6 +161,30 @@ function notificationBodyFor(report) {
     return `${report.seismic_epicenter}${mag}`;
   }
   if (report.tsunami_warning_code) return report.tsunami_warning_code;
+  if (report.disaster_category_no === 10) {
+    const regions = (report.weather_forecast_regions || []).join("・");
+    const subs = [...new Set(report.weather_related_disaster_sub_categories || [])].join("・");
+    if (regions && subs) return `${regions} ${subs}`;
+    return regions || subs || "アプリを開いて確認してください。";
+  }
+  if (report.disaster_category_no === 11) {
+    const regions = (report.flood_forecast_regions || []).join("・");
+    const levels = [...new Set(report.flood_warning_levels || [])].join("・");
+    if (regions && levels) return `${regions} ${levels}`;
+    return regions || levels || "アプリを開いて確認してください。";
+  }
+  if (report.disaster_category_no === 8) {
+    const name = report.volcano_name || "";
+    const code = report.volcanic_warning_code || "";
+    if (name && code) return `${name} ${code}`;
+    return name || code || "アプリを開いて確認してください。";
+  }
+  if (report.disaster_category_no === 9) {
+    const name = report.volcano_name || "";
+    const codes = [...new Set(report.ash_fall_warning_codes || [])].join("・");
+    if (name && codes) return `${name} ${codes}`;
+    return name || codes || "アプリを開いて確認してください。";
+  }
   const firstLine = (report.description || "")
     .split("\n")
     .map((l) => l.trim())

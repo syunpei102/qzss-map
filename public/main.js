@@ -674,6 +674,7 @@ function buildEventFromLAlert(report) {
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
   const rows = [['深刻度', jalertSeverityJa(report)]];
+  let pendingMunicipalityCode = null;
 
   // 対象範囲は「中心緯度経度+半径」の楕円(市区町村より精密な範囲)、または
   // 「対象地域名(市区町村)」のどちらか一方だけが入っている
@@ -702,6 +703,12 @@ function buildEventFromLAlert(report) {
       if (feature) {
         geo.municipality = { code, color };
         boundsList.push(geometryBounds(feature.geometry));
+      } else {
+        // 市区町村レイヤーはバックグラウンドで遅延読み込みしているため、
+        // まだ読み込みが終わっていないタイミングで届くと該当ポリゴンが
+        // 見つからないことがある。コードだけ覚えておき、読み込み完了後に
+        // loadMunicipalityLayer側で改めて塗りを反映する
+        pendingMunicipalityCode = code;
       }
     }
   }
@@ -721,6 +728,8 @@ function buildEventFromLAlert(report) {
     rows: rows.filter(([, v]) => v),
     geo,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
+    pendingMunicipalityCode,
+    lalertColor: color,
   };
 }
 
@@ -1225,16 +1234,23 @@ function syncMapFromActiveEvents() {
     map.setFilter('prefecture-outline', ['in', ['get', 'id'], ['literal', []]]);
   }
 
-  if (municipalityColorByCode.size) {
-    const matchExpr = ['match', ['get', 'code']];
-    for (const [code, color] of municipalityColorByCode) matchExpr.push(code, color);
-    matchExpr.push('rgba(0,0,0,0)');
-    map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
-    map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
-    map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
-  } else {
-    map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', []]]);
-    map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', []]]);
+  // 市区町村ポリゴン(約1900件、一番重いレイヤー)はkiosk表示の初期
+  // 描画を軽くするため起動時に読み込まず、Lアラート(市区町村指定)が
+  // 実際に届いた時にバックグラウンドで読み込む(ensureMunicipalityLayer)。
+  // まだ読み込まれていない間は何もしない(読み込み完了後に改めて
+  // syncMapFromActiveEventsが呼ばれる)
+  if (map.getLayer('municipality-fill')) {
+    if (municipalityColorByCode.size) {
+      const matchExpr = ['match', ['get', 'code']];
+      for (const [code, color] of municipalityColorByCode) matchExpr.push(code, color);
+      matchExpr.push('rgba(0,0,0,0)');
+      map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
+      map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
+      map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
+    } else {
+      map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', []]]);
+      map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', []]]);
+    }
   }
 
   if (tsunamiActive && tsunamiBoundsList.length) {
@@ -1553,7 +1569,7 @@ async function initMap() {
   const protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
 
-  const [style, epicenterGeoJSON, tsunamiGeoJSON, prefectureGeoJSON, municipalityGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
+  const [style, epicenterGeoJSON, tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
     fetch('./style.json').then(res => {
       if (!res.ok) throw new Error('style.json の読み込みに失敗');
       return res.json();
@@ -1561,7 +1577,6 @@ async function initMap() {
     fetch('./data/epicenter_regions.geojson').then(res => res.json()),
     fetch('./data/tsunami_regions.geojson').then(res => res.json()),
     fetch('./data/prefectures.geojson').then(res => res.json()),
-    fetch('./data/municipalities.geojson').then(res => res.json()),
     fetch('./data/weather_regions.geojson').then(res => res.json()),
   ]);
 
@@ -1571,10 +1586,6 @@ async function initMap() {
     prefectureFeaturesById.set(f.properties.id, f);
     prefectureFeaturesByName.set(f.properties.name, f);
   }
-  // Lアラートの市区町村コード(ex1)は「全国地方公共団体コード」(JIS X0402、
-  // 先頭0埋め5桁)そのものなので、国土数値情報(N03)の行政区域データを
-  // 同じコードで直接紐付けられる(名前でのあいまい一致は不要)
-  for (const f of municipalityGeoJSON.features) municipalityFeaturesByCode.set(f.properties.code, f);
   for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
 
   const bounds = [[JAPAN_VICINITY_BOUNDS[0], JAPAN_VICINITY_BOUNDS[1]], [JAPAN_VICINITY_BOUNDS[2], JAPAN_VICINITY_BOUNDS[3]]];
@@ -1650,24 +1661,6 @@ async function initMap() {
     paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 1.5 },
   });
 
-  // Lアラート用: 市区町村コード(ex1)で対象が指定された場合、都道府県
-  // 全体ではなく実際の市区町村ポリゴンだけを塗る(国土数値情報N03由来)
-  map.addSource('municipality-regions', { type: 'geojson', data: municipalityGeoJSON });
-  map.addLayer({
-    id: 'municipality-fill',
-    type: 'fill',
-    source: 'municipality-regions',
-    filter: ['in', ['get', 'code'], ['literal', []]],
-    paint: { 'fill-color': '#999999', 'fill-opacity': 0.6 },
-  });
-  map.addLayer({
-    id: 'municipality-outline',
-    type: 'line',
-    source: 'municipality-regions',
-    filter: ['in', ['get', 'code'], ['literal', []]],
-    paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 1.5 },
-  });
-
   // Lアラート用: 都道府県よりも精密な円/楕円形の対象範囲(中心緯度経度+
   // 半径)を描画する。都道府県名で塗れないケース(市区町村単位・任意の
   // 円形範囲)に対応するため、prefecture-fillとは別のGeoJSONソースにする
@@ -1701,6 +1694,61 @@ async function initMap() {
     filter: ['in', ['get', 'code'], ['literal', []]],
     paint: { 'line-color': WEATHER_WARNING_COLOR, 'line-width': 1.5 },
   });
+
+  // 市区町村ポリゴン(約1900件、5レイヤー中もっとも重い)は、初回描画を
+  // 軽くするため起動時のPromise.allには含めず、地図が表示された後に
+  // バックグラウンドで読み込む(非同期・失敗してもマップ表示自体は続行)。
+  // ラズパイのkiosk表示ではGPU/RAMが限られるため、Lアラートが実際に
+  // 来るまで使われないこのレイヤーを最初から読み込まないことで、
+  // 起動〜操作可能になるまでの時間を短縮する。
+  loadMunicipalityLayer();
+}
+
+let municipalityLayerLoaded = false;
+
+async function loadMunicipalityLayer() {
+  if (municipalityLayerLoaded) return;
+  try {
+    const res = await fetch('./data/municipalities.geojson');
+    const municipalityGeoJSON = await res.json();
+    // Lアラートの市区町村コード(ex1)は「全国地方公共団体コード」(JIS X0402、
+    // 先頭0埋め5桁)そのものなので、国土数値情報(N03)の行政区域データを
+    // 同じコードで直接紐付けられる(名前でのあいまい一致は不要)
+    for (const f of municipalityGeoJSON.features) municipalityFeaturesByCode.set(f.properties.code, f);
+    if (!map.getSource('municipality-regions')) {
+      map.addSource('municipality-regions', { type: 'geojson', data: municipalityGeoJSON });
+      map.addLayer({
+        id: 'municipality-fill',
+        type: 'fill',
+        source: 'municipality-regions',
+        filter: ['in', ['get', 'code'], ['literal', []]],
+        paint: { 'fill-color': '#999999', 'fill-opacity': 0.6 },
+      });
+      map.addLayer({
+        id: 'municipality-outline',
+        type: 'line',
+        source: 'municipality-regions',
+        filter: ['in', ['get', 'code'], ['literal', []]],
+        paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 1.5 },
+      });
+    }
+    municipalityLayerLoaded = true;
+    // 読み込み完了より前にLアラート(市区町村指定)が届いていた場合、
+    // その時点ではポリゴンが見つからず塗りを諦めていたので、今読み
+    // 込んだデータで改めて解決を試みる
+    for (const record of activeEvents.values()) {
+      if (!record.pendingMunicipalityCode || record.geo.municipality) continue;
+      const feature = municipalityFeaturesByCode.get(record.pendingMunicipalityCode);
+      if (!feature) continue;
+      record.geo.municipality = { code: record.pendingMunicipalityCode, color: record.lalertColor };
+      const featureBounds = geometryBounds(feature.geometry);
+      record.bounds = record.bounds ? unionBounds([record.bounds, featureBounds]) : featureBounds;
+      record.pendingMunicipalityCode = null;
+    }
+    syncMapFromActiveEvents();
+  } catch (err) {
+    console.error('市区町村データの読み込みに失敗しました:', err);
+  }
 }
 
 const mapReady = initMap().catch(err => {
