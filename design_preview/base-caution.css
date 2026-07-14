@@ -1,0 +1,279 @@
+html, body {
+  height: 100%;
+  height: 100dvh;
+  margin: 0;
+  background-color: rgb(100, 100, 100);
+  font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+.panel {
+  position: fixed;
+  /* iOSのノッチ/ステータスバーとPWAのホームインジケーターに重ならないよう、
+     safe-area-inset分を確保する(非対応環境では単純に12px/24pxになる)。 */
+  top: calc(12px + env(safe-area-inset-top));
+  left: calc(12px + env(safe-area-inset-left));
+  z-index: 1000;
+  width: 340px;
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  background: rgba(20, 22, 26, 0.88);
+  backdrop-filter: blur(6px);
+  border-radius: 12px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  color: azure;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.clock {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+  color: azure;
+}
+
+.panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.satellite-info {
+  font-size: 11px;
+  color: #9aa0a6;
+  padding: 4px 14px 0;
+}
+
+/* 台風は常時パネルに出しっぱなしだと邪魔なので、パネル(時刻等が出てる
+   部分)のすぐ下、左寄せのボタン(丸角の四角)にまとめておき、タップした
+   時だけパネルに詳細を表示する。top/leftはパネルの実際の高さ・位置に
+   合わせてJS側(positionTyphoonButtons)で動的に設定する */
+.typhoon-buttons {
+  position: fixed;
+  z-index: 999;
+  display: flex;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  pointer-events: none;
+}
+
+.typhoon-chip {
+  pointer-events: auto;
+  font-size: 13px;
+  font-weight: bold;
+  font-family: inherit;
+  color: azure;
+  background: rgba(20, 22, 26, 0.88);
+  backdrop-filter: blur(6px);
+  border: none;
+  border-radius: 12px;
+  padding: 8px 16px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.typhoon-chip.active {
+  background: #2f6fed;
+  color: #fff;
+}
+
+.notify-button {
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 1;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.12);
+  color: #9aa0a6;
+  transition: background-color 0.15s, color 0.15s;
+}
+.notify-button:hover { background: rgba(255, 255, 255, 0.2); }
+.notify-button.notify-on {
+  background: rgba(46, 204, 113, 0.18);
+  color: #2ecc71;
+}
+.notify-button.notify-on:hover { background: rgba(46, 204, 113, 0.28); }
+.notify-button:disabled { opacity: 0.35; cursor: default; }
+.notify-button:disabled:hover { background: rgba(255, 255, 255, 0.12); }
+
+.status-pill {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: bold;
+}
+.status-online {
+  background: rgba(46, 204, 113, 0.18);
+  color: #2ecc71;
+}
+.status-offline {
+  background: rgba(231, 76, 60, 0.18);
+  color: #e74c3c;
+}
+.status-reconnecting {
+  background: rgba(241, 196, 15, 0.18);
+  color: #f1c40f;
+}
+
+#events_container {
+  display: flex;
+  flex-direction: column;
+}
+
+.report-card {
+  padding: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.report-card:last-child {
+  border-bottom: none;
+}
+
+.test-data-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #3a3a3a;
+  border-left: 4px solid #ffcc00;
+  color: #fff;
+  font-weight: bold;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.report-badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.report-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ccc;
+}
+.report-badge.sev-warning { background: #d9822b; color: #fff; }
+.report-badge.sev-caution { background: #d0b400; color: #202020; }
+.report-badge.sev-info    { background: #2f6fed; color: #fff; }
+.report-badge.sev-training { background: #7a4fd1; color: #fff; }
+.report-badge.sev-keihou    { background: #e63946; color: #fff; }
+.report-badge.sev-tokubetsu { background: #8e24aa; color: #fff; }
+
+.satellite-tag {
+  font-size: 11px;
+  color: #9aa0a6;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.report-title {
+  font-size: 17px;
+  font-weight: bold;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+
+.report-meta {
+  font-size: 12px;
+  color: #9aa0a6;
+  margin-bottom: 10px;
+}
+
+.report-description {
+  margin: 0;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: azure;
+}
+
+.typhoon-marker {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #e74c3c;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+/* ==================================================
+   スマホ(iPhone等)向けレイアウト
+   ================================================== */
+@media (max-width: 700px) {
+  .panel {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    max-height: 40vh;
+    max-height: 40dvh;
+    border-radius: 0 0 14px 14px;
+  }
+
+  .panel-header {
+    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+  }
+
+  .clock {
+    font-size: 16px;
+  }
+
+  .status-pill,
+  .notify-button {
+    font-size: 11px;
+    padding: 3px 8px;
+  }
+
+  .report-card {
+    padding: 10px 12px;
+  }
+
+  .test-data-banner {
+    font-size: 11px;
+    padding: 5px 8px;
+    margin-bottom: 6px;
+  }
+
+  .report-badge-row {
+    margin-bottom: 6px;
+  }
+
+  .report-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+  }
+
+  .report-title {
+    font-size: 14px;
+    margin-bottom: 0;
+  }
+
+  .report-meta {
+    display: none;
+  }
+
+  .report-description {
+    font-size: 12px;
+  }
+}

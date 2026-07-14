@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>Lアラート UI案</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #0e0f12;
+    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: azure;
+  }
+  .page { max-width: 1000px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: #9aa0a6; font-size: 13px; margin: 0 0 28px; }
+  .section-label {
+    font-size: 12px; font-weight: bold; letter-spacing: 0.05em; color: #9aa0a6;
+    margin: 36px 0 10px; text-transform: uppercase;
+  }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 800px) { .compare { grid-template-columns: 1fr; } }
+  .shot { border-radius: 12px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,0.45); }
+  .shot img { display: block; width: 100%; }
+  .caption { font-size: 12px; color: #9aa0a6; margin-top: 8px; line-height: 1.6; }
+  .caption b { color: azure; }
+  .note {
+    font-size: 12.5px; color: #8a9096; margin-top: 28px; padding: 12px 14px;
+    background: rgba(255,255,255,0.04); border-radius: 8px; line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Lアラート UI案(最終版・実装済み・ローカル動作確認済み)</h1>
+  <p class="lead">モックアップではなく、実際にサーバーへテストデータを送って動作させたスクリーンショットです。既存のJアラート/緊急地震速報と同じカードデザイン(左端の色帯・バッジ・ラベル/値の表)を踏襲。パネルはチップ形式をやめ、緊急地震速報などと同じく「アクティブな間は常にパネル表示+自動ズーム」に統一しました。</p>
+
+  <div class="section-label">ケース1: 市区町村コードで対象範囲が指定される場合(最新版・市区町村ポリゴンで精密描画)</div>
+  <div class="shot"><img src="lalert_municipality.png"></div>
+  <div class="caption">
+    <b>市区町村コード(ex1)は「全国地方公共団体コード」(JIS X0402)そのものなので、国土数値情報(国土交通省 N03)の市区町村ポリゴンと直接対応付けられます。</b><br><br>
+    都道府県全体を塗ると「対象外の市区町村まで対象に見える」誤解を招くため、都道府県単位のフォールバックはやめ、実際の市区町村ポリゴン(この例では札幌市中央区)だけを塗るようにしました。対応するポリゴンが無い場合は地図には何も描かず、テキスト(対象地域名)のみ表示します。<br><br>
+    パネルは他の警報と同じく、アクティブな間は常に表示され、地図も自動でその地域にズームします(チップ形式は廃止)。
+  </div>
+
+  <div class="section-label">ケース2: 楕円(中心緯度経度+半径)で対象範囲が指定される場合</div>
+  <div class="shot"><img src="lalert_ellipse_v3_nomarker.png"></div>
+  <div class="caption">
+    市区町村コードが無く、楕円(中心+半径)で範囲が指定される場合は、楕円の塗りつぶし+輪郭線のみを描画(震源のマークと紛らわしいという指摘を受け、中心マーカーは廃止)。パネルには「対象範囲(半径○km圏内)」と、楕円が重なる都道府県名を参考情報として表示します。深刻度(Extreme/Severe/Moderate)で左端の色帯が赤/オレンジ/黄に変化。
+  </div>
+
+  <div class="note">
+    ・災害種別(Flood→洪水 等)は日本語辞書で変換、未知の種別は英語のままフォールバック(Jアラートと同じ方針)<br>
+    ・訓練/試験メッセージは「(訓練)」がタイトルに付く<br>
+    ・通知にも対応済み(タイトル「Lアラート: ○○」、本文は対象地域名 or 半径表記)<br>
+    ・Windows/Pi側(read_legacy_dual.py)も対応済み。次回ファイル更新時から有効になります<br>
+    ・新規データ: public/data/municipalities.geojson(国土数値情報N03由来、1868市区町村、簡略化済み・約440KB)
+  </div>
+
+  <div class="section-label">複数同時発生・「指示」「継続時間」フィールドを含む例</div>
+  <div class="shot"><img src="lalert_rich_desktop.png"></div>
+  <div class="caption">
+    竜巻(黄/Moderate)・津波(赤/Extreme・市区町村名ベース)・地震(赤/Extreme・楕円60km)・大雨(オレンジ/Severe・楕円25km)を同時発生させたテスト。元データに「指示」(避難行動の指示文)や「継続時間」があれば、それも行として追加表示されます。複数同時でもチップにはせず、それぞれ独立したカードとしてパネルに積み上がります。
+  </div>
+</div>
+</body>
+</html>

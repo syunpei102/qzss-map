@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>QZSS 災危通報マップ</title>
+  <meta name="description" content="みちびき(QZSS)の災害・危機管理通報をリアルタイムで地図に表示します。">
+
+  <!-- リンクを共有した時のプレビュー(OGP) -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="QZSS 災危通報マップ">
+  <meta property="og:title" content="QZSS 災危通報マップ">
+  <meta property="og:description" content="みちびき(QZSS)の災害・危機管理通報をリアルタイムで地図に表示します。">
+  <meta property="og:url" content="https://qzss-map-85436528666.asia-northeast1.run.app/">
+  <meta property="og:image" content="https://qzss-map-85436528666.asia-northeast1.run.app/icons/icon-512.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="QZSS 災危通報マップ">
+  <meta name="twitter:description" content="みちびき(QZSS)の災害・危機管理通報をリアルタイムで地図に表示します。">
+  <meta name="twitter:image" content="https://qzss-map-85436528666.asia-northeast1.run.app/icons/icon-512.png">
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#14161a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QZSS災危通報">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png">
+
+  <link
+    href="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+  />
+  <style>
+    /* iOSのPWA(ホーム画面に追加後)では height:100% だけだとホーム
+       インジケーター分の余白が下に残ることがあるため、動的ビューポート
+       単位(100dvh)を優先して使う(非対応環境向けに100%を先に書く)。 */
+    html, body { margin:0; padding:0; height:100%; height:100dvh; }
+    #map { position: relative; width:100%; height:100%; height:100dvh; }
+  </style>
+  <link rel="stylesheet" href="./style.css">
+  <script src="main.js" defer></script>
+</head>
+<body>
+  <div class="panel">
+    <div class="panel-header">
+      <span id="now_time" class="clock"></span>
+      <div class="panel-header-right">
+        <button id="notify_button" class="notify-button" type="button" title="通知OFF">通知OFF</button>
+        <span id="status" class="status-pill status-offline">🔴 未接続</span>
+        <a href="./admin.html" class="settings-link" title="表示地域の設定">⚙️</a>
+      </div>
+    </div>
+    <div id="satellite_info" class="satellite-info"></div>
+
+    <div id="events_container">
+      <div class="report-card">
+        <div class="report-badge">待機中</div>
+        <div class="report-title">受信を待っています…</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+  <script src="https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/pmtiles@3.0.3/dist/pmtiles.js"></script>
+</body>
+</html>

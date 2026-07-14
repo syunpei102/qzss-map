@@ -1,0 +1,16 @@
+{
+  "name": "QZSS 災危通報マップ",
+  "short_name": "QZSS災危通報",
+  "description": "みちびき(QZSS)災害・危機管理通報サービスの内容をリアルタイムで地図に表示します。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#141414",
+  "theme_color": "#14161a",
+  "orientation": "portrait-primary",
+  "lang": "ja",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

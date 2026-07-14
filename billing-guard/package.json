@@ -1,0 +1,8 @@
+{
+  "name": "billing-guard",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@google-cloud/billing": "^4.2.0"
+  }
+}

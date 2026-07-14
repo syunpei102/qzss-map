@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>パネルUI改善案</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #0e0f12;
+    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    color: azure;
+  }
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px 16px 80px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { color: #9aa0a6; font-size: 13px; margin: 0 0 28px; }
+  .section-label {
+    font-size: 12px;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+    color: #9aa0a6;
+    margin: 36px 0 10px;
+    text-transform: uppercase;
+  }
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 700px) {
+    .compare { grid-template-columns: 1fr; }
+  }
+  .triple {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .triple { grid-template-columns: 1fr; }
+  }
+  .compare-col-label {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 6px;
+    font-weight: bold;
+  }
+  .panel-frame {
+    background: rgba(20, 22, 26, 0.88);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  }
+
+  /* ============ 現行デザイン(比較用、そのまま再現) ============ */
+  .old-card {
+    padding: 14px;
+  }
+  .old-badge-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+  }
+  .old-badge {
+    display: inline-block; font-size: 12px; font-weight: bold; padding: 3px 10px;
+    border-radius: 999px; background: rgba(255,255,255,0.12); color: #ccc;
+  }
+  .old-badge.emergency { background: #b3261e; color: #fff; }
+  .old-badge.info { background: #2f6fed; color: #fff; }
+  .old-title { font-size: 17px; font-weight: bold; line-height: 1.4; margin-bottom: 6px; }
+  .old-meta { font-size: 12px; color: #9aa0a6; margin-bottom: 10px; }
+  .old-desc {
+    margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; color: azure;
+  }
+  .old-dl { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 6px; font-size: 13px; }
+  .old-dl dt { color: #9aa0a6; white-space: nowrap; }
+  .old-dl dd { margin: 0; color: azure; }
+
+  /* ============ 新デザイン ============ */
+  .card {
+    position: relative;
+    padding: 14px 16px 16px 18px;
+    border-left: 4px solid #666;
+  }
+  .card + .card { border-top: 1px solid rgba(255,255,255,0.08); }
+  .card.sev-emergency { border-left-color: #ff4433; }
+  .card.sev-warning    { border-left-color: #f0a83c; }
+  .card.sev-caution    { border-left-color: #e0c437; }
+  .card.sev-info       { border-left-color: #4c8bf5; }
+  .card.sev-tokubetsu  { border-left-color: #b452e0; }
+  .card.sev-cancel     { border-left-color: #666; }
+
+  .card-top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 2px;
+  }
+  .card-heading { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .card-kicker {
+    font-size: 11px; font-weight: bold; letter-spacing: 0.03em;
+    padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.1); color: #ccc;
+    white-space: nowrap;
+  }
+  .card.sev-emergency .card-kicker { background: rgba(255,68,51,0.18); color: #ff8478; }
+  .card.sev-warning .card-kicker    { background: rgba(240,168,60,0.18); color: #f5bf76; }
+  .card.sev-caution .card-kicker    { background: rgba(224,196,55,0.18); color: #ecd776; }
+  .card.sev-info .card-kicker       { background: rgba(76,139,245,0.18); color: #8fb4f7; }
+  .card.sev-tokubetsu .card-kicker  { background: rgba(180,82,224,0.18); color: #d29ef2; }
+
+  .card-title { font-size: 17px; font-weight: bold; line-height: 1.3; }
+  .card-satellite { font-size: 10.5px; color: #6c7278; white-space: nowrap; flex-shrink: 0; padding-top: 2px; }
+  .card-meta { font-size: 11.5px; color: #6c7278; margin: 2px 0 10px; }
+
+  .card-fields {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    row-gap: 5px;
+    column-gap: 14px;
+    font-size: 13px;
+  }
+  .card-fields .f-label { color: #8a9096; white-space: nowrap; padding-top: 1px; }
+  .card-fields .f-value { color: azure; word-break: break-word; }
+  .card-fields .f-value.emph { font-weight: bold; }
+
+  .alert-banner {
+    font-size: 14.5px; font-weight: bold; color: #fff; text-align: center;
+    padding: 8px 10px; border-radius: 6px; margin: 8px 0 2px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+
+  .test-banner {
+    display: flex; align-items: center; gap: 6px; background: #3a3a3a; border-left: 4px solid #ffcc00;
+    color: #fff; font-weight: bold; font-size: 11.5px; padding: 5px 9px; border-radius: 4px; margin-bottom: 8px;
+  }
+
+  .note {
+    font-size: 12px; color: #8a9096; margin-top: 10px; padding: 8px 10px;
+    background: rgba(255,255,255,0.04); border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>通報パネル UI改善案</h1>
+  <p class="lead">左の色帯で重要度が一目で分かるように統一。台風・気象の情報も、他の警報と同じ「ラベル: 値」の整列した形式にして、タイトルとの重複も削除。</p>
+
+  <div class="section-label">例1: 台風情報(Before / After)</div>
+  <div class="compare">
+    <div>
+      <div class="compare-col-label">Before(現行・スラッシュ区切り)</div>
+      <div class="panel-frame">
+        <div class="old-card">
+          <div class="old-badge-row">
+            <div class="old-badge info">台風</div>
+            <span style="font-size:11px;color:#9aa0a6;">🛰️ みちびき3号機</span>
+          </div>
+          <div class="old-title">台風9号</div>
+          <div class="old-meta">更新 14:20:00</div>
+          <pre class="old-desc">9号 / 中心気圧 970hPa / 場所 鹿児島県の南東 約771km(北緯25.0度 東経135.0度)</pre>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="compare-col-label">After(改善案)</div>
+      <div class="panel-frame">
+        <div class="card sev-info">
+          <div class="card-top">
+            <div class="card-heading">
+              <span class="card-kicker">台風</span>
+              <span class="card-title">台風9号</span>
+            </div>
+            <span class="card-satellite">🛰️ みちびき3号機</span>
+          </div>
+          <div class="card-meta">更新 14:20:00</div>
+          <div class="card-fields">
+            <div class="f-label">強さ</div><div class="f-value">ー</div>
+            <div class="f-label">中心気圧</div><div class="f-value emph">970hPa</div>
+            <div class="f-label">中心位置</div><div class="f-value">鹿児島県の南東 約771km</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label">例2: 気象警報(Before / After)</div>
+  <div class="compare">
+    <div>
+      <div class="compare-col-label">Before</div>
+      <div class="panel-frame">
+        <div class="old-card">
+          <div class="old-badge-row">
+            <div class="old-badge" style="background:#8e24aa;color:#fff;">特別警報</div>
+          </div>
+          <div class="old-title">鹿児島県 薩摩地方</div>
+          <div class="old-meta">更新 14:20:00</div>
+          <pre class="old-desc">・大雨特別警報
+・暴風警報
+
+防災気象情報(気象警報)(発表)(通常)
+
+発表時刻: 7月13日14時20分
+対象地域: 鹿児島県薩摩地方</pre>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="compare-col-label">After</div>
+      <div class="panel-frame">
+        <div class="card sev-tokubetsu">
+          <div class="card-top">
+            <div class="card-heading">
+              <span class="card-kicker">特別警報</span>
+              <span class="card-title">鹿児島県 薩摩地方</span>
+            </div>
+          </div>
+          <div class="card-meta">更新 14:20:00</div>
+          <div class="card-fields">
+            <div class="f-label">種別</div><div class="f-value emph">大雨特別警報・暴風警報</div>
+            <div class="f-label">発表時刻</div><div class="f-value">7/13 14:20</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label">例3: 緊急地震速報・大津波警報(現行の構造を踏襲、色帯を追加)</div>
+  <div class="panel-frame">
+    <div class="card sev-emergency">
+      <div class="card-top">
+        <div class="card-heading">
+          <span class="card-kicker">緊急地震速報</span>
+          <span class="card-kicker">震度</span>
+          <span class="card-kicker">津波</span>
+          <span class="card-title">緊急地震速報(警報)</span>
+        </div>
+        <span class="card-satellite">🛰️ みちびき4号機</span>
+      </div>
+      <div class="card-meta">受信 14:46:50</div>
+      <div class="alert-banner" style="background:#c800c8;">大津波警報</div>
+      <div class="card-fields">
+        <div class="f-label">震央</div><div class="f-value emph">三陸沖</div>
+        <div class="f-label">マグニチュード</div><div class="f-value">M9.0</div>
+        <div class="f-label">深さ</div><div class="f-value">24km</div>
+        <div class="f-label">最大震度</div><div class="f-value emph">震度7(宮城県)</div>
+        <div class="f-label">対象沿岸</div><div class="f-value">岩手県、宮城県、福島県、青森県太平洋沿岸、茨城県、千葉県九十九里・外房</div>
+      </div>
+    </div>
+  </div>
+  <div class="note">「他N件」で切らず、対象を全部書き出す(値の列は折り返すので長くても読める)。</div>
+
+  <div class="section-label">例3-2: 種別ごとの単体パネル(緊急地震速報・震度速報・震源)</div>
+  <div class="triple">
+    <div class="panel-frame">
+      <div class="card sev-emergency">
+        <div class="card-top">
+          <div class="card-heading">
+            <span class="card-kicker">緊急地震速報</span>
+            <span class="card-title">緊急地震速報(警報)</span>
+          </div>
+          <span class="card-satellite">🛰️ みちびき4号機</span>
+        </div>
+        <div class="card-meta">受信 14:46:50</div>
+        <div class="card-fields">
+          <div class="f-label">震央</div><div class="f-value emph">三陸沖</div>
+          <div class="f-label">マグニチュード</div><div class="f-value">M7.2</div>
+          <div class="f-label">深さ</div><div class="f-value">10km</div>
+          <div class="f-label">震度</div><div class="f-value emph">6弱〜7</div>
+          <div class="f-label">対象地域</div><div class="f-value">東北、関東</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-frame">
+      <div class="card sev-warning">
+        <div class="card-top">
+          <div class="card-heading">
+            <span class="card-kicker">震度</span>
+            <span class="card-title">震度速報</span>
+          </div>
+          <span class="card-satellite">🛰️ みちびき初号機後継機</span>
+        </div>
+        <div class="card-meta">受信 14:48:00</div>
+        <div class="card-fields">
+          <div class="f-label">最大震度</div><div class="f-value emph">震度7(宮城県)</div>
+          <div class="f-label">対象</div><div class="f-value">宮城県、福島県、岩手県、茨城県、栃木県、群馬県、埼玉県、千葉県、東京都</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-frame">
+      <div class="card sev-info">
+        <div class="card-top">
+          <div class="card-heading">
+            <span class="card-kicker">震源</span>
+            <span class="card-title">震源に関する情報</span>
+          </div>
+          <span class="card-satellite">🛰️ みちびき3号機</span>
+        </div>
+        <div class="card-meta">受信 16:00:00</div>
+        <div class="card-fields">
+          <div class="f-label">震央</div><div class="f-value emph">三陸沖</div>
+          <div class="f-label">マグニチュード</div><div class="f-value">M8.4</div>
+          <div class="f-label">深さ</div><div class="f-value">24km</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note">実際の画面では同じ地震の続報は1枚のカードに統合されるが(例3)、単体で来た場合はこのように表示される。</div>
+
+  <div class="section-label">例4: テストデータ・取消の表示</div>
+  <div class="compare">
+    <div>
+      <div class="compare-col-label">テストデータ</div>
+      <div class="panel-frame">
+        <div class="card sev-warning">
+          <div class="test-banner">✎ テストデータ</div>
+          <div class="card-top">
+            <div class="card-heading">
+              <span class="card-kicker">台風</span>
+              <span class="card-title">台風9号</span>
+            </div>
+          </div>
+          <div class="card-meta">更新 14:20:00</div>
+          <div class="card-fields">
+            <div class="f-label">中心気圧</div><div class="f-value emph">970hPa</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="compare-col-label">取消</div>
+      <div class="panel-frame">
+        <div class="card sev-cancel">
+          <div class="card-top">
+            <div class="card-heading">
+              <span class="card-kicker" style="background:rgba(255,255,255,0.08);color:#999;">取消</span>
+              <span class="card-title">台風9号(取消)</span>
+            </div>
+          </div>
+          <div class="card-meta">受信 15:40:00</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    ポイント: ① 左の色帯で緊急度が一目でわかる ② タイトルと本文の重複(「9号」の二重表記など)を削除 ③ 台風・気象もラベル/値の整列した表に統一 ④ バッジは種別の「タグ」として左上にまとめ、タイトルは大きく1つだけ
+  </div>
+</div>
+</body>
+</html>

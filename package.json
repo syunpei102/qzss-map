@@ -1,0 +1,14 @@
+{
+  "name": "qzss-map",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.1",
+    "express": "^4.22.2",
+    "pmtiles": "^4.3.0",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.1"
+  }
+}

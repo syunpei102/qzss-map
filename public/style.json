@@ -1,0 +1,56 @@
+{
+  "version": 8,
+  "name": "optbv",
+  "sources": {
+    "v": {
+      "type": "vector",
+      "url": "pmtiles://./data/base_slim_final.pmtiles"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "rgba(100,100,100,1)"
+      }
+    },
+    {
+      "id": "行政区画",
+      "minzoom": 3,
+      "type": "fill",
+      "source": "v",
+      "source-layer": "AdmArea",
+      "paint": {
+        "fill-color": "rgba(140,140,140,1)",
+        "fill-outline-color": "rgba(140,140,140,1)"
+      }
+    },
+    {
+      "id": "海岸線",
+      "minzoom": 4.4,
+      "type": "line",
+      "source": "v",
+      "source-layer": "Cstline",
+      "paint": {
+        "line-color": "rgba(0,0,0,1)",
+        "line-width": 1
+      }
+    },
+    {
+      "id": "行政区画界線",
+      "minzoom": 0,
+      "type": "line",
+      "source": "v",
+      "source-layer": "AdmBdry",
+      "filter": [
+        "all",
+        ["!=", ["get", "admin_level"], 2]
+      ],
+      "paint": {
+        "line-color": "rgba(0,0,0,1)",
+        "line-width": 1
+      }
+    }
+  ]
+}
