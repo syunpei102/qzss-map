@@ -212,14 +212,60 @@ function sendPushNotifications(report) {
 // 現在「表示中」とみなせる重要な通報を覚えておき、ブラウザが
 // リロード/新規接続した時に再送する(そうしないとページを開き直すだけで
 // 表示がリセットされてしまう)。取消・津波警報解除など「終了」を示す
-// 信号を受信したら、保持していた分をクリアする。
+// 信号を受信したら、保持していた分から該当するものだけを取り除く。
+//
+// 過去にはここで activeReports = [] と「全部」消していたため、例えば
+// EEWの取消が1件届いただけで、同時にアクティブだった無関係の気象警報や
+// Lアラートまで(新規接続したブラウザから見て)消えてしまうバグがあった
+// (52パターンのテストケースを流して発見)。reportGroupKey で「同じ
+// 通報グループ」を判定し、一致するものだけを取り除くようにする。
 let activeReports = [];
 
 function isEndSignal(report) {
   if (!report) return false;
   if (report.information_type_no === 2) return true; // キャンセル報(取消)
   if (report.disaster_category_no === 5 && [1, 2].includes(report.tsunami_warning_code_raw)) return true; // 津波警報解除/なし
+  // Jアラート/Lアラート(DCX)の解除。DCRの取消(information_type_no)とは
+  // 別の仕組みで、a1_message_typeが'All Clear'になる
+  if ((report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert") && report.a1_message_type === "All Clear") return true;
   return false;
+}
+
+// 「同じ災害・同じ対象」とみなせる通報どうしをまとめるための緩いキーを作る。
+// クライアント側(main.js)の epicenterRaw/lalertMatchKey 等と考え方を
+// 揃えているが、こちらは「新規接続時に何を再送するか」の粗い絞り込み用
+// なので、完全な一致判定ではなく「取消が無関係の通報まで巻き込まない」
+// ことを目的とした簡易版にとどめる。
+function reportGroupKey(report) {
+  if (!report) return null;
+  if (report.type === "QzssDcxJAlert") {
+    const areas = [...(report.ex9_target_area_list_ja || [])].sort().join(",");
+    return `jalert|${report.a4_hazard_type || ""}|${areas}`;
+  }
+  if (report.type === "QzssDcxLAlert") {
+    if (typeof report.ex1_target_area_code_raw === "number") {
+      return `lalert|${report.a4_hazard_type || ""}|ex1:${report.ex1_target_area_code_raw}`;
+    }
+    if (typeof report.a12_ellipse_centre_latitude === "number") {
+      return `lalert|${report.a4_hazard_type || ""}|ellipse:${report.a12_ellipse_centre_latitude.toFixed(2)},${report.a13_ellipse_centre_longitude.toFixed(2)}`;
+    }
+    return `lalert|${report.a4_hazard_type || ""}|unknown`;
+  }
+  if (report.disaster_category_no === 5) return "tsunami"; // 津波は種別を問わずまとめて解除扱い
+  if (report.disaster_category_no === 10) {
+    const codes = [...(report.weather_forecast_regions_raw || [])].sort().join(",");
+    return `weather|${codes}`;
+  }
+  if (typeof report.disaster_category_no === "number") {
+    if ([1, 2, 3].includes(report.disaster_category_no)) {
+      // 地震系(EEW/震源/震度)は震央コード、無ければ発生時刻でグルーピングする
+      if (typeof report.seismic_epicenter_raw === "number") return `eq|epi:${report.seismic_epicenter_raw}`;
+      if (report.occurrence_time_of_earthquake) return `eq|time:${report.occurrence_time_of_earthquake}`;
+      return "eq|unknown";
+    }
+    return `cat:${report.disaster_category_no}`;
+  }
+  return null;
 }
 
 function isReplayable(report) {
@@ -310,7 +356,12 @@ function handleIncomingLine(line) {
   }
 
   if (isEndSignal(report)) {
-    activeReports = [];
+    const key = reportGroupKey(report);
+    if (key !== null) {
+      activeReports = activeReports.filter((r) => reportGroupKey(r) !== key);
+    }
+    // key が判定できない場合は何もしない(誤って無関係の通報まで
+    // 消してしまうより、消し忘れて残る方が安全なため)
   } else if (isReplayable(report)) {
     activeReports.push(report);
   }

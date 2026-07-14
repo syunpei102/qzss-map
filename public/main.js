@@ -585,6 +585,15 @@ function jalertSeverityClass(report) {
   return 'sev-training'; // 訓練/試験メッセージが多いため
 }
 
+// Jアラートには震央コードのような通し番号が無いため、解除(All Clear)が
+// どのアラートに対応するかは「災害種別+対象地域」の組み合わせで判定する
+// (LアラートのlalertMatchKeyと同じ考え方)
+function jalertMatchKey(report) {
+  const hazard = report.a4_hazard_type || '';
+  const areas = [...(report.ex9_target_area_list_ja || [])].sort().join(',');
+  return `${hazard}|${areas}`;
+}
+
 function buildEventFromJAlert(report) {
   const hazardJa = JALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || 'Jアラート';
   const areas = report.ex9_target_area_list_ja || [];
@@ -606,6 +615,7 @@ function buildEventFromJAlert(report) {
 
   return {
     isTestData: !!report.is_test_data,
+    jalertKey: jalertMatchKey(report),
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
@@ -1467,6 +1477,13 @@ function renderReport(report) {
   }
 
   if (report.type === 'QzssDcxJAlert') {
+    if (report.a1_message_type === 'All Clear') {
+      const key = jalertMatchKey(report);
+      for (const [id, record] of activeEvents) {
+        if (record.jalertKey === key) removeActiveEvent(id);
+      }
+      return;
+    }
     const event = buildEventFromJAlert(report);
     if (isRelevantToTargetRegion(event)) addActiveEvent(event);
     return;
