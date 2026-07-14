@@ -512,10 +512,13 @@ function cardSeverityClass(badges) {
 
 function buildTitle(report) {
   if (report.tsunami_warning_code) return report.tsunami_warning_code;
-  if (report.information_type && report.information_type !== '発表') {
-    return `${report.disaster_category}(${report.information_type})`;
-  }
-  return report.disaster_category || report.type;
+  const base = report.information_type && report.information_type !== '発表'
+    ? `${report.disaster_category}(${report.information_type})`
+    : (report.disaster_category || report.type);
+  // 国内の対象地域が無い(=海外や日本から遠く離れた場所の)地震は、
+  // 国内向けの警報・注意報と紛らわしくないよう見出しで区別する
+  if (isForeignOrDistantEarthquake(report)) return `${base}(海外)`;
+  return base;
 }
 
 function buildSummary(report) {
@@ -551,8 +554,12 @@ function buildSummary(report) {
     push('津波の高さ', summarizeList([...new Set(report.tsunami_heights)]));
   }
 
-  if (!rows.length && Array.isArray(report.notifications_on_disaster_prevention) && report.notifications_on_disaster_prevention.length) {
-    push('内容', report.notifications_on_disaster_prevention[0].split('\n')[0]);
+  // 「強い揺れに警戒してください。」等、JMAが付加する定型の注意喚起文。
+  // 震央・マグニチュード等の項目が既にあっても、安全に関わる重要な
+  // 文言なので常に表示する(「なし」は情報が無いことを示すだけなので除外)
+  if (Array.isArray(report.notifications_on_disaster_prevention) && report.notifications_on_disaster_prevention.length) {
+    const messages = report.notifications_on_disaster_prevention.filter((m) => m && m !== 'なし');
+    if (messages.length) push('お知らせ', messages.join(' '));
   }
 
   return rows;
@@ -673,6 +680,10 @@ function buildEventFromJAlert(report) {
     rows,
     geo,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
+    // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
+    // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
+    // 寄りすぎてしまうことがあるため、県の形が分かる程度の上限に固定する
+    boundsMaxZoom: 9,
   };
 }
 
@@ -1012,6 +1023,22 @@ function interruptPatrolForNewRegion(code) {
   schedulePatrolNext(PATROL_DWELL_MS);
 }
 
+// 日本国内の対象地域(都道府県等)が1つも無いのに震源座標だけがある場合、
+// 海外や日本から遠く離れた場所の地震(震源に関する情報でよく届く)と判断する。
+// 震源の点だけにズームすると、単なる海上の1点しか映らず状況が
+// 分かりにくいので、タイトルにも「(海外)」を付けて区別する
+function isForeignOrDistantEarthquake(report) {
+  const hasDomesticRegions =
+    (Array.isArray(report.eew_forecast_regions_raw) && report.eew_forecast_regions_raw.length > 0) ||
+    (Array.isArray(report.prefectures_raw) && report.prefectures_raw.length > 0);
+  const hasHypocenter = !!report.coordinates_of_hypocenter || typeof report.seismic_epicenter_raw === 'number';
+  return !hasDomesticRegions && hasHypocenter && [1, 2, 3].includes(report.disaster_category_no);
+}
+
+// 海外/遠方の地震で日本の対象地域が無い場合に、震源とあわせてズームする
+// 「日本本土がだいたい入る」範囲(北海道〜九州、離島は含まない大まかな枠)
+const JAPAN_MAINLAND_OVERVIEW_BOUNDS = [129.0, 31.0, 146.0, 45.5];
+
 function buildEventFromReport(report) {
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
@@ -1067,6 +1094,13 @@ function buildEventFromReport(report) {
     });
   }
 
+  const isForeign = isForeignOrDistantEarthquake(report);
+  if (isForeign && geo.hypocenter) {
+    // 震源(震央マーク)は既にboundsListに入っているので、そこへ日本本土の
+    // 概観範囲を合わせてunionし、震源だけでなく日本列島も画面に入るようにする
+    boundsList.push(JAPAN_MAINLAND_OVERVIEW_BOUNDS);
+  }
+
   return {
     epicenterRaw: typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
@@ -1086,6 +1120,10 @@ function buildEventFromReport(report) {
     rows: buildSummary(report),
     geo,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
+    // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
+    // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
+    // 寄りすぎてしまうことがあるため、県の形が分かる程度の上限に固定する
+    boundsMaxZoom: 9,
   };
 }
 
@@ -1438,33 +1476,26 @@ function syncActiveEventLayers() {
 // renderEventsPanelがこれを見て表示するカードを絞り込む
 let focusedEventIds = new Set();
 
+// 都道府県全体ではなく、実際に警報が出ている沿岸そのものを見せた方が
+// 分かりやすいが、寄りすぎると逆にどこの県か分からなくなるため、
+// 通常のprefecture単位より少し狭いが県の形は分かる程度の上限にする
+const TSUNAMI_FOCUS_MAX_ZOOM = 8;
+
 function updateCameraForActiveEvents(preferredRecord) {
   if (!map) return;
-
-  let tsunamiActive = false;
-  const tsunamiBoundsList = [];
-  const tsunamiRecordIds = [];
-  for (const record of activeEvents.values()) {
-    if (!record.tsunamiWarningActive) continue;
-    tsunamiActive = true;
-    tsunamiRecordIds.push(record.id);
-    for (const t of record.geo.tsunami) {
-      const feature = tsunamiFeaturesByCode.get(t.code);
-      if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
-    }
-  }
-  if (tsunamiActive && tsunamiBoundsList.length) {
-    flyToBounds(unionBounds(tsunamiBoundsList), 16);
-    focusedEventIds = new Set(tsunamiRecordIds);
-    return;
-  }
 
   // 明示的な優先イベントが指定されていない場合(再接続時の一括再送や、
   // 市区町村データの遅延読み込み完了時など)は、直近に更新されたイベントを
   // 優先候補として補う。これが無いと「誰が新しいか分からないので全部
   // union fitする」しかできず、例えば札幌と那覇のLアラートが両方
   // 保留から同時に解決した時に、日本全体を映す中途半端なズームになって
-  // しまう(実際に発生を確認して修正した)
+  // しまう(実際に発生を確認して修正した)。
+  //
+  // 以前は「津波警報が1件でもあれば無条件で最優先」という扱いだったが、
+  // それだと津波警報が出っぱなしの間、後から発表された無関係の警報や
+  // Lアラートがいつまでもズームされない不具合になっていた。津波警報も
+  // 他のイベントと同じく「一番新しいものを優先」の対象にし、それが
+  // たまたま津波警報だった場合だけ、沿岸に寄った見せ方をする
   if (!preferredRecord) {
     let latest = null;
     for (const record of activeEvents.values()) {
@@ -1473,8 +1504,21 @@ function updateCameraForActiveEvents(preferredRecord) {
     preferredRecord = latest;
   }
 
+  if (preferredRecord && preferredRecord.tsunamiWarningActive) {
+    const tsunamiBoundsList = [];
+    for (const t of preferredRecord.geo.tsunami) {
+      const feature = tsunamiFeaturesByCode.get(t.code);
+      if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
+    }
+    if (tsunamiBoundsList.length) {
+      flyToBounds(unionBounds(tsunamiBoundsList), 24, TSUNAMI_FOCUS_MAX_ZOOM);
+      focusedEventIds = new Set([preferredRecord.id]);
+      return;
+    }
+  }
+
   if (preferredRecord && preferredRecord.bounds) {
-    flyToBounds(preferredRecord.bounds, 24);
+    flyToBounds(preferredRecord.bounds, 24, preferredRecord.boundsMaxZoom ?? null);
     focusedEventIds = new Set([preferredRecord.id]);
     return;
   }

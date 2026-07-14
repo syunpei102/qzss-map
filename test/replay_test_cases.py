@@ -249,7 +249,6 @@ CASES.append(intensity_report("震度速報(震度7・南海トラフ想定域)"
 CASES.append(tsunami("津波注意報(相模湾・東京湾)", 15, "津波注意報", [330, 312], ["相模湾・三浦半島", "東京湾内湾"], ["0.2m"]))
 CASES.append(tsunami("津波警報(千葉九十九里)", 3, "津波警報", [310], ["千葉県九十九里・外房"], ["1m"]))
 CASES.append(tsunami("大津波警報(高知県)", 4, "大津波警報", [610], ["高知県"], ["5m超"]))
-CASES.append(eew("EEW 海外地震(予報区なし・国内影響なし)", "フィリピン付近", 15.0, 121.0, 7.8, []))
 
 # --- Jアラート(7件) ---
 CASES.append(jalert("Jアラート: ミサイル発射", "Missile attack", "Extreme - Extraordinary threat to life or property", ["北海道", "青森県"]))
