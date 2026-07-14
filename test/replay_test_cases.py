@@ -59,6 +59,25 @@ def hypocenter_coords(lat, lon):
 
 SAT = {"satellite_id": 58, "satellite_prn": 186}
 
+# prefectures.geojson の id -> 実際の都道府県名(表示名をダミーの
+# "都道府県24" 等にしないよう、テストデータでも実名を使う)
+PREFECTURE_NAMES = {
+    1: "北海道", 2: "青森県", 3: "岩手県", 4: "宮城県", 5: "秋田県",
+    6: "山形県", 7: "福島県", 8: "茨城県", 9: "栃木県", 10: "群馬県",
+    11: "埼玉県", 12: "千葉県", 13: "東京都", 14: "神奈川県", 15: "新潟県",
+    16: "富山県", 17: "石川県", 18: "福井県", 19: "山梨県", 20: "長野県",
+    21: "岐阜県", 22: "静岡県", 23: "愛知県", 24: "三重県", 25: "滋賀県",
+    26: "京都府", 27: "大阪府", 28: "兵庫県", 29: "奈良県", 30: "和歌山県",
+    31: "鳥取県", 32: "島根県", 33: "岡山県", 34: "広島県", 35: "山口県",
+    36: "徳島県", 37: "香川県", 38: "愛媛県", 39: "高知県", 40: "福岡県",
+    41: "佐賀県", 42: "長崎県", 43: "熊本県", 44: "大分県", 45: "宮崎県",
+    46: "鹿児島県", 47: "沖縄県",
+}
+
+# azarashiのqzss_dcr_jma_eew_forecast_regionのうち、テストで使う分だけ
+EEW_REGION_NAMES = {59: "関東", 65: "近畿", 67: "四国", 68: "九州"}
+
+
 # ==================================================
 # 地震・津波(disaster_category_no: 1=EEW, 2=震源, 3=震度速報, 5=津波)
 # ==================================================
@@ -72,7 +91,7 @@ def eew(label, epicenter, lat, lon, magnitude, eew_regions, cancel=False):
         "coordinates_of_hypocenter": hypocenter_coords(lat, lon),
         "magnitude": magnitude,
         "eew_forecast_regions_raw": eew_regions,
-        "eew_forecast_regions": [f"予報区{c}" for c in eew_regions],
+        "eew_forecast_regions": [EEW_REGION_NAMES.get(c, f"予報区{c}") for c in eew_regions],
         **SAT,
     }
     return (label, p)
@@ -87,7 +106,7 @@ def intensity_report(label, epicenter, lat, lon, magnitude, prefecture_ids, inte
         "coordinates_of_hypocenter": hypocenter_coords(lat, lon),
         "magnitude": magnitude,
         "prefectures_raw": prefecture_ids,
-        "prefectures": [f"都道府県{i}" for i in prefecture_ids],
+        "prefectures": [PREFECTURE_NAMES.get(i, f"都道府県{i}") for i in prefecture_ids],
         "seismic_intensities_raw": intensity_codes,
         "seismic_intensities": [str(c) for c in intensity_codes],
         **SAT,
