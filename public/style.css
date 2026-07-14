@@ -122,6 +122,8 @@ html, body {
 .report-card.sev-error     { border-left-color: #888; }
 .report-card.sev-cancel,
 .report-card.sev-resolved  { border-left-color: #555; }
+.report-card.sev-keihou    { border-left-color: #ff5c5c; }
+.report-card.sev-tokubetsu { border-left-color: #b452e0; }
 
 .test-data-banner {
   display: flex;
@@ -186,6 +188,8 @@ html, body {
 .report-badge.sev-error     { background: #555; color: #ddd; }
 .report-badge.sev-cancel    { background: #3a3a3a; color: #bbb; border: 1px solid #777; }
 .report-badge.sev-resolved  { background: #2b2b2b; color: #888; border: 1px solid #555; }
+.report-badge.sev-keihou    { background: #e63946; color: #fff; }
+.report-badge.sev-tokubetsu { background: #8e24aa; color: #fff; }
 
 .report-title {
   font-size: 17px;

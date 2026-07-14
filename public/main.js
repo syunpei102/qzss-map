@@ -294,6 +294,7 @@ let tsunamiFeaturesByCode = new Map();
 let prefectureFeaturesById = new Map();
 let prefectureFeaturesByName = new Map();
 let municipalityFeaturesByCode = new Map();
+let weatherFeaturesByCode = new Map();
 
 // 左上に情報パネルが常時かぶさっているため、その分だけ
 // 地図を右側に寄せてfitBoundsする(パネルの真下に対象が
@@ -723,6 +724,122 @@ function buildEventFromLAlert(report) {
   };
 }
 
+// ==================================================
+// 気象警報・注意報(disaster_category_no=10)・台風(12)・
+// その他(南海トラフ4/火山8/降灰9/洪水11)の表示処理
+// (JMAのDCRだが地震・津波とはフィールド構成が異なるため別関数にする)
+//
+// activeEvents(震央コード/発生時刻で1つの地震にまとめる仕組み)には
+// 乗せず、専用のMapで管理する。理由: 気象警報は1通の通報に複数の
+// 地域コードが同時に含まれ、しかも地域ごとに個別に解除されうるため、
+// 「1通報=1イベント」を前提にした activeEvents の統合ロジックとは
+// 相性が悪い。表示(地図のレイヤー・自動ズーム・パネル)は
+// syncMapFromActiveEvents/renderEventsPanel 側でactiveEventsと
+// まとめて扱う。
+// ==================================================
+let weatherSites = new Map(); // key: 地域コード -> {code, name, subCategories:[...], bounds, ...}
+let otherReports = new Map(); // key: disaster_category_no(4,8,9,11) -> {...}
+
+const OTHER_CATEGORY_BADGE_CLASS = {
+  4: 'sev-warning',  // 南海トラフ地震
+  8: 'sev-warning',  // 火山
+  9: 'sev-caution',  // 降灰
+  11: 'sev-caution', // 洪水
+};
+
+function otherBadgeClassForReport(report) {
+  if (report.report_classification_no === 7) return 'sev-training';
+  return OTHER_CATEGORY_BADGE_CLASS[report.disaster_category_no] || 'sev-info';
+}
+
+// 気象(Dc=10)で配信されうる災害副種別は次の11種類のみ
+// (IS-QZSS-DCR仕様 Table35 / azarashi の
+//  qzss_dcr_jma_weather_related_disaster_sub_category に一致)。
+// JMAの緊迫度に合わせて3段階に分類する
+const WEATHER_SUB_CATEGORY_SEVERITY = {
+  '暴風雪特別警報': 3,
+  '大雨特別警報': 3,
+  '暴風特別警報': 3,
+  '大雪特別警報': 3,
+  '波浪特別警報': 3,
+  '高潮特別警報': 3,
+  '全ての気象特別警報': 3,
+  '土砂災害警戒情報': 2,
+  '記録的短時間大雨情報': 2,
+  'その他の警報等情報要素': 2,
+  '竜巻注意情報': 1,
+};
+
+function weatherSeverityRank(name) {
+  if (!name) return 0;
+  if (name in WEATHER_SUB_CATEGORY_SEVERITY) return WEATHER_SUB_CATEGORY_SEVERITY[name];
+  if (name.includes('特別警報')) return 3;
+  if (name.includes('注意')) return 1;
+  return 2;
+}
+
+function worstSubCategory(subCategories) {
+  return [...subCategories].sort((a, b) => weatherSeverityRank(b) - weatherSeverityRank(a))[0];
+}
+
+function weatherSeverityBadgeClass(name) {
+  const rank = weatherSeverityRank(name);
+  if (rank === 3) return 'report-badge sev-tokubetsu';
+  if (rank === 1) return 'report-badge sev-caution';
+  return 'report-badge sev-keihou';
+}
+
+const WEATHER_WARNING_COLOR = '#e63946'; // 警報(既定・レベル2相当)
+const WEATHER_SEVERITY_COLORS = { 3: '#8e24aa', 2: '#e63946', 1: '#d0b400' };
+
+function weatherSeverityColor(subCategoryName) {
+  return WEATHER_SEVERITY_COLORS[weatherSeverityRank(subCategoryName)] || WEATHER_WARNING_COLOR;
+}
+
+function regionDisplayName(code, rawName) {
+  const prefId = Math.floor(code / 10000);
+  const pref = prefectureFeaturesById.get(prefId);
+  if (!pref) return rawName;
+  const prefName = pref.properties.name;
+  if (!rawName || rawName === prefName || rawName.startsWith(prefName)) return rawName || prefName;
+  return `${prefName} ${rawName}`;
+}
+
+function buildEventFromOtherCategory(report) {
+  return {
+    isTestData: !!report.is_test_data,
+    satelliteId: report.satellite_id,
+    satellitePrn: report.satellite_prn,
+    badgeText: report.disaster_category || report.type,
+    badgeClass: otherBadgeClassForReport(report),
+    title: report.disaster_category
+      ? `${report.disaster_category}${report.information_type && report.information_type !== '発表' ? `(${report.information_type})` : ''}`
+      : report.type,
+    meta: `受信 ${nowTimeString()}`,
+    rows: (report.description || '').split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 1).map((l) => ['内容', l]),
+    updatedAt: Date.now(),
+  };
+}
+
+function updateWeatherDisplay() {
+  if (!map || !map.getLayer('weather-fill')) return;
+  const codes = [...weatherSites.keys()];
+  if (!codes.length) {
+    map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
+    map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
+    return;
+  }
+  map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', codes]]);
+  map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', codes]]);
+  const matchExpr = ['match', ['get', 'code']];
+  for (const [code, site] of weatherSites) {
+    matchExpr.push(code, weatherSeverityColor(worstSubCategory(site.subCategories)));
+  }
+  matchExpr.push(WEATHER_WARNING_COLOR);
+  map.setPaintProperty('weather-fill', 'fill-color', matchExpr);
+  map.setPaintProperty('weather-outline', 'line-color', matchExpr);
+}
+
 function buildEventFromReport(report) {
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
@@ -1011,6 +1128,10 @@ function removeActiveEvent(id) {
 // 常に一致するようにする。
 function clearAllActiveEvents() {
   for (const id of [...activeEvents.keys()]) removeActiveEvent(id);
+  weatherSites.clear();
+  otherReports.clear();
+  updateWeatherDisplay();
+  renderEventsPanel();
 }
 
 // 津波警報が出ている間、沿岸ラインを点滅させて目立たせる
@@ -1072,6 +1193,9 @@ function syncMapFromActiveEvents() {
       }
     }
   }
+  for (const site of weatherSites.values()) {
+    if (site.bounds) boundsList.push(site.bounds);
+  }
 
   if (map.getSource('lalert-ellipses')) {
     map.getSource('lalert-ellipses').setData({ type: 'FeatureCollection', features: ellipseFeatures });
@@ -1128,11 +1252,46 @@ function syncMapFromActiveEvents() {
   }
 }
 
+// 気象警報(weatherSites)・その他(otherReports)は
+// activeEventsとは別のMapで管理しているが、パネルには他の通報と
+// 同じカード形式で、更新時刻順にまとめて表示する(「1つの地図・
+// 1つのパネルに全部表示する」という統合方針のため)
+function weatherSiteCard(site) {
+  const worst = worstSubCategory(site.subCategories);
+  return {
+    isTestData: site.isTestData,
+    satelliteId: site.satelliteId,
+    satellitePrn: site.satellitePrn,
+    badges: [{ text: worst || '気象', class: weatherSeverityBadgeClass(worst) }],
+    title: site.name,
+    meta: `更新 ${nowTimeString()}`,
+    rows: [['種別', site.subCategories.join('・')]],
+    updatedAt: site.updatedAt,
+  };
+}
+
+function otherReportCard(rec) {
+  return {
+    isTestData: rec.isTestData,
+    satelliteId: rec.satelliteId,
+    satellitePrn: rec.satellitePrn,
+    badges: [{ text: rec.badgeText, class: rec.badgeClass }],
+    title: rec.title,
+    meta: rec.meta,
+    rows: rec.rows,
+    updatedAt: rec.updatedAt,
+  };
+}
+
 function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
 
-  const visibleRecords = [...activeEvents.values()];
+  const visibleRecords = [
+    ...activeEvents.values(),
+    ...[...weatherSites.values()].map(weatherSiteCard),
+    ...[...otherReports.values()].map(otherReportCard),
+  ];
 
   if (!visibleRecords.length) {
     container.innerHTML = `
@@ -1144,7 +1303,7 @@ function renderEventsPanel() {
   }
 
   const cardsHtml = visibleRecords
-    .sort((a, b) => b.id - a.id) // 新しい順
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)) // 新しい順
     .map((record) => {
       const testBanner = record.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
       const tsunamiBanner = record.tsunamiWarningActive
@@ -1310,6 +1469,58 @@ function renderReport(report) {
     return;
   }
 
+  // 気象警報・注意報(10): 1通報に複数の地域コードが同時に含まれ、かつ
+  // 地域ごとに個別解除されうるため、activeEventsとは別のMapで地域コード
+  // 単位に管理する
+  if (report.disaster_category_no === 10) {
+    const codes = report.weather_forecast_regions_raw || [];
+    const names = report.weather_forecast_regions || [];
+    const subCats = report.weather_related_disaster_sub_categories || [];
+    const resolved = report.information_type_no === 2 || report.weather_warning_state === '解除';
+    codes.forEach((code, i) => {
+      if (resolved) {
+        weatherSites.delete(code);
+        return;
+      }
+      const existing = weatherSites.get(code);
+      const subCategory = subCats[i];
+      const mergedSubCategories = existing
+        ? [...new Set([...existing.subCategories, subCategory].filter(Boolean))]
+        : [subCategory].filter(Boolean);
+      const rawName = names[i] || (existing && existing.rawName) || String(code);
+      const feature = weatherFeaturesByCode.get(code);
+      weatherSites.set(code, {
+        code,
+        name: regionDisplayName(code, rawName),
+        subCategories: mergedSubCategories,
+        description: report.description || (existing && existing.description) || '',
+        bounds: feature ? geometryBounds(feature.geometry) : (existing && existing.bounds) || null,
+        isTestData: !!report.is_test_data,
+        satelliteId: report.satellite_id,
+        satellitePrn: report.satellite_prn,
+        updatedAt: Date.now(),
+      });
+    });
+    updateWeatherDisplay();
+    syncMapFromActiveEvents();
+    renderEventsPanel();
+    return;
+  }
+
+  // 台風(12)は表示しない(暴風域を正確に描く手がかりが無く、取消信号も
+  // 来ないため、表示し続けると誤解を招く懸念がある)
+
+  // 南海トラフ地震(4)・火山(8)・降灰(9)・洪水(11): カテゴリごとに1枚
+  if ([4, 8, 9, 11].includes(report.disaster_category_no)) {
+    if (report.information_type_no === 2) {
+      otherReports.delete(report.disaster_category_no);
+    } else {
+      otherReports.set(report.disaster_category_no, buildEventFromOtherCategory(report));
+    }
+    renderEventsPanel();
+    return;
+  }
+
   // キャンセル報(取消)は種別を問わず優先的に処理する(絞り込みの影響を受けない)
   if (report.information_type_no === 2) {
     handleCancellation(report);
@@ -1342,7 +1553,7 @@ async function initMap() {
   const protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
 
-  const [style, epicenterGeoJSON, tsunamiGeoJSON, prefectureGeoJSON, municipalityGeoJSON] = await Promise.all([
+  const [style, epicenterGeoJSON, tsunamiGeoJSON, prefectureGeoJSON, municipalityGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
     fetch('./style.json').then(res => {
       if (!res.ok) throw new Error('style.json の読み込みに失敗');
       return res.json();
@@ -1351,6 +1562,7 @@ async function initMap() {
     fetch('./data/tsunami_regions.geojson').then(res => res.json()),
     fetch('./data/prefectures.geojson').then(res => res.json()),
     fetch('./data/municipalities.geojson').then(res => res.json()),
+    fetch('./data/weather_regions.geojson').then(res => res.json()),
   ]);
 
   for (const f of epicenterGeoJSON.features) epicenterFeaturesById.set(f.properties.id, f);
@@ -1363,6 +1575,7 @@ async function initMap() {
   // 先頭0埋め5桁)そのものなので、国土数値情報(N03)の行政区域データを
   // 同じコードで直接紐付けられる(名前でのあいまい一致は不要)
   for (const f of municipalityGeoJSON.features) municipalityFeaturesByCode.set(f.properties.code, f);
+  for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
 
   const bounds = [[JAPAN_VICINITY_BOUNDS[0], JAPAN_VICINITY_BOUNDS[1]], [JAPAN_VICINITY_BOUNDS[2], JAPAN_VICINITY_BOUNDS[3]]];
   const initialView = getDefaultView();
@@ -1470,6 +1683,23 @@ async function initMap() {
     type: 'line',
     source: 'lalert-ellipses',
     paint: { 'line-color': ['get', 'color'], 'line-width': 2 },
+  });
+
+  // 気象警報・注意報の対象地域(一次細分区域)
+  map.addSource('weather-regions', { type: 'geojson', data: weatherRegionsGeoJSON });
+  map.addLayer({
+    id: 'weather-fill',
+    type: 'fill',
+    source: 'weather-regions',
+    filter: ['in', ['get', 'code'], ['literal', []]],
+    paint: { 'fill-color': WEATHER_WARNING_COLOR, 'fill-opacity': 0.5 },
+  });
+  map.addLayer({
+    id: 'weather-outline',
+    type: 'line',
+    source: 'weather-regions',
+    filter: ['in', ['get', 'code'], ['literal', []]],
+    paint: { 'line-color': WEATHER_WARNING_COLOR, 'line-width': 1.5 },
   });
 }
 
