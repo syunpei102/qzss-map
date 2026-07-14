@@ -1582,28 +1582,29 @@ function renderReport(report) {
 // ==================================================
 // 地図初期化
 // ==================================================
+// ==================================================
+// 地図初期化(段階的ロード)
+//
+// ラズパイ等の非力な端末でも「表示可能になるまで」を短くするため、
+// 全データを1つのPromise.allで待ってから一気に描画するのではなく、
+// 優先度順に3段階に分けて読み込む:
+//   段階0: style.json だけ(地図を作るのに必須。これ以外は待たない)
+//   段階1: 警報エリアの描画に直結するデータ(都道府県・津波沿岸・
+//          気象警報区域)。ここまでで「警報が出たら塗って見せる」が
+//          一通り揃う
+//   段階2: 使用頻度が低い/無くても致命的ではないデータ(震央地名の
+//          座標変換テーブル、市区町村ポリゴン)。地図表示後に
+//          バックグラウンドで読み込み、揃い次第反映する
+// ==================================================
 async function initMap() {
   const protocol = new pmtiles.Protocol();
   maplibregl.addProtocol('pmtiles', protocol.tile);
 
-  const [style, epicenterGeoJSON, tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
-    fetch('./style.json').then(res => {
-      if (!res.ok) throw new Error('style.json の読み込みに失敗');
-      return res.json();
-    }),
-    fetch('./data/epicenter_regions.geojson').then(res => res.json()),
-    fetch('./data/tsunami_regions.geojson').then(res => res.json()),
-    fetch('./data/prefectures.geojson').then(res => res.json()),
-    fetch('./data/weather_regions.geojson').then(res => res.json()),
-  ]);
-
-  for (const f of epicenterGeoJSON.features) epicenterFeaturesById.set(f.properties.id, f);
-  for (const f of tsunamiGeoJSON.features) tsunamiFeaturesByCode.set(f.properties.code, f);
-  for (const f of prefectureGeoJSON.features) {
-    prefectureFeaturesById.set(f.properties.id, f);
-    prefectureFeaturesByName.set(f.properties.name, f);
-  }
-  for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
+  // 段階0: 地図の生成に必須なstyle.jsonだけを待つ
+  const style = await fetch('./style.json').then(res => {
+    if (!res.ok) throw new Error('style.json の読み込みに失敗');
+    return res.json();
+  });
 
   const bounds = [[JAPAN_VICINITY_BOUNDS[0], JAPAN_VICINITY_BOUNDS[1]], [JAPAN_VICINITY_BOUNDS[2], JAPAN_VICINITY_BOUNDS[3]]];
   const initialView = getDefaultView();
@@ -1631,24 +1632,41 @@ async function initMap() {
   // ズーム操作/オートズームに合わせて震度バッジの大きさを追従させる
   map.on('zoom', updateAllIntensityBadgeScales);
 
+  // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
+  // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する
+  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
+    fetch('./data/tsunami_regions.geojson').then(res => res.json()),
+    fetch('./data/prefectures.geojson').then(res => res.json()),
+    fetch('./data/weather_regions.geojson').then(res => res.json()),
+  ]);
+
+  for (const f of tsunamiGeoJSON.features) tsunamiFeaturesByCode.set(f.properties.code, f);
+  for (const f of prefectureGeoJSON.features) {
+    prefectureFeaturesById.set(f.properties.id, f);
+    prefectureFeaturesByName.set(f.properties.name, f);
+  }
+  for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
+
   // 国土地理院のベクトルタイルはzoom4未満だとタイルデータ自体が存在せず
-  // 真っ白になる。都道府県ポリゴン(prefectures.geojson、既に読み込み済み・
-  // 軽量)を使った境界線だけの簡易表示を「行政区画」レイヤーの直下に
-  // 挿入しておくことで、タイルが無いズームレベルでも最低限の日本の形は
-  // 表示され続けるようにする(地名・道路・鉄道等は一切載せない)。
+  // 真っ白になる。都道府県ポリゴン(prefectures.geojson)を使った境界線
+  // だけの簡易表示を「行政区画」レイヤーの直下に挿入しておくことで、
+  // タイルが無いズームレベルでも最低限の日本の形は表示され続けるように
+  // する(地名・道路・鉄道等は一切載せない)。
   map.addSource('fallback-landmass', { type: 'geojson', data: prefectureGeoJSON });
   map.addLayer(
     {
       id: 'fallback-landmass-fill',
       type: 'fill',
       source: 'fallback-landmass',
+      // 本物のベクトルタイル(minzoom=4)が表示され始めたら、下に完全に
+      // 隠れて見えなくなるだけの塗りつぶしを描き続ける意味が無い。
+      // ラズパイ等GPUが非力な環境での無駄な描画コストを削るため、
+      // タイルが出てくるより手前で打ち切る
+      maxzoom: 5,
       paint: { 'fill-color': 'rgba(140,140,140,1)' },
     },
     '行政区画'
   );
-
-  // 震央地名ポリゴンは地図レイヤーとしては使わず、✕マーカーの位置・ラベル決定にのみ使う
-  // (赤い塗りつぶし自体はeew_forecast_regionsによる都道府県単位のprefecture-fillで行う)
 
   map.addSource('tsunami-regions', { type: 'geojson', data: tsunamiGeoJSON });
   map.addLayer({
@@ -1680,7 +1698,8 @@ async function initMap() {
 
   // Lアラート用: 都道府県よりも精密な円/楕円形の対象範囲(中心緯度経度+
   // 半径)を描画する。都道府県名で塗れないケース(市区町村単位・任意の
-  // 円形範囲)に対応するため、prefecture-fillとは別のGeoJSONソースにする
+  // 円形範囲)に対応するため、prefecture-fillとは別のGeoJSONソースにする。
+  // 中身は空でも軽いので、警報エリア系のレイヤーと一緒にここで追加する
   map.addSource('lalert-ellipses', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'lalert-ellipse-fill',
@@ -1712,13 +1731,26 @@ async function initMap() {
     paint: { 'line-color': WEATHER_WARNING_COLOR, 'line-width': 1.5 },
   });
 
-  // 市区町村ポリゴン(約1900件、5レイヤー中もっとも重い)は、初回描画を
-  // 軽くするため起動時のPromise.allには含めず、地図が表示された後に
-  // バックグラウンドで読み込む(非同期・失敗してもマップ表示自体は続行)。
-  // ラズパイのkiosk表示ではGPU/RAMが限られるため、Lアラートが実際に
-  // 来るまで使われないこのレイヤーを最初から読み込まないことで、
-  // 起動〜操作可能になるまでの時間を短縮する。
+  // 段階2: 使用頻度が低い/主要な情報表示に必須ではないデータは、ここまでの
+  // 「警報エリアを塗れる」状態が整った後に、バックグラウンドで読み込む。
+  // await しない(=呼び出し元のinitMap完了を待たせない)ことで、地図の
+  // 初回表示・操作可能になるタイミングを優先する。
+  loadEpicenterLookupTable();
   loadMunicipalityLayer();
+}
+
+// 震央地名コード→中心座標のルックアップテーブル。EEW速報等で座標が
+// 直接含まれない場合の✕マーカー位置決めにのみ使う(地図レイヤーとしては
+// 描画しない)。ほとんどの実際の通報はcoordinates_of_hypocenterに生の
+// 座標を持つため、これが無くても大半のケースは表示できる=優先度低
+async function loadEpicenterLookupTable() {
+  try {
+    const res = await fetch('./data/epicenter_regions.geojson');
+    const epicenterGeoJSON = await res.json();
+    for (const f of epicenterGeoJSON.features) epicenterFeaturesById.set(f.properties.id, f);
+  } catch (err) {
+    console.error('震央地名データの読み込みに失敗しました:', err);
+  }
 }
 
 let municipalityLayerLoaded = false;
