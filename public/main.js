@@ -1432,14 +1432,22 @@ function syncActiveEventLayers() {
 // 新しく発表された方が見える、という挙動のため)。ただし津波警報が
 // 出ている間は、何が新しく届いたかによらず津波の対象沿岸を最優先で見せる
 // (人命に関わる優先度が最も高いため)。
+// パネルは「地図が今まさにズームして見せている対象」だけを表示する
+// (無関係な場所の情報が並んで混乱するのを防ぐため)。activeEventsの
+// うち、実際にカメラがズームインしている記録のidをここに追跡し、
+// renderEventsPanelがこれを見て表示するカードを絞り込む
+let focusedEventIds = new Set();
+
 function updateCameraForActiveEvents(preferredRecord) {
   if (!map) return;
 
   let tsunamiActive = false;
   const tsunamiBoundsList = [];
+  const tsunamiRecordIds = [];
   for (const record of activeEvents.values()) {
     if (!record.tsunamiWarningActive) continue;
     tsunamiActive = true;
+    tsunamiRecordIds.push(record.id);
     for (const t of record.geo.tsunami) {
       const feature = tsunamiFeaturesByCode.get(t.code);
       if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
@@ -1447,6 +1455,7 @@ function updateCameraForActiveEvents(preferredRecord) {
   }
   if (tsunamiActive && tsunamiBoundsList.length) {
     flyToBounds(unionBounds(tsunamiBoundsList), 16);
+    focusedEventIds = new Set(tsunamiRecordIds);
     return;
   }
 
@@ -1466,6 +1475,7 @@ function updateCameraForActiveEvents(preferredRecord) {
 
   if (preferredRecord && preferredRecord.bounds) {
     flyToBounds(preferredRecord.bounds, 24);
+    focusedEventIds = new Set([preferredRecord.id]);
     return;
   }
 
@@ -1475,13 +1485,18 @@ function updateCameraForActiveEvents(preferredRecord) {
   // (ここに到達するのは、活動中のイベントが1件もboundsを持たない
   // 稀なケースのみ)
   const boundsList = [];
+  const idsWithBounds = [];
   for (const record of activeEvents.values()) {
-    if (record.bounds) boundsList.push(record.bounds);
+    if (record.bounds) {
+      boundsList.push(record.bounds);
+      idsWithBounds.push(record.id);
+    }
   }
   if (boundsList.length) {
     // オートズーム: アクティブな全イベントが収まるようにズームアウト/フィット
     // (パディングを詰めて、対象地域によりズームインする)
     flyToBounds(unionBounds(boundsList), 24);
+    focusedEventIds = new Set(idsWithBounds);
   } else if (currentPatrolCode === null) {
     // 何もアクティブでなく、気象警報の巡回もしていなければ日本全体表示に戻す。
     // 巡回中(currentPatrolCode有り)は、そちらがカメラを管理しているので
@@ -1489,6 +1504,9 @@ function updateCameraForActiveEvents(preferredRecord) {
     // ならないようにする)
     const view = getDefaultView();
     map.easeTo({ center: view.center, zoom: view.zoom, duration: 1200 });
+    focusedEventIds = new Set();
+  } else {
+    focusedEventIds = new Set();
   }
 }
 
@@ -1529,12 +1547,22 @@ function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
 
+  // パネルには「地図が今まさにズームして見せている対象」だけを出す。
+  // 地震・津波・Jアラート・Lアラート等(activeEvents)がズームフォーカス
+  // 中はそれだけ、そうでなく気象警報の巡回中はその地域だけ、どちらでも
+  // 無い(=全体表示に戻っている)時だけ、その他の通報(南海トラフ/火山/
+  // 降灰/洪水。これらは特定の位置にズームする仕組みが無いため)を出す
+  const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
-  const visibleRecords = [
-    ...activeEvents.values(),
-    ...(focusedWeatherSite ? [weatherSiteCard(focusedWeatherSite)] : []),
-    ...[...otherReports.values()].map(otherReportCard),
-  ];
+
+  let visibleRecords;
+  if (focusedEvents.length) {
+    visibleRecords = focusedEvents;
+  } else if (focusedWeatherSite) {
+    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
+  } else {
+    visibleRecords = [...otherReports.values()].map(otherReportCard);
+  }
 
   if (!visibleRecords.length) {
     // 何もアクティブでなく、気象警報の巡回でズームしている地域も無い場合は
