@@ -23,7 +23,7 @@
     padding: 24px;
     border-radius: 12px;
   }
-  #login-box input {
+  #login-box input, #change-password-box input {
     width: 100%;
     padding: 10px;
     margin: 8px 0;
@@ -112,7 +112,20 @@
 <div id="dashboard" style="display:none">
   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
     <h1>QZSS デバイス管理</h1>
-    <button class="btn" id="logout-btn" style="background:#3a3f47">ログアウト</button>
+    <div style="display:flex; gap:8px">
+      <button class="btn" id="change-password-btn" style="background:#3a3f47">パスワード変更</button>
+      <button class="btn" id="logout-btn" style="background:#3a3f47">ログアウト</button>
+    </div>
+  </div>
+  <div id="change-password-box" style="display:none; max-width:360px; background:#1e2126; padding:16px; border-radius:12px; margin-bottom:16px">
+    <input type="password" id="current-password-input" placeholder="現在のパスワード" autocomplete="current-password" />
+    <input type="password" id="new-password-input" placeholder="新しいパスワード(8文字以上)" autocomplete="new-password" />
+    <input type="password" id="new-password-confirm-input" placeholder="新しいパスワード(確認)" autocomplete="new-password" />
+    <div id="change-password-error" style="color:#ff6b6b; font-size:13px; min-height:18px"></div>
+    <div style="display:flex; gap:8px">
+      <button class="btn" id="change-password-submit-btn">変更する</button>
+      <button class="btn" id="change-password-cancel-btn" style="background:#3a3f47">キャンセル</button>
+    </div>
   </div>
   <div id="last-refresh"></div>
   <div id="devices"></div>
@@ -315,6 +328,46 @@ document.getElementById('password-input').addEventListener('keydown', (e) => {
 document.getElementById('logout-btn').addEventListener('click', async () => {
   await fetch('/admin/api/logout', { method: 'POST', credentials: 'same-origin' });
   showLogin();
+});
+
+function resetChangePasswordBox() {
+  document.getElementById('current-password-input').value = '';
+  document.getElementById('new-password-input').value = '';
+  document.getElementById('new-password-confirm-input').value = '';
+  document.getElementById('change-password-error').textContent = '';
+}
+document.getElementById('change-password-btn').addEventListener('click', () => {
+  const box = document.getElementById('change-password-box');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  resetChangePasswordBox();
+});
+document.getElementById('change-password-cancel-btn').addEventListener('click', () => {
+  document.getElementById('change-password-box').style.display = 'none';
+  resetChangePasswordBox();
+});
+document.getElementById('change-password-submit-btn').addEventListener('click', async () => {
+  const currentPassword = document.getElementById('current-password-input').value;
+  const newPassword = document.getElementById('new-password-input').value;
+  const confirmPassword = document.getElementById('new-password-confirm-input').value;
+  const errorEl = document.getElementById('change-password-error');
+  if (!currentPassword || !newPassword) { errorEl.textContent = 'すべて入力してください'; return; }
+  if (newPassword !== confirmPassword) { errorEl.textContent = '新しいパスワードが一致しません'; return; }
+  if (newPassword.length < 8) { errorEl.textContent = '新しいパスワードは8文字以上にしてください'; return; }
+  try {
+    const res = await fetch('/admin/api/change-password', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+    document.getElementById('change-password-box').style.display = 'none';
+    resetChangePasswordBox();
+    showToast('パスワードを変更しました');
+  } catch (err) {
+    errorEl.textContent = err.message;
+  }
 });
 
 (async () => {

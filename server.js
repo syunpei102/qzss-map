@@ -7,6 +7,7 @@ const WebSocket = require("ws");
 const webpush = require("web-push");
 const compression = require("compression");
 const { Storage } = require("@google-cloud/storage");
+const { verifyKey, InteractionType, InteractionResponseType, InteractionResponseFlags } = require("discord-interactions");
 
 // ==== 設定 ====
 // ローカルでもCloud Run上でも同じコードで動くように、
@@ -38,7 +39,13 @@ app.use('/data', express.static(path.join(PUBLIC_DIR, 'data'), {
   maxAge: '1d',
 }));
 app.use(express.static(PUBLIC_DIR));
-app.use(express.json({ limit: "256kb" }));
+// Discord Interactionsの署名検証には生のリクエストボディが要る。
+// express.jsonのverifyフックでパースする前の生バイト列を控えておく
+// (他のルートはreq.bodyだけ使うので、この変更による影響は無い)
+app.use(express.json({
+  limit: "256kb",
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
 
 // ==== プッシュ通知(Web Push) ====
 // VAPID鍵は `npx web-push generate-vapid-keys` で生成し、環境変数で渡す。
@@ -430,9 +437,23 @@ function requireDeviceToken(req, res) {
 // ログイン成功後はHMAC署名付きの改ざん検知可能なCookieでセッションを
 // 維持する(新規npm依存を増やさず、Node標準のcryptoだけで実装)。
 // ==================================================
+// Web管理画面(/device-admin)自体は残すが、Discord Botからの操作に
+// 一本化したためCloud Run本番では既定で無効(未設定=false)にする。
+// ローカルや将来的な復活時は ENABLE_WEB_ADMIN=true で有効化できる。
+const ENABLE_WEB_ADMIN = (process.env.ENABLE_WEB_ADMIN || "").trim() === "true";
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
-const ADMIN_PASSWORD_HASH = (process.env.ADMIN_PASSWORD_HASH || "").trim();
 const SESSION_SECRET = (process.env.SESSION_SECRET || "").trim();
+// パスワードは/device-admin画面から自分で変更できるようにするため、
+// 環境変数ADMIN_PASSWORD_HASHは「初回起動時の初期値」としてのみ使い、
+// 実際に照合に使う値はGCSに永続化された最新のものを優先する
+// (loadAdminPasswordHashで起動時に上書きされる)
+let currentAdminPasswordHash = (process.env.ADMIN_PASSWORD_HASH || "").trim();
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return `${salt.toString("hex")}:${hash.toString("hex")}`;
+}
 const SESSION_COOKIE_NAME = "qzss_admin_session";
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7日
 
@@ -486,7 +507,7 @@ function getCookie(req, name) {
 }
 
 function requireAdminAuth(req, res) {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD_HASH || !SESSION_SECRET) {
+  if (!ADMIN_EMAIL || !currentAdminPasswordHash || !SESSION_SECRET) {
     res.status(503).json({ error: "admin機能が無効です(ADMIN_EMAIL/ADMIN_PASSWORD_HASH/SESSION_SECRET未設定)" });
     return false;
   }
@@ -498,30 +519,50 @@ function requireAdminAuth(req, res) {
   return true;
 }
 
-app.post("/admin/api/login", (req, res) => {
-  if (!ADMIN_EMAIL || !ADMIN_PASSWORD_HASH || !SESSION_SECRET) {
-    return res.status(503).json({ error: "admin機能が無効です(ADMIN_EMAIL/ADMIN_PASSWORD_HASH/SESSION_SECRET未設定)" });
-  }
-  const email = String(req.body.email || "").trim().toLowerCase();
-  const password = String(req.body.password || "");
-  if (email !== ADMIN_EMAIL || !password || !verifyPassword(password, ADMIN_PASSWORD_HASH)) {
-    return res.status(401).json({ error: "メールアドレスまたはパスワードが違います" });
-  }
-  const token = signSession({ admin: true, exp: Date.now() + SESSION_MAX_AGE_MS });
-  res.cookie(SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE_MS,
-    path: "/",
+if (ENABLE_WEB_ADMIN) {
+  app.post("/admin/api/login", (req, res) => {
+    if (!ADMIN_EMAIL || !currentAdminPasswordHash || !SESSION_SECRET) {
+      return res.status(503).json({ error: "admin機能が無効です(ADMIN_EMAIL/ADMIN_PASSWORD_HASH/SESSION_SECRET未設定)" });
+    }
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const password = String(req.body.password || "");
+    if (email !== ADMIN_EMAIL || !password || !verifyPassword(password, currentAdminPasswordHash)) {
+      return res.status(401).json({ error: "メールアドレスまたはパスワードが違います" });
+    }
+    const token = signSession({ admin: true, exp: Date.now() + SESSION_MAX_AGE_MS });
+    res.cookie(SESSION_COOKIE_NAME, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: SESSION_MAX_AGE_MS,
+      path: "/",
+    });
+    res.json({ ok: true });
   });
-  res.json({ ok: true });
-});
 
-app.post("/admin/api/logout", (req, res) => {
-  res.clearCookie(SESSION_COOKIE_NAME, { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
-  res.json({ ok: true });
-});
+  // 画面から自分でパスワードを変更できるようにするエンドポイント。
+  // セッションCookieだけでなく現在のパスワードも要求する(Cookie漏えい
+  // だけで恒久的に乗っ取られないようにするため)。
+  app.post("/admin/api/change-password", (req, res) => {
+    if (!requireAdminAuth(req, res)) return;
+    const currentPassword = String(req.body.currentPassword || "");
+    const newPassword = String(req.body.newPassword || "");
+    if (!verifyPassword(currentPassword, currentAdminPasswordHash)) {
+      return res.status(401).json({ error: "現在のパスワードが違います" });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: "新しいパスワードは8文字以上にしてください" });
+    }
+    currentAdminPasswordHash = hashPassword(newPassword);
+    persistAdminPasswordHash();
+    res.json({ ok: true });
+  });
+
+  app.post("/admin/api/logout", (req, res) => {
+    res.clearCookie(SESSION_COOKIE_NAME, { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+    res.json({ ok: true });
+  });
+}
 
 // ラズパイ側(report_status.sh)が数分おきに現在の状態を送ってくる。
 // 同じリクエストへの応答で、保留中のコマンド(reboot等)も一緒に返す
@@ -540,37 +581,44 @@ app.post("/device/status", (req, res) => {
   res.json({ ok: true, commands });
 });
 
-// 管理サイトから見る、全デバイスの最新状態一覧
-app.get("/admin/api/devices", (req, res) => {
-  if (!requireAdminAuth(req, res)) return;
-  const now = Date.now();
-  const devices = [...deviceStatus.values()].map((d) => ({
-    ...d,
-    online: now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS,
-    homePrefectureId: (deviceRegionConfig.get(d.deviceId) || {}).homePrefectureId ?? null,
-  }));
-  res.json({ devices });
-});
-
 // 管理サイトから「次にこのデバイスが状態報告に来た時にreboot等を
-// 実行させる」ためのコマンドを予約する
-app.post("/admin/api/devices/:deviceId/command", (req, res) => {
-  if (!requireAdminAuth(req, res)) return;
-  const { deviceId } = req.params;
-  const command = String(req.body.command || "");
+// 実行させる」ためのコマンドを予約する。Web管理画面・Discordの
+// どちらのハンドラからも呼ぶ共通処理。
+function queueDeviceCommand(deviceId, command) {
   if (!["reboot", "force_update_check"].includes(command)) {
-    return res.status(400).json({ error: "未対応のコマンドです" });
+    return { ok: false, error: "未対応のコマンドです" };
   }
   const list = pendingCommands.get(deviceId) || [];
   list.push({ command, requestedAt: Date.now() });
   pendingCommands.set(deviceId, list);
   console.log(`🛠️ デバイス[${deviceId}]にコマンドを予約しました: ${command}`);
-  res.json({ ok: true });
-});
+  return { ok: true };
+}
 
-app.get("/device-admin", (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "device-admin.html"));
-});
+if (ENABLE_WEB_ADMIN) {
+  // 管理サイトから見る、全デバイスの最新状態一覧
+  app.get("/admin/api/devices", (req, res) => {
+    if (!requireAdminAuth(req, res)) return;
+    const now = Date.now();
+    const devices = [...deviceStatus.values()].map((d) => ({
+      ...d,
+      online: now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS,
+      homePrefectureId: (deviceRegionConfig.get(d.deviceId) || {}).homePrefectureId ?? null,
+    }));
+    res.json({ devices });
+  });
+
+  app.post("/admin/api/devices/:deviceId/command", (req, res) => {
+    if (!requireAdminAuth(req, res)) return;
+    const result = queueDeviceCommand(req.params.deviceId, String(req.body.command || ""));
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({ ok: true });
+  });
+
+  app.get("/device-admin", (req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, "device-admin.html"));
+  });
+}
 
 // ==================================================
 // デバイスごとの地域設定(拠点の都道府県+周辺地方)
@@ -589,6 +637,15 @@ const prefectureIdToGroup = new Map();
 for (const group of REGION_GROUPS) {
   for (const id of group.prefectureIds) prefectureIdToGroup.set(id, group);
 }
+
+// Discordの/set_regionコマンド(都道府県名で指定)用の名前→ID解決と、
+// オートコンプリート候補に使う。ブラウザ側(main.js/device-admin.html)は
+// prefectures.geojsonを直接fetchするが、こちらはサーバー内部の処理なので
+// 起動時に読み込んでおく
+const PREFECTURE_LIST = JSON.parse(
+  fs.readFileSync(path.join(PUBLIC_DIR, "data", "prefectures.geojson"), "utf8")
+).features.map((f) => f.properties).sort((a, b) => a.id - b.id);
+const prefectureIdByName = new Map(PREFECTURE_LIST.map((p) => [p.name, p.id]));
 
 function expandHomePrefecture(prefectureId) {
   const group = prefectureIdToGroup.get(prefectureId);
@@ -625,19 +682,40 @@ function persistRegionConfig() {
     .catch((err) => console.warn("⚠️ デバイス地域設定の保存に失敗しました:", err.message));
 }
 
-app.get("/admin/api/devices/:deviceId/region", (req, res) => {
-  if (!requireAdminAuth(req, res)) return;
-  const config = deviceRegionConfig.get(req.params.deviceId) || { homePrefectureId: null, updatedAt: null };
-  res.json(config);
-});
+// 管理者パスワード(/device-adminから自分で変更できる)。同じバケットに
+// 別ファイルとして保存し、環境変数ADMIN_PASSWORD_HASHは「GCSにまだ何も
+// 無い場合の初期値」としてのみ使う
+const ADMIN_PASSWORD_STATE_FILE = "admin_password_hash.json";
 
-app.post("/admin/api/devices/:deviceId/region", (req, res) => {
-  if (!requireAdminAuth(req, res)) return;
-  const { deviceId } = req.params;
-  const raw = req.body.homePrefectureId;
-  const homePrefectureId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+async function loadAdminPasswordHash() {
+  try {
+    const file = gcsStorage.bucket(REGION_STATE_BUCKET).file(ADMIN_PASSWORD_STATE_FILE);
+    const [exists] = await file.exists();
+    if (!exists) return;
+    const [contents] = await file.download();
+    const restored = JSON.parse(contents.toString("utf8"));
+    if (restored && restored.hash) {
+      currentAdminPasswordHash = restored.hash;
+      console.log("♻️  管理者パスワードを復元しました");
+    }
+  } catch (err) {
+    console.warn("⚠️ 管理者パスワードの復元に失敗しました(環境変数の初期値のまま続行):", err.message);
+  }
+}
+
+function persistAdminPasswordHash() {
+  gcsStorage
+    .bucket(REGION_STATE_BUCKET)
+    .file(ADMIN_PASSWORD_STATE_FILE)
+    .save(JSON.stringify({ hash: currentAdminPasswordHash, updatedAt: Date.now() }), { contentType: "application/json" })
+    .catch((err) => console.warn("⚠️ 管理者パスワードの保存に失敗しました:", err.message));
+}
+
+// 拠点の対象地域を設定する共通処理。Web管理画面・Discordのどちらの
+// ハンドラからも呼ぶ(homePrefectureId=nullで未設定=全国表示に戻す)。
+function setDeviceRegion(deviceId, homePrefectureId) {
   if (homePrefectureId !== null && (!Number.isInteger(homePrefectureId) || !prefectureIdToGroup.has(homePrefectureId))) {
-    return res.status(400).json({ error: "不正な都道府県IDです" });
+    return { ok: false, error: "不正な都道府県IDです" };
   }
   if (homePrefectureId === null) {
     deviceRegionConfig.delete(deviceId);
@@ -646,8 +724,25 @@ app.post("/admin/api/devices/:deviceId/region", (req, res) => {
   }
   persistRegionConfig();
   console.log(`🗾 デバイス[${deviceId}]の地域設定を更新しました: ${homePrefectureId ?? "(全国)"}`);
-  res.json({ ok: true });
-});
+  return { ok: true };
+}
+
+if (ENABLE_WEB_ADMIN) {
+  app.get("/admin/api/devices/:deviceId/region", (req, res) => {
+    if (!requireAdminAuth(req, res)) return;
+    const config = deviceRegionConfig.get(req.params.deviceId) || { homePrefectureId: null, updatedAt: null };
+    res.json(config);
+  });
+
+  app.post("/admin/api/devices/:deviceId/region", (req, res) => {
+    if (!requireAdminAuth(req, res)) return;
+    const raw = req.body.homePrefectureId;
+    const homePrefectureId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    const result = setDeviceRegion(req.params.deviceId, homePrefectureId);
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    res.json({ ok: true });
+  });
+}
 
 // ラズパイ本体・閲覧ブラウザ(?device=拠点ID)の両方が参照する公開エンドポイント。
 // 地域設定自体は機密情報ではないため認証は無し。
@@ -663,9 +758,121 @@ app.get("/device-region/:deviceId", (req, res) => {
   });
 });
 
+// ==================================================
+// Discord Bot(HTTP Interactionsエンドポイント)
+//
+// Web管理画面(/device-admin)の代わりに、Discordのスラッシュコマンドで
+// 再起動予約・更新確認予約・拠点の地域設定を行う。Cloud Runは常駐
+// プロセスを前提としないため、Gateway Bot(WebSocket常時接続)ではなく
+// DiscordがコマンドのたびにこのURLへPOSTしてくるHTTP方式を使う
+// (ステートレスなリクエスト/レスポンスで、既存のExpress構成とそのまま
+// 相性が良い)。
+//
+// 署名検証(Ed25519)は discord-interactions パッケージを使う。管理者
+// 認証はNode標準cryptoのみで実装した経緯があるが、ここは外部から
+// 到達可能なWebhookの検証というセキュリティクリティカルな箇所なので、
+// 生鍵の扱いを自前実装するリスクを避けて小さな専用ライブラリに頼る。
+// ==================================================
+const DISCORD_PUBLIC_KEY = (process.env.DISCORD_PUBLIC_KEY || "").trim();
+// 未設定の場合はコマンド実行者を制限しない(Discordサーバー側の権限設定
+// だけに頼る)。設定した場合はこのユーザーID以外の実行を拒否する
+// (Web管理画面が運用者1人限定だった方針を踏襲した二重の防御)
+const DISCORD_ADMIN_USER_ID = (process.env.DISCORD_ADMIN_USER_ID || "").trim();
+
+function ephemeralReply(content) {
+  return {
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: { content, flags: InteractionResponseFlags.EPHEMERAL },
+  };
+}
+
+function findFocusedOption(options) {
+  for (const opt of options || []) {
+    if (opt.focused) return opt;
+    if (opt.options) {
+      const nested = findFocusedOption(opt.options);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+// device/prefectureオプションのオートコンプリート。素の文字列入力だと
+// デバイスIDや都道府県名の打ち間違いで無言のエラーになりやすいため、
+// 既存データ(deviceStatus/PREFECTURE_LIST)から候補を絞り込んで返す
+function handleAutocomplete(interaction) {
+  const focused = findFocusedOption(interaction.data.options);
+  const query = String((focused && focused.value) || "").toLowerCase();
+  let choices = [];
+  if (focused && focused.name === "device") {
+    choices = [...deviceStatus.keys()]
+      .filter((id) => id.toLowerCase().includes(query))
+      .slice(0, 25)
+      .map((id) => ({ name: id, value: id }));
+  } else if (focused && focused.name === "prefecture") {
+    choices = PREFECTURE_LIST
+      .filter((p) => p.name.includes(query))
+      .slice(0, 25)
+      .map((p) => ({ name: p.name, value: p.name }));
+  }
+  return { type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT, data: { choices } };
+}
+
+function handleCommand(interaction) {
+  const invokerId = (interaction.member && interaction.member.user && interaction.member.user.id) ||
+    (interaction.user && interaction.user.id);
+  if (DISCORD_ADMIN_USER_ID && invokerId !== DISCORD_ADMIN_USER_ID) {
+    return ephemeralReply("⛔ このコマンドを実行する権限がありません。");
+  }
+  const options = {};
+  for (const opt of interaction.data.options || []) options[opt.name] = opt.value;
+  const deviceId = String(options.device || "");
+
+  if (interaction.data.name === "reboot") {
+    const result = queueDeviceCommand(deviceId, "reboot");
+    return ephemeralReply(result.ok
+      ? `✅ ${deviceId} に再起動を予約しました(次回の状態報告時に実行されます)`
+      : `❌ ${result.error}`);
+  }
+  if (interaction.data.name === "update_check") {
+    const result = queueDeviceCommand(deviceId, "force_update_check");
+    return ephemeralReply(result.ok ? `✅ ${deviceId} に更新確認を予約しました` : `❌ ${result.error}`);
+  }
+  if (interaction.data.name === "set_region") {
+    const prefectureName = String(options.prefecture || "");
+    const prefectureId = prefectureIdByName.get(prefectureName);
+    if (prefectureId === undefined) return ephemeralReply(`❌ 都道府県「${prefectureName}」が見つかりません`);
+    const result = setDeviceRegion(deviceId, prefectureId);
+    return ephemeralReply(result.ok
+      ? `✅ ${deviceId} の対象地域を「${prefectureName}」周辺に設定しました`
+      : `❌ ${result.error}`);
+  }
+  return ephemeralReply("❌ 未対応のコマンドです");
+}
+
+app.post("/discord/interactions", async (req, res) => {
+  const signature = req.get("X-Signature-Ed25519");
+  const timestamp = req.get("X-Signature-Timestamp");
+  const isValid = DISCORD_PUBLIC_KEY && signature && timestamp && req.rawBody &&
+    (await verifyKey(req.rawBody, signature, timestamp, DISCORD_PUBLIC_KEY));
+  if (!isValid) return res.status(401).send("invalid request signature");
+
+  const interaction = req.body;
+  if (interaction.type === InteractionType.PING) {
+    return res.json({ type: InteractionResponseType.PONG });
+  }
+  if (interaction.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE) {
+    return res.json(handleAutocomplete(interaction));
+  }
+  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+    return res.json(handleCommand(interaction));
+  }
+  res.status(400).json({ error: "unsupported interaction type" });
+});
+
 const server = http.createServer(app);
 
-loadRegionConfig().finally(() => {
+Promise.all([loadRegionConfig(), loadAdminPasswordHash()]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
     if (!INGEST_TOKEN) {

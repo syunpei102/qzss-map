@@ -26,12 +26,20 @@ else
   echo "ℹ️  VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY が未設定のため、プッシュ通知は無効のままデプロイします。"
 fi
 
-# このスクリプトは --set-env-vars (置き換え)を使うため、/device-admin用の
-# 環境変数もここで明示的に渡さないと、次回デプロイ時に無言で消えてしまう
-if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD_HASH" ] && [ -n "$SESSION_SECRET" ]; then
-  ENV_VARS="$ENV_VARS,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH,SESSION_SECRET=$SESSION_SECRET"
+# このスクリプトは --set-env-vars (置き換え)を使うため、渡さなかった
+# 環境変数は次回デプロイ時に無言で消える。デバイス操作は現在Discord
+# Botに一本化しているため、通常はDISCORD_PUBLIC_KEY/DISCORD_ADMIN_USER_ID
+# だけを設定する(Web管理画面用のADMIN_EMAIL等は、意図的に復活させたい
+# 時だけENABLE_WEB_ADMIN=trueとあわせて指定する)
+if [ -n "$DISCORD_PUBLIC_KEY" ]; then
+  ENV_VARS="$ENV_VARS,DISCORD_PUBLIC_KEY=$DISCORD_PUBLIC_KEY"
+  [ -n "$DISCORD_ADMIN_USER_ID" ] && ENV_VARS="$ENV_VARS,DISCORD_ADMIN_USER_ID=$DISCORD_ADMIN_USER_ID"
 else
-  echo "ℹ️  ADMIN_EMAIL / ADMIN_PASSWORD_HASH / SESSION_SECRET が未設定のため、/device-admin は無効のままデプロイします。"
+  echo "ℹ️  DISCORD_PUBLIC_KEY が未設定のため、/discord/interactions は署名検証に失敗し続けます(Discordコマンドが使えません)。"
+fi
+
+if [ "$ENABLE_WEB_ADMIN" = "true" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD_HASH" ] && [ -n "$SESSION_SECRET" ]; then
+  ENV_VARS="$ENV_VARS,ENABLE_WEB_ADMIN=true,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH,SESSION_SECRET=$SESSION_SECRET"
 fi
 
 gcloud run deploy "$SERVICE_NAME" \
