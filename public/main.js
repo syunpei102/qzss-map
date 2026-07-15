@@ -935,6 +935,21 @@ function updateWeatherDisplay() {
   map.setPaintProperty('weather-outline', 'line-color', matchExpr);
 }
 
+// 解除(取消)信号が届かないまま安全策のTTL(TTL_WEATHER_MS)が経過した
+// 気象警報・注意報を消す。更新が来るたびにタイマーはリセットされるため、
+// これが実際に発火するのは「その地域について何の続報も来なくなった」場合のみ
+function expireWeatherSite(code) {
+  if (!weatherSites.delete(code)) return;
+  if (currentPatrolCode === code) {
+    currentPatrolCode = null;
+    updateFocusOutline();
+    schedulePatrolNext(0);
+  }
+  updateWeatherDisplay();
+  syncActiveEventLayers();
+  renderEventsPanel();
+}
+
 // ==================================================
 // 気象警報が出ている地域を、1箇所ずつ順番にズームインして巡回する
 // - 地震・津波・Jアラート・Lアラート等(activeEvents)が1件でもアクティブな
@@ -1213,7 +1228,7 @@ function findMatchingGroup(report, eventData) {
 
   if (epicenterRaw != null || occurrenceTime != null) {
     for (const record of activeEvents.values()) {
-      if (record.ttlMs) continue; // 取消・解除などの短時間通知カードには統合しない
+      if (record.isTransientNotice) continue; // 取消・解除などの短時間通知カードには統合しない
       if (epicenterRaw != null && record.epicenterRaw === epicenterRaw) return record;
       if (occurrenceTime != null && record.occurrenceTime === occurrenceTime) return record;
     }
@@ -1224,12 +1239,15 @@ function findMatchingGroup(report, eventData) {
   const now = Date.now();
   let best = null;
   for (const record of activeEvents.values()) {
-    // 取消・解除・デコードエラーなどの短時間通知カード(ttl付き)は
+    // 取消・解除・デコードエラーなどの短時間通知カード(isTransientNotice)は
     // 「地震グループ」ではないため統合先にしない。以前これが原因で、
     // EEW取消の直後に届いた津波警報が「取消」通知カードへ統合されて
     // しまい、通知カードの自動消滅タイマー(10秒)と一緒に津波警報の
-    // 表示ごと消えるという重大なバグがあった
-    if (record.ttlMs) continue;
+    // 表示ごと消えるという重大なバグがあった。
+    // (以前はこの判定にttlMsの有無を使っていたが、通常の地震・津波
+    // イベントにも安全策としてttlMsを持たせるようになったため、
+    // 「短時間通知カードかどうか」を表す専用フラグに切り出した)
+    if (record.isTransientNotice) continue;
     if (now - record.updatedAt > RECENT_MS) continue;
     if (eventData.bounds && record.bounds && !boundsAreNear(eventData.bounds, record.bounds)) continue;
     if (!best || record.updatedAt > best.updatedAt) best = record;
@@ -1302,8 +1320,12 @@ function addActiveEvent(eventData, ttlMs = null) {
 // 既にアクティブな同一地震のイベントに、新しい通報の内容を統合する
 // (震源位置の更新で✕マーカーが重複しないよう差し替え、都道府県の
 //  塗りつぶし・詳細項目は最新の内容で上書きしつつ足りないものは追加する)
-function mergeIntoActiveEvent(record, eventData, report) {
+// newTtlMs: 今回の通報自体が本来持つべき安全策TTL。例えば震度速報
+// (15分)のカードに津波警報(24時間)が統合された場合、より長い方を
+// 採用する(短い方に引きずられて津波警報ごと早期に消えないようにする)
+function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   clearTimeout(record.timer);
+  if (newTtlMs != null) record.ttlMs = Math.max(record.ttlMs || 0, newTtlMs);
 
   if (eventData.geo.hypocenter) {
     if (record.markers.hypocenter) record.markers.hypocenter.remove();
@@ -1723,6 +1745,36 @@ function renderEventsPanel() {
 // ==================================================
 // 受信した災危通報(JSON)を画面と地図に反映する
 // ==================================================
+// 取消・解除信号が来れば従来通りそれを最優先で使う(このセクションの
+// 各TTLは「取消・解除が何らかの理由で届かなかった場合」の安全策)。
+// 緊急地震速報は本質的に速報性の高い情報のため短め、震源・震度速報は
+// 事実情報でそもそも取消の仕組みが無いため「最後の更新から」の猶予、
+// 津波・警報系は安全側に倒して長めに設定している。
+const TTL_EEW_MS = 10 * 60 * 1000; // 緊急地震速報: 10分
+const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 最後の更新から15分
+const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間
+const TTL_JALERT_MS = 24 * 60 * 60 * 1000; // Jアラート: 24時間
+const TTL_WEATHER_MS = 24 * 60 * 60 * 1000; // 気象警報・注意報: 最後の更新から24時間
+const TTL_OTHER_CATEGORY_MS = 24 * 60 * 60 * 1000; // 南海トラフ/火山/降灰/洪水: 最後の更新から24時間
+
+// Lアラートはa8_hazard_duration(CAP標準の継続時間、azarashi定義で
+// 4値のみ)を持っていればそれを上限として使う。HAZARD_DURATION_JA
+// (623行目付近)と同じキーで揃えてある
+const LALERT_DURATION_TTL_MS = {
+  'Duration < 6H': 6 * 60 * 60 * 1000,
+  '6H <= Duration < 12H': 12 * 60 * 60 * 1000,
+  '12H <= Duration < 24H': 24 * 60 * 60 * 1000,
+};
+function lalertTtlMs(report) {
+  return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL_JALERT_MS; // Unknown/未設定なら24時間
+}
+
+function ttlMsForReport(report) {
+  if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
+  if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
+  return null;
+}
+
 // キャンセル報(取消): 気象庁が既に発表した通報を取り下げるもの。
 // 同じ震央のアクティブな表示を即座に取り下げ、代わりに短時間だけ「取消」を通知する
 // (表示地域の絞り込みで元の通報自体が表示されていなかった場合は、
@@ -1750,6 +1802,7 @@ function handleCancellation(report) {
       rows: [['対象', report.seismic_epicenter || '']].filter(([, v]) => v),
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
       bounds: null,
+      isTransientNotice: true, // findMatchingGroupの統合対象から除外する
     },
     10000 // 取消の通知は短めに表示する
   );
@@ -1782,6 +1835,7 @@ function handleTsunamiResolution(report) {
       rows: [],
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
       bounds: null,
+      isTransientNotice: true,
     },
     10000
   );
@@ -1850,6 +1904,7 @@ function renderReport(report) {
       rows: [],
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
       bounds: null,
+      isTransientNotice: true,
     }, 10000); // 技術的なエラー通知なので短時間で消す
     return;
   }
@@ -1863,7 +1918,7 @@ function renderReport(report) {
       return;
     }
     const event = buildEventFromJAlert(report);
-    if (isRelevantToTargetRegion(event)) addActiveEvent(event);
+    if (isRelevantToTargetRegion(event)) addActiveEvent(event, TTL_JALERT_MS);
     return;
   }
 
@@ -1876,7 +1931,7 @@ function renderReport(report) {
       return;
     }
     const event = buildEventFromLAlert(report);
-    if (isRelevantToTargetRegion(event)) addActiveEvent(event);
+    if (isRelevantToTargetRegion(event)) addActiveEvent(event, lalertTtlMs(report));
     return;
   }
 
@@ -1892,6 +1947,8 @@ function renderReport(report) {
     let removedFocusedRegion = false;
     codes.forEach((code, i) => {
       if (resolved) {
+        const existing = weatherSites.get(code);
+        if (existing && existing.timer) clearTimeout(existing.timer);
         if (weatherSites.delete(code) && currentPatrolCode === code) removedFocusedRegion = true;
         return;
       }
@@ -1900,6 +1957,7 @@ function renderReport(report) {
       if (lockedPrefectureIds && !lockedPrefectureIds.has(Math.floor(code / 10000))) return;
       const existing = weatherSites.get(code);
       if (!existing) newlyAddedCodes.push(code);
+      if (existing && existing.timer) clearTimeout(existing.timer);
       const subCategory = subCats[i];
       const mergedSubCategories = existing
         ? [...new Set([...existing.subCategories, subCategory].filter(Boolean))]
@@ -1917,6 +1975,8 @@ function renderReport(report) {
         satelliteId: report.satellite_id,
         satellitePrn: report.satellite_prn,
         updatedAt: Date.now(),
+        // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
+        timer: setTimeout(() => expireWeatherSite(code), TTL_WEATHER_MS),
       });
     });
     updateWeatherDisplay();
@@ -1938,10 +1998,18 @@ function renderReport(report) {
 
   // 南海トラフ地震(4)・火山(8)・降灰(9)・洪水(11): カテゴリごとに1枚
   if ([4, 8, 9, 11].includes(report.disaster_category_no)) {
+    const existing = otherReports.get(report.disaster_category_no);
+    if (existing && existing.timer) clearTimeout(existing.timer);
     if (report.information_type_no === 2) {
       otherReports.delete(report.disaster_category_no);
     } else {
-      otherReports.set(report.disaster_category_no, buildEventFromOtherCategory(report));
+      const event = buildEventFromOtherCategory(report);
+      // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
+      event.timer = setTimeout(() => {
+        otherReports.delete(report.disaster_category_no);
+        renderEventsPanel();
+      }, TTL_OTHER_CATEGORY_MS);
+      otherReports.set(report.disaster_category_no, event);
     }
     renderEventsPanel();
     return;
@@ -1981,13 +2049,14 @@ function renderReport(report) {
       const near = event.bounds && record.bounds && boundsAreNear(event.bounds, record.bounds);
       if (sameGroup || near) removeActiveEvent(id);
     }
-    addActiveEvent(event);
+    addActiveEvent(event, TTL_EEW_MS);
     return;
   }
 
   const match = findMatchingGroup(report, event);
-  if (match) mergeIntoActiveEvent(match, event, report);
-  else addActiveEvent(event);
+  const ttlMs = ttlMsForReport(report);
+  if (match) mergeIntoActiveEvent(match, event, report, ttlMs);
+  else addActiveEvent(event, ttlMs);
 }
 
 // ==================================================
