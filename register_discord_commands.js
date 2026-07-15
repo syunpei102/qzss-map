@@ -22,6 +22,7 @@ if (!BOT_TOKEN || !APPLICATION_ID || !GUILD_ID) {
 }
 
 const STRING_OPTION_TYPE = 3;
+const BOOLEAN_OPTION_TYPE = 5;
 
 const deviceOption = {
   name: "device",
@@ -29,6 +30,12 @@ const deviceOption = {
   type: STRING_OPTION_TYPE,
   required: true,
   autocomplete: true,
+};
+
+const optionalDeviceOption = {
+  ...deviceOption,
+  description: "対象の拠点ID(省略すると拠点ごとの設定が無い端末すべてに適用される)",
+  required: false,
 };
 
 const commands = [
@@ -60,6 +67,19 @@ const commands = [
     name: "create_device_token",
     description: "拠点用のINGEST_TOKENを新規発行する(既存の拠点に対して行うと再発行=旧トークン失効)",
     options: [deviceOption],
+  },
+  {
+    name: "set_training_broadcasts",
+    description: "訓練/試験放送(月2回程度)を地図に表示するか設定する。deviceを指定すればその拠点だけ、省略すれば全体に適用",
+    options: [
+      {
+        name: "enabled",
+        description: "表示するかどうか",
+        type: BOOLEAN_OPTION_TYPE,
+        required: true,
+      },
+      optionalDeviceOption,
+    ],
   },
 ];
 

@@ -802,6 +802,52 @@ function persistAdminPasswordHash() {
   persistJson(ADMIN_PASSWORD_STATE_FILE, { hash: currentAdminPasswordHash, updatedAt: Date.now() });
 }
 
+// ==================================================
+// 訓練放送(report_classification_no===7)の表示ON/OFF
+//
+// 全体の既定値(globalShowTrainingBroadcasts)と、拠点ごとの上書き
+// (deviceTrainingBroadcastOverrides)の2段構え。Discordの
+// /set_training_broadcasts で、deviceを指定すればその拠点だけ、
+// 指定しなければ全体(=上書きしていない拠点すべて)の設定を変更できる。
+// ==================================================
+let globalShowTrainingBroadcasts = true;
+const deviceTrainingBroadcastOverrides = new Map(); // device_id -> boolean
+const TRAINING_BROADCAST_STATE_FILE = "training_broadcast_settings.json";
+
+async function loadTrainingBroadcastSettings() {
+  const restored = await loadPersistedJson(TRAINING_BROADCAST_STATE_FILE);
+  if (!restored || typeof restored !== "object") return;
+  if (typeof restored.global === "boolean") globalShowTrainingBroadcasts = restored.global;
+  if (restored.perDevice && typeof restored.perDevice === "object") {
+    for (const [deviceId, val] of Object.entries(restored.perDevice)) {
+      if (typeof val === "boolean") deviceTrainingBroadcastOverrides.set(deviceId, val);
+    }
+  }
+}
+
+function persistTrainingBroadcastSettings() {
+  persistJson(TRAINING_BROADCAST_STATE_FILE, {
+    global: globalShowTrainingBroadcasts,
+    perDevice: Object.fromEntries(deviceTrainingBroadcastOverrides),
+  });
+}
+
+// deviceId=null/undefinedなら全体の既定値を変更する。指定すればその
+// 拠点だけの上書きを設定する
+function setTrainingBroadcastSetting(deviceId, enabled) {
+  if (deviceId) {
+    deviceTrainingBroadcastOverrides.set(deviceId, enabled);
+  } else {
+    globalShowTrainingBroadcasts = enabled;
+  }
+  persistTrainingBroadcastSettings();
+}
+
+function resolveShowTrainingBroadcasts(deviceId) {
+  if (deviceId && deviceTrainingBroadcastOverrides.has(deviceId)) return deviceTrainingBroadcastOverrides.get(deviceId);
+  return globalShowTrainingBroadcasts;
+}
+
 // 拠点の対象地域を設定する共通処理。Web管理画面・Discordのどちらの
 // ハンドラからも呼ぶ(homePrefectureId=nullで未設定=全国表示に戻す)。
 function setDeviceRegion(deviceId, homePrefectureId) {
@@ -847,6 +893,14 @@ app.get("/device-region/:deviceId", (req, res) => {
     homePrefectureId: config.homePrefectureId,
     prefectureIds: expandHomePrefecture(config.homePrefectureId),
   });
+});
+
+// ブラウザ(main.js)が起動時に読む、表示挙動の設定値。?device=拠点IDを
+// 付ければその拠点の上書き設定(無ければ全体設定)を返す。機密情報では
+// ないため認証は無し
+app.get("/config", (req, res) => {
+  const deviceId = req.query.device ? String(req.query.device) : null;
+  res.json({ showTrainingBroadcasts: resolveShowTrainingBroadcasts(deviceId) });
 });
 
 // ==================================================
@@ -953,6 +1007,16 @@ function handleCommand(interaction) {
       `\`\`\`\nQZSS_DEVICE_ID=${deviceId}\nQZSS_INGEST_TOKEN=${token}\n\`\`\``
     );
   }
+  if (interaction.data.name === "set_training_broadcasts") {
+    const enabled = !!options.enabled;
+    const targetDevice = deviceId || null; // device未指定なら全体設定を変更する
+    setTrainingBroadcastSetting(targetDevice, enabled);
+    return ephemeralReply(
+      targetDevice
+        ? `✅ ${targetDevice} の訓練放送表示を${enabled ? "ON" : "OFF"}にしました(この拠点だけの設定)`
+        : `✅ 全体(拠点ごとの上書きが無い端末すべて)の訓練放送表示を${enabled ? "ON" : "OFF"}にしました`
+    );
+  }
   return ephemeralReply("❌ 未対応のコマンドです");
 }
 
@@ -978,7 +1042,12 @@ app.post("/discord/interactions", async (req, res) => {
 
 const server = http.createServer(app);
 
-Promise.all([loadRegionConfig(), loadAdminPasswordHash(), loadDeviceIngestTokens()]).finally(() => {
+Promise.all([
+  loadRegionConfig(),
+  loadAdminPasswordHash(),
+  loadDeviceIngestTokens(),
+  loadTrainingBroadcastSettings(),
+]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
     if (!INGEST_TOKEN) {

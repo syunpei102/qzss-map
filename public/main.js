@@ -96,6 +96,26 @@ setInterval(refreshStatusPill, 5000);
 // ==================================================
 const ALLOWED_CATEGORIES = new Set([1, 2, 3, 5]); // EEW, 震源, 震度, 津波
 
+// 衛星から実際に配信される公式の訓練/試験放送(report_classification_no
+// ===7、月2回程度)を地図・パネルに表示するかどうか。trueにすると本物の
+// 警報と全く同じズーム・塗りつぶし・パネル表示を行うが、バッジ・
+// タイトルに「[訓練]」を付与して見分けられるようにする(severityClass
+// が既にsev-training色を返す)。
+// サーバー側(GCS/ローカルファイルに永続化、Discordの
+// /set_training_broadcasts で変更)から起動時に取得する。取得できる
+// までの既定値・取得失敗時のフォールバックはtrue(従来通り表示する)
+let showTrainingBroadcasts = true;
+async function loadShowTrainingBroadcastsSetting() {
+  try {
+    const url = LOCKED_DEVICE_ID ? `/config?device=${encodeURIComponent(LOCKED_DEVICE_ID)}` : '/config';
+    const res = await fetch(url);
+    const data = await res.json();
+    if (typeof data.showTrainingBroadcasts === 'boolean') showTrainingBroadcasts = data.showTrainingBroadcasts;
+  } catch (err) {
+    console.warn('訓練放送表示設定の取得に失敗しました(既定値のまま続行):', err);
+  }
+}
+
 // 震度速報の震度コード(1〜7) -> 表示ラベル/色
 // 彩度を抑えた単一の暖色グラデーション(穏やかな青→黄土→橙→赤→深いえんじ色)にして、
 // ダークな地図/UIの中で浮かないよう、また階調が自然につながるようにしている
@@ -1887,12 +1907,25 @@ function isRelevantToTargetRegion(eventData) {
   return eventData.geo.prefectures.some((p) => targetIds.has(p.id));
 }
 
+// 訓練/試験放送(report_classification_no===7)の見出しに「[訓練]」を
+// 付与する。色(sev-training)はseverityClass/otherBadgeClassForReport/
+// jalertSeverityClassが既に対応済みなので、ここではテキストのみ扱う。
+// event.title(activeEvents・otherReports)/event.name(weatherSites)の
+// どちらか存在する方に付ける
+function applyTrainingLabel(event, report) {
+  if (report.report_classification_no !== 7) return event;
+  if (event.title) event.title = `[訓練] ${event.title}`;
+  if (event.name) event.name = `[訓練] ${event.name}`;
+  return event;
+}
+
 function renderReport(report) {
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
-  // (月2回程度)。プッシュ通知は([訓練]プレフィックス付きで)サーバー側で
-  // 別途送られるが、こちらは本物の警報と紛らわしいので画面には出さない。
-  // 取消が来ないカテゴリのため、一度表示すると消せなくなる問題もある。
-  if (report.report_classification_no === 7) return;
+  // (月2回程度)。showTrainingBroadcasts=trueなら本物と全く同じ経路で
+  // 表示する(バッジ・タイトルへの「[訓練]」付与はapplyTrainingLabel、
+  // severityClassが色をsev-training(紫)にする)。取消が来ない場合でも
+  // 各カテゴリの安全策TTLで自動的に消える
+  if (report.report_classification_no === 7 && !showTrainingBroadcasts) return;
 
   if (report.type === 'DecodeError') {
     addActiveEvent({
@@ -1917,7 +1950,7 @@ function renderReport(report) {
       }
       return;
     }
-    const event = buildEventFromJAlert(report);
+    const event = applyTrainingLabel(buildEventFromJAlert(report), report);
     if (isRelevantToTargetRegion(event)) addActiveEvent(event, TTL_JALERT_MS);
     return;
   }
@@ -1930,7 +1963,7 @@ function renderReport(report) {
       }
       return;
     }
-    const event = buildEventFromLAlert(report);
+    const event = applyTrainingLabel(buildEventFromLAlert(report), report);
     if (isRelevantToTargetRegion(event)) addActiveEvent(event, lalertTtlMs(report));
     return;
   }
@@ -1967,7 +2000,7 @@ function renderReport(report) {
       weatherSites.set(code, {
         code,
         rawName, // 地域名の無い再送時に existing.rawName で引き継ぐため保存必須
-        name: regionDisplayName(code, rawName),
+        name: (report.report_classification_no === 7 ? '[訓練] ' : '') + regionDisplayName(code, rawName),
         subCategories: mergedSubCategories,
         description: report.description || (existing && existing.description) || '',
         bounds: feature ? geometryBounds(feature.geometry) : (existing && existing.bounds) || null,
@@ -2003,7 +2036,7 @@ function renderReport(report) {
     if (report.information_type_no === 2) {
       otherReports.delete(report.disaster_category_no);
     } else {
-      const event = buildEventFromOtherCategory(report);
+      const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);
       // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
       event.timer = setTimeout(() => {
         otherReports.delete(report.disaster_category_no);
@@ -2032,7 +2065,7 @@ function renderReport(report) {
   // 画面はそのまま(前回の重要な通報の表示を維持する)
   if (!ALLOWED_CATEGORIES.has(report.disaster_category_no)) return;
 
-  const event = buildEventFromReport(report);
+  const event = applyTrainingLabel(buildEventFromReport(report), report);
   if (!isRelevantToTargetRegion(event)) return;
 
   // 立て続けの地震(余震)対応: 新しい緊急地震速報が届いた時、既に表示中の
@@ -2131,6 +2164,10 @@ async function initMap() {
   // prefectureFeaturesByIdが揃った直後(=bbox計算可能になった時点)で
   // 取得・カメラを固定する
   await applyDeviceRegionLock();
+  // 訓練放送を表示するかどうか(Discordの/set_training_broadcastsで
+  // 変更できる設定)。WebSocketが最初の通報を処理する前(mapReady解決前)
+  // に読み込んでおく
+  await loadShowTrainingBroadcastsSetting();
 
   // 国土地理院のベクトルタイルはzoom4未満だとタイルデータ自体が存在せず
   // 真っ白になる。都道府県ポリゴン(prefectures.geojson)を使った境界線
