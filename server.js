@@ -19,6 +19,22 @@ const app = express();
 // 市区町村境界データ(municipalities.geojson、数MB)を素で返すと
 // 特にモバイル回線で初回読み込みが遅くなるため、gzip圧縮する
 app.use(compression());
+// 地図データ(pmtiles/geojson)は展示中・運用中はほぼ変化しないため、
+// ブラウザに一定時間キャッシュさせて往復を減らす(ラズパイのループバック
+// (kiosk表示)では無視できるコストだが、Cloud Run経由のWeb配信では
+// 地味に効いてくる)。
+//
+// 注意: immutable指定はあえて付けていない。immutableにすると
+// キャッシュ有効期間中はブラウザが確認リクエストすら送らなくなり、
+// こちらがデータを更新しても同じファイル名のままだと最大キャッシュ
+// 期間ぶん反映が遅れて気づけない、という事故が起きうる。maxAgeだけに
+// しておけば、期限が切れた際にブラウザが軽い確認(If-None-Match等)を
+// 送り、中身が同じならほぼノーコストな304応答、変わっていれば自動的に
+// 新しい内容を取得する(=更新の反映漏れが起きない)。1日程度に留め、
+// 万一のズレも自動的に解消されるようにする
+app.use('/data', express.static(path.join(PUBLIC_DIR, 'data'), {
+  maxAge: '1d',
+}));
 app.use(express.static(PUBLIC_DIR));
 app.use(express.json({ limit: "256kb" }));
 
