@@ -5,6 +5,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.21.0",
     "compression": "^1.8.1",
     "express": "^4.22.2",
     "pmtiles": "^4.3.0",

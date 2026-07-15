@@ -1,0 +1,14 @@
+{
+  "_comment": "都道府県ID(public/data/prefectures.geojsonのid、1〜47)を地方でグルーピングした表。デバイスに割り当てられた拠点の都道府県から、周辺(同じ地方)まで含めて展開するために使う。展開はサーバー側(server.js)でのみ行い、ラズパイ・ブラウザはどちらも展開済みの結果を /device-region/:deviceId から受け取るだけにする(表自体を二重管理しない)。標準的な8地方区分をベースに、沖縄は本州から距離があるため単独グループにしている。",
+  "groups": [
+    { "id": "hokkaido", "name": "北海道", "prefectureIds": [1] },
+    { "id": "tohoku", "name": "東北", "prefectureIds": [2, 3, 4, 5, 6, 7] },
+    { "id": "kanto", "name": "関東", "prefectureIds": [8, 9, 10, 11, 12, 13, 14] },
+    { "id": "chubu", "name": "中部", "prefectureIds": [15, 16, 17, 18, 19, 20, 21, 22, 23] },
+    { "id": "kinki", "name": "近畿", "prefectureIds": [24, 25, 26, 27, 28, 29, 30] },
+    { "id": "chugoku", "name": "中国", "prefectureIds": [31, 32, 33, 34, 35] },
+    { "id": "shikoku", "name": "四国", "prefectureIds": [36, 37, 38, 39] },
+    { "id": "kyushu", "name": "九州", "prefectureIds": [40, 41, 42, 43, 44, 45, 46] },
+    { "id": "okinawa", "name": "沖縄", "prefectureIds": [47] }
+  ]
+}

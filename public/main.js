@@ -1172,7 +1172,15 @@ const DEFAULT_VIEW = { center: [135.7671, 35.6812], zoom: 4.55 };
 // (実際にはmaxBoundsの都合でMAP_MIN_ZOOMより少し高い値にクランプされる)
 const DEFAULT_VIEW_MOBILE = { center: [136.5, 35.5], zoom: MAP_MIN_ZOOM };
 
+// デバイスロックモード(?device=拠点ID、kiosk設置向け)で、拠点に割り
+// 当てられた地域が判明したら、アイドル時の既定表示をそこに固定する。
+// map.cameraForBounds()はmapインスタンスが必要なため、初回のマップ生成
+// (initMap内でgetDefaultView()を呼ぶ最初の1回)には間に合わず、そこだけ
+// 一瞬全国表示になる。その後applyDeviceRegionLock()で即座に上書きする。
+let lockedDefaultView = null; // {center, zoom} | null
+
 function getDefaultView() {
+  if (lockedDefaultView) return lockedDefaultView;
   return isMobileLayout() ? DEFAULT_VIEW_MOBILE : DEFAULT_VIEW;
 }
 
@@ -1780,22 +1788,42 @@ function handleTsunamiResolution(report) {
 }
 
 // ==================================================
-// 表示地域の絞り込み(管理画面 admin.html で登録した都道府県のみ表示)
-// 未登録(null)なら絞り込みなし。対象都道府県が判別できない通報
+// デバイスロックモード(?device=拠点ID)
+//
+// サイネージ/kiosk設置向け。URLに ?device=<拠点ID> が付いている場合のみ、
+// 管理サイト(device-admin)でその拠点に割り当てられた都道府県+周辺地方
+// (/device-region/:deviceId、サーバー側で展開済み)に表示を固定する。
+// パラメータが無い通常の閲覧(一般公開ビュー)は今まで通り絞り込みなし・
+// 全国巡回のまま。
+// ==================================================
+const LOCKED_DEVICE_ID = new URLSearchParams(location.search).get('device');
+let lockedPrefectureIds = null; // Set<number> | null(拠点に地域が割り当てられている場合のみ)
+
+async function applyDeviceRegionLock() {
+  if (!LOCKED_DEVICE_ID) return;
+  try {
+    const res = await fetch(`/device-region/${encodeURIComponent(LOCKED_DEVICE_ID)}`);
+    const data = await res.json();
+    if (!Array.isArray(data.prefectureIds) || !data.prefectureIds.length) return; // 未割り当て=絞り込みなしのまま
+    lockedPrefectureIds = new Set(data.prefectureIds);
+    const boundsList = [...lockedPrefectureIds]
+      .map((id) => prefectureFeaturesById.get(id))
+      .filter(Boolean)
+      .map((f) => mainLandBounds(f.geometry));
+    if (!boundsList.length) return;
+    const [minX, minY, maxX, maxY] = unionBounds(boundsList);
+    lockedDefaultView = map.cameraForBounds([[minX, minY], [maxX, maxY]], { padding: 40 });
+    map.jumpTo(lockedDefaultView);
+  } catch (err) {
+    console.warn('拠点の地域設定の取得に失敗しました(絞り込みなしで続行):', err);
+  }
+}
+
+// 未割り当て(null)なら絞り込みなし。対象都道府県が判別できない通報
 // (震源のみの情報・津波情報など geo.prefectures が空のもの)は
 // 絞り込み対象外として常に表示する。
-// ==================================================
-const TARGET_PREFECTURES_KEY = 'qzss_target_prefectures';
-
 function getTargetPrefectureIds() {
-  try {
-    const raw = localStorage.getItem(TARGET_PREFECTURES_KEY);
-    if (!raw) return null;
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) && arr.length ? new Set(arr) : null;
-  } catch (e) {
-    return null;
-  }
+  return lockedPrefectureIds;
 }
 
 function isRelevantToTargetRegion(eventData) {
@@ -1867,6 +1895,9 @@ function renderReport(report) {
         if (weatherSites.delete(code) && currentPatrolCode === code) removedFocusedRegion = true;
         return;
       }
+      // デバイスロックモードでは、地域コード上位2桁(都道府県ID、
+      // regionDisplayNameと同じ導出方法)が対象地域外なら追加しない
+      if (lockedPrefectureIds && !lockedPrefectureIds.has(Math.floor(code / 10000))) return;
       const existing = weatherSites.get(code);
       if (!existing) newlyAddedCodes.push(code);
       const subCategory = subCats[i];
@@ -2026,6 +2057,11 @@ async function initMap() {
     prefectureFeaturesByName.set(f.properties.name, f);
   }
   for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
+
+  // デバイスロックモード: 拠点(?device=)に地域が割り当てられていれば、
+  // prefectureFeaturesByIdが揃った直後(=bbox計算可能になった時点)で
+  // 取得・カメラを固定する
+  await applyDeviceRegionLock();
 
   // 国土地理院のベクトルタイルはzoom4未満だとタイルデータ自体が存在せず
   // 真っ白になる。都道府県ポリゴン(prefectures.geojson)を使った境界線

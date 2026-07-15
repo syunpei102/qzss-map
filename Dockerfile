@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 
-COPY server.js ./
+COPY server.js region_groups.json ./
 COPY public ./public
 
 ENV PORT=8080

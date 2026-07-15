@@ -2,7 +2,7 @@
 // 地図の見た目(HTML/JS/CSS/スタイル定義/GeoJSON/アイコン)だけを
 // オフラインでも開けるようキャッシュする。リアルタイム通信である
 // WebSocketや /ingest への送信には一切関与しない(GET以外は素通し)。
-const CACHE_VERSION = 'qzss-map-v3';
+const CACHE_VERSION = 'qzss-map-v4';
 const APP_SHELL = [
   './',
   './index.html',
@@ -10,8 +10,6 @@ const APP_SHELL = [
   './style.css',
   './style.json',
   './manifest.json',
-  './admin.html',
-  './admin.js',
   './data/epicenter_regions.geojson',
   './data/tsunami_regions.geojson',
   './data/prefectures.geojson',

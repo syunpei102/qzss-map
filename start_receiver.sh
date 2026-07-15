@@ -1,10 +1,11 @@
 #!/bin/bash
 # 実機の受信機からクラウド(Cloud Run)へ送信する一発起動スクリプト。
-# ポート名だけ指定すれば、あらかじめ設定済みのURL/トークンで
-# read_legacy.py を起動する(地図の描画自体はCloud Run側が行う)。
+# ポート名を指定し、QZSS_INGEST_TOKEN を環境変数で渡してから実行する
+# (read_legacy.py を起動する。地図の描画自体はCloud Run側が行う)。
 #
+# 秘密のトークンをこのファイルに直接書かない(公開リポジトリのため)。
 # 使い方:
-#   ./start_receiver.sh /dev/tty.usbserial-10 [ボーレート(既定9600)]
+#   QZSS_INGEST_TOKEN=xxxxxxxx ./start_receiver.sh /dev/tty.usbserial-10 [ボーレート(既定9600)]
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,8 +14,8 @@ cd "$DIR"
 PORT="$1"
 BAUDRATE="${2:-9600}"
 
-export QZSS_CLOUD_URL="https://qzss-map-85436528666.asia-northeast1.run.app/ingest"
-export QZSS_INGEST_TOKEN="4552855f00070aecee0278b9ba8dbc7c"
+export QZSS_CLOUD_URL="${QZSS_CLOUD_URL:-https://eq.shum10.com/ingest}"
+: "${QZSS_INGEST_TOKEN:?QZSS_INGEST_TOKEN を環境変数で指定してください(例: QZSS_INGEST_TOKEN=xxxx $0 ...)}"
 
 if [ -z "$PORT" ]; then
   echo "使い方: $0 <シリアルポート> [ボーレート(既定9600)]"

@@ -2,9 +2,11 @@ const express = require("express");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const WebSocket = require("ws");
 const webpush = require("web-push");
 const compression = require("compression");
+const { Storage } = require("@google-cloud/storage");
 
 // ==== 設定 ====
 // ローカルでもCloud Run上でも同じコードで動くように、
@@ -407,7 +409,6 @@ app.post("/ingest", (req, res) => {
 // 状態はメモリ上にのみ保持する(Cloud Runの再起動で消えるが、次の
 // 状態報告(1時間おき)で自然に復元されるので実運用上問題ない)。
 // ==================================================
-const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
 const deviceStatus = new Map(); // device_id -> 最新の状態報告
 const pendingCommands = new Map(); // device_id -> [{command, requestedAt}, ...]
 const DEVICE_OFFLINE_AFTER_MS = 130 * 60 * 1000; // この時間報告が無ければオフライン扱い(状態報告は1時間おきなので、それより余裕を持たせる)
@@ -420,17 +421,107 @@ function requireDeviceToken(req, res) {
   return true;
 }
 
-function requireAdminToken(req, res) {
-  if (!ADMIN_TOKEN) {
-    res.status(503).json({ error: "admin機能が無効です(ADMIN_TOKEN未設定)" });
+// ==================================================
+// 管理サイト(/device-admin)のログイン(メール+パスワード)
+//
+// 管理者は運用者1人だけの想定なので、複数ユーザーやDBは持たず、
+// 環境変数(ADMIN_EMAIL / ADMIN_PASSWORD_HASH)と照合するだけのシンプルな
+// 作りにする。パスワードはハッシュ化して比較し(平文保存しない)、
+// ログイン成功後はHMAC署名付きの改ざん検知可能なCookieでセッションを
+// 維持する(新規npm依存を増やさず、Node標準のcryptoだけで実装)。
+// ==================================================
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+const ADMIN_PASSWORD_HASH = (process.env.ADMIN_PASSWORD_HASH || "").trim();
+const SESSION_SECRET = (process.env.SESSION_SECRET || "").trim();
+const SESSION_COOKIE_NAME = "qzss_admin_session";
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7日
+
+function verifyPassword(password, storedHash) {
+  const [saltHex, hashHex] = storedHash.split(":");
+  if (!saltHex || !hashHex) return false;
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = crypto.scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function base64url(input) {
+  return Buffer.from(input).toString("base64url");
+}
+
+function signSession(payloadObj) {
+  const payloadB64 = base64url(JSON.stringify(payloadObj));
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payloadB64).digest("base64url");
+  return `${payloadB64}.${sig}`;
+}
+
+function verifySession(token) {
+  if (!token) return null;
+  const [payloadB64, sig] = token.split(".");
+  if (!payloadB64 || !sig) return null;
+  const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(payloadB64).digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expectedBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    if (!payload.admin || typeof payload.exp !== "number" || Date.now() > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+
+// express.jsonはContent-Type: application/jsonのみを対象にするため、
+// Cookieヘッダ用に軽量な自前パーサを使う(単一Cookieのみなので
+// cookie-parser依存は不要)
+function getCookie(req, name) {
+  const header = req.get("Cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() === name) return decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return null;
+}
+
+function requireAdminAuth(req, res) {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD_HASH || !SESSION_SECRET) {
+    res.status(503).json({ error: "admin機能が無効です(ADMIN_EMAIL/ADMIN_PASSWORD_HASH/SESSION_SECRET未設定)" });
     return false;
   }
-  if (req.get("X-Admin-Token") !== ADMIN_TOKEN) {
+  const session = verifySession(getCookie(req, SESSION_COOKIE_NAME));
+  if (!session) {
     res.status(401).json({ error: "unauthorized" });
     return false;
   }
   return true;
 }
+
+app.post("/admin/api/login", (req, res) => {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD_HASH || !SESSION_SECRET) {
+    return res.status(503).json({ error: "admin機能が無効です(ADMIN_EMAIL/ADMIN_PASSWORD_HASH/SESSION_SECRET未設定)" });
+  }
+  const email = String(req.body.email || "").trim().toLowerCase();
+  const password = String(req.body.password || "");
+  if (email !== ADMIN_EMAIL || !password || !verifyPassword(password, ADMIN_PASSWORD_HASH)) {
+    return res.status(401).json({ error: "メールアドレスまたはパスワードが違います" });
+  }
+  const token = signSession({ admin: true, exp: Date.now() + SESSION_MAX_AGE_MS });
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAge: SESSION_MAX_AGE_MS,
+    path: "/",
+  });
+  res.json({ ok: true });
+});
+
+app.post("/admin/api/logout", (req, res) => {
+  res.clearCookie(SESSION_COOKIE_NAME, { httpOnly: true, secure: true, sameSite: "lax", path: "/" });
+  res.json({ ok: true });
+});
 
 // ラズパイ側(report_status.sh)が数分おきに現在の状態を送ってくる。
 // 同じリクエストへの応答で、保留中のコマンド(reboot等)も一緒に返す
@@ -451,11 +542,12 @@ app.post("/device/status", (req, res) => {
 
 // 管理サイトから見る、全デバイスの最新状態一覧
 app.get("/admin/api/devices", (req, res) => {
-  if (!requireAdminToken(req, res)) return;
+  if (!requireAdminAuth(req, res)) return;
   const now = Date.now();
   const devices = [...deviceStatus.values()].map((d) => ({
     ...d,
     online: now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS,
+    homePrefectureId: (deviceRegionConfig.get(d.deviceId) || {}).homePrefectureId ?? null,
   }));
   res.json({ devices });
 });
@@ -463,7 +555,7 @@ app.get("/admin/api/devices", (req, res) => {
 // 管理サイトから「次にこのデバイスが状態報告に来た時にreboot等を
 // 実行させる」ためのコマンドを予約する
 app.post("/admin/api/devices/:deviceId/command", (req, res) => {
-  if (!requireAdminToken(req, res)) return;
+  if (!requireAdminAuth(req, res)) return;
   const { deviceId } = req.params;
   const command = String(req.body.command || "");
   if (!["reboot", "force_update_check"].includes(command)) {
@@ -480,15 +572,108 @@ app.get("/device-admin", (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "device-admin.html"));
 });
 
+// ==================================================
+// デバイスごとの地域設定(拠点の都道府県+周辺地方)
+//
+// 各拠点(ラズパイ1台)に都道府県を1つ割り当てると、その都道府県が
+// 属する地方(region_groups.json)全体まで展開したIDリストを返す
+// (例: 東京都→関東7都県)。展開はここで1回だけ行い、ラズパイ・
+// 閲覧ブラウザの両方は展開済みの結果を受け取るだけにする。
+//
+// 管理画面で人が稀に変更するだけの設定値なので、Cloud Run再起動で
+// 消えると実害が大きい(毎回設定し直しになる)ため、変更の度にGCSへ
+// 保存する(map_caution/server.jsのactiveReports永続化と同じパターン)。
+// ==================================================
+const REGION_GROUPS = JSON.parse(fs.readFileSync(path.join(__dirname, "region_groups.json"), "utf8")).groups;
+const prefectureIdToGroup = new Map();
+for (const group of REGION_GROUPS) {
+  for (const id of group.prefectureIds) prefectureIdToGroup.set(id, group);
+}
+
+function expandHomePrefecture(prefectureId) {
+  const group = prefectureIdToGroup.get(prefectureId);
+  return group ? group.prefectureIds : [prefectureId];
+}
+
+const deviceRegionConfig = new Map(); // device_id -> { homePrefectureId, updatedAt }
+const REGION_STATE_BUCKET = process.env.REGION_STATE_BUCKET || "qzss-map-state";
+const REGION_STATE_FILE = "device_region_config.json";
+const gcsStorage = new Storage();
+
+async function loadRegionConfig() {
+  try {
+    const file = gcsStorage.bucket(REGION_STATE_BUCKET).file(REGION_STATE_FILE);
+    const [exists] = await file.exists();
+    if (!exists) return;
+    const [contents] = await file.download();
+    const restored = JSON.parse(contents.toString("utf8"));
+    if (restored && typeof restored === "object") {
+      for (const [deviceId, config] of Object.entries(restored)) deviceRegionConfig.set(deviceId, config);
+      console.log(`♻️  デバイス地域設定を復元しました(${deviceRegionConfig.size}件)`);
+    }
+  } catch (err) {
+    console.warn("⚠️ デバイス地域設定の復元に失敗しました:", err.message);
+  }
+}
+
+function persistRegionConfig() {
+  const obj = Object.fromEntries(deviceRegionConfig);
+  gcsStorage
+    .bucket(REGION_STATE_BUCKET)
+    .file(REGION_STATE_FILE)
+    .save(JSON.stringify(obj), { contentType: "application/json" })
+    .catch((err) => console.warn("⚠️ デバイス地域設定の保存に失敗しました:", err.message));
+}
+
+app.get("/admin/api/devices/:deviceId/region", (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+  const config = deviceRegionConfig.get(req.params.deviceId) || { homePrefectureId: null, updatedAt: null };
+  res.json(config);
+});
+
+app.post("/admin/api/devices/:deviceId/region", (req, res) => {
+  if (!requireAdminAuth(req, res)) return;
+  const { deviceId } = req.params;
+  const raw = req.body.homePrefectureId;
+  const homePrefectureId = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+  if (homePrefectureId !== null && (!Number.isInteger(homePrefectureId) || !prefectureIdToGroup.has(homePrefectureId))) {
+    return res.status(400).json({ error: "不正な都道府県IDです" });
+  }
+  if (homePrefectureId === null) {
+    deviceRegionConfig.delete(deviceId);
+  } else {
+    deviceRegionConfig.set(deviceId, { homePrefectureId, updatedAt: Date.now() });
+  }
+  persistRegionConfig();
+  console.log(`🗾 デバイス[${deviceId}]の地域設定を更新しました: ${homePrefectureId ?? "(全国)"}`);
+  res.json({ ok: true });
+});
+
+// ラズパイ本体・閲覧ブラウザ(?device=拠点ID)の両方が参照する公開エンドポイント。
+// 地域設定自体は機密情報ではないため認証は無し。
+app.get("/device-region/:deviceId", (req, res) => {
+  const config = deviceRegionConfig.get(req.params.deviceId);
+  if (!config) {
+    return res.json({ deviceId: req.params.deviceId, homePrefectureId: null, prefectureIds: null });
+  }
+  res.json({
+    deviceId: req.params.deviceId,
+    homePrefectureId: config.homePrefectureId,
+    prefectureIds: expandHomePrefecture(config.homePrefectureId),
+  });
+});
+
 const server = http.createServer(app);
 
-server.listen(PORT, () => {
-  console.log(`✅ サーバー起動: http://localhost:${PORT}`);
-  if (!INGEST_TOKEN) {
-    console.warn(
-      "⚠️ INGEST_TOKEN が未設定です。/ingest は無認証で受け付けます(本番運用では必ず環境変数 INGEST_TOKEN を設定してください)"
-    );
-  }
+loadRegionConfig().finally(() => {
+  server.listen(PORT, () => {
+    console.log(`✅ サーバー起動: http://localhost:${PORT}`);
+    if (!INGEST_TOKEN) {
+      console.warn(
+        "⚠️ INGEST_TOKEN が未設定です。/ingest は無認証で受け付けます(本番運用では必ず環境変数 INGEST_TOKEN を設定してください)"
+      );
+    }
+  });
 });
 
 const wss = new WebSocket.Server({ server });

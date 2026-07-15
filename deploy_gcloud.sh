@@ -26,6 +26,14 @@ else
   echo "ℹ️  VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY が未設定のため、プッシュ通知は無効のままデプロイします。"
 fi
 
+# このスクリプトは --set-env-vars (置き換え)を使うため、/device-admin用の
+# 環境変数もここで明示的に渡さないと、次回デプロイ時に無言で消えてしまう
+if [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD_HASH" ] && [ -n "$SESSION_SECRET" ]; then
+  ENV_VARS="$ENV_VARS,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH,SESSION_SECRET=$SESSION_SECRET"
+else
+  echo "ℹ️  ADMIN_EMAIL / ADMIN_PASSWORD_HASH / SESSION_SECRET が未設定のため、/device-admin は無効のままデプロイします。"
+fi
+
 gcloud run deploy "$SERVICE_NAME" \
   --source . \
   --region "$REGION" \
