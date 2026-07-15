@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>QZSS デバイス管理</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: #14161a;
+    color: #e8eaed;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  #login-box {
+    max-width: 360px;
+    margin: 80px auto;
+    background: #1e2126;
+    padding: 24px;
+    border-radius: 12px;
+  }
+  #login-box input {
+    width: 100%;
+    padding: 10px;
+    margin: 8px 0;
+    border-radius: 6px;
+    border: 1px solid #3a3f47;
+    background: #14161a;
+    color: #e8eaed;
+    font-size: 14px;
+  }
+  #login-box button, .btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    background: #2f6fed;
+    color: #fff;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  #login-box button:hover, .btn:hover { background: #4c8bf5; }
+  .btn.danger { background: #b3261e; }
+  .btn.danger:hover { background: #d9382e; }
+  .btn:disabled { background: #3a3f47; cursor: not-allowed; }
+  #error-msg { color: #ff6b6b; font-size: 13px; min-height: 18px; }
+
+  #devices { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .device-card {
+    background: #1e2126;
+    border-radius: 12px;
+    padding: 18px;
+    border-left: 4px solid #3a3f47;
+  }
+  .device-card.online { border-left-color: #2ecc71; }
+  .device-card.offline { border-left-color: #888; opacity: 0.7; }
+  .device-card.hot { border-left-color: #e74c3c; }
+  .device-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+  .device-status-pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  .device-status-pill.online { background: rgba(46,204,113,0.18); color: #2ecc71; }
+  .device-status-pill.offline { background: rgba(255,255,255,0.1); color: #9aa0a6; }
+  dl.info-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 10px;
+    margin: 0 0 14px;
+    font-size: 13px;
+  }
+  dl.info-grid dt { color: #9aa0a6; }
+  dl.info-grid dd { margin: 0; word-break: break-all; }
+  .temp-value.warn { color: #f0a83c; font-weight: bold; }
+  .temp-value.critical { color: #e74c3c; font-weight: bold; }
+  .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  #empty-state { color: #9aa0a6; text-align: center; margin-top: 60px; }
+  #last-refresh { color: #9aa0a6; font-size: 12px; margin-bottom: 16px; }
+  .toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: #1e2126; border: 1px solid #3a3f47;
+    padding: 10px 16px; border-radius: 8px; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div id="login-box">
+  <h1>QZSS デバイス管理</h1>
+  <input type="password" id="token-input" placeholder="管理トークン(ADMIN_TOKEN)" />
+  <div id="error-msg"></div>
+  <button id="login-btn">ログイン</button>
+</div>
+
+<div id="dashboard" style="display:none">
+  <h1>QZSS デバイス管理</h1>
+  <p><a class="btn" href="./admin.html" style="text-decoration:none; display:inline-block">表示地域の設定はこちら →</a></p>
+  <div id="last-refresh"></div>
+  <div id="devices"></div>
+  <div id="empty-state" style="display:none">まだどのデバイスからも状態報告がありません。</div>
+</div>
+
+<script>
+const TOKEN_KEY = 'qzss_admin_token';
+const REFRESH_MS = 15000;
+const TEMP_WARN = 70;
+const TEMP_CRITICAL = 80;
+
+function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), 'X-Admin-Token': getToken() },
+  });
+  if (res.status === 401) throw new Error('unauthorized');
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
+function formatDuration(sec) {
+  if (!sec && sec !== 0) return '-';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}日${h}時間`;
+  if (h > 0) return `${h}時間${m}分`;
+  return `${m}分`;
+}
+
+function formatAgo(ts) {
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 60) return `${sec}秒前`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}分前`;
+  return `${Math.floor(sec / 3600)}時間前`;
+}
+
+function escapeHtml(text) {
+  return String(text ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+function tempClass(c) {
+  if (c == null) return '';
+  if (c >= TEMP_CRITICAL) return 'critical';
+  if (c >= TEMP_WARN) return 'warn';
+  return '';
+}
+
+function renderDevices(devices) {
+  const container = document.getElementById('devices');
+  const empty = document.getElementById('empty-state');
+  if (!devices.length) {
+    container.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  container.innerHTML = devices.map((d) => {
+    const hot = d.temperature_c != null && d.temperature_c >= TEMP_CRITICAL;
+    const cardClass = hot ? 'hot' : (d.online ? 'online' : 'offline');
+    const tClass = tempClass(d.temperature_c);
+    return `
+      <div class="device-card ${cardClass}">
+        <div class="device-name">${escapeHtml(d.deviceId)}</div>
+        <span class="device-status-pill ${d.online ? 'online' : 'offline'}">${d.online ? '🟢 オンライン' : '⚪ オフライン'}</span>
+        <dl class="info-grid">
+          <dt>最終報告</dt><dd>${formatAgo(d.receivedAt)}</dd>
+          <dt>本体温度</dt><dd class="temp-value ${tClass}">${d.temperature_c != null ? d.temperature_c.toFixed(1) + '℃' : '-'}</dd>
+          <dt>稼働時間</dt><dd>${formatDuration(d.uptime_sec)}</dd>
+          <dt>ディスク空き</dt><dd>${d.disk_free_pct != null ? d.disk_free_pct + '%' : '-'}</dd>
+          <dt>qzss-map</dt><dd>${escapeHtml((d.git_commit_map || '').slice(0, 7)) || '-'}</dd>
+          <dt>qzss-pi-package</dt><dd>${escapeHtml((d.git_commit_pi || '').slice(0, 7)) || '-'}</dd>
+        </dl>
+        <div class="card-actions">
+          <button class="btn danger" data-action="reboot" data-device="${escapeHtml(d.deviceId)}">再起動を予約</button>
+          <button class="btn" data-action="force_update_check" data-device="${escapeHtml(d.deviceId)}">更新確認を予約</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function refresh() {
+  try {
+    const { devices } = await api('/admin/api/devices');
+    renderDevices(devices);
+    document.getElementById('last-refresh').textContent = `最終更新: ${new Date().toLocaleTimeString('ja-JP')}`;
+  } catch (e) {
+    if (e.message === 'unauthorized') {
+      showLogin('トークンが違います');
+    }
+  }
+}
+
+function showToast(text) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+document.getElementById('devices').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const { action, device } = btn.dataset;
+  const label = action === 'reboot' ? '再起動' : '更新確認';
+  if (action === 'reboot' && !confirm(`${device} を再起動しますか?(次回の状態報告時に実行されます)`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/admin/api/devices/${encodeURIComponent(device)}/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command: action }),
+    });
+    showToast(`${device} に${label}を予約しました`);
+  } catch (err) {
+    showToast(`失敗しました: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function showLogin(error) {
+  document.getElementById('login-box').style.display = 'block';
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('error-msg').textContent = error || '';
+}
+
+function showDashboard() {
+  document.getElementById('login-box').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  refresh();
+}
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const t = document.getElementById('token-input').value.trim();
+  if (!t) return;
+  setToken(t);
+  try {
+    await api('/admin/api/devices');
+    showDashboard();
+  } catch (e) {
+    showLogin('トークンが違います');
+  }
+});
+document.getElementById('token-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('login-btn').click();
+});
+
+(async () => {
+  if (getToken()) {
+    try {
+      await api('/admin/api/devices');
+      showDashboard();
+    } catch (e) {
+      showLogin();
+    }
+  } else {
+    showLogin();
+  }
+  setInterval(() => {
+    if (document.getElementById('dashboard').style.display !== 'none') refresh();
+  }, REFRESH_MS);
+})();
+</script>
+</body>
+</html>

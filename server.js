@@ -397,6 +397,89 @@ app.post("/ingest", (req, res) => {
   res.status(204).end();
 });
 
+// ==================================================
+// デバイス管理(ラズパイ本体の健康状態・リモート再起動)
+//
+// ラズパイ側は外部からの着信を一切受け付けない設計(OTA更新と同じ
+// pull型の考え方)にしているため、ここでも「ラズパイが定期的に自分の
+// 状態を送ってくる(push)」「ラズパイが定期的に保留中のコマンドが
+// 無いか確認しに来る(pull)」という組み合わせにする。
+// 状態はメモリ上にのみ保持する(Cloud Runの再起動で消えるが、次の
+// 状態報告(数分おき)で自然に復元されるので実運用上問題ない)。
+// ==================================================
+const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
+const deviceStatus = new Map(); // device_id -> 最新の状態報告
+const pendingCommands = new Map(); // device_id -> [{command, requestedAt}, ...]
+const DEVICE_OFFLINE_AFTER_MS = 15 * 60 * 1000; // この時間報告が無ければオフライン扱い
+
+function requireDeviceToken(req, res) {
+  if (INGEST_TOKEN && req.get("X-Api-Key") !== INGEST_TOKEN) {
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+function requireAdminToken(req, res) {
+  if (!ADMIN_TOKEN) {
+    res.status(503).json({ error: "admin機能が無効です(ADMIN_TOKEN未設定)" });
+    return false;
+  }
+  if (req.get("X-Admin-Token") !== ADMIN_TOKEN) {
+    res.status(401).json({ error: "unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// ラズパイ側(report_status.sh)が数分おきに現在の状態を送ってくる。
+// 同じリクエストへの応答で、保留中のコマンド(reboot等)も一緒に返す
+// (ラズパイ側から見れば「状態を送ったら、ついでにやることが無いか
+// 教えてもらえる」という1往復で完結する設計)
+app.post("/device/status", (req, res) => {
+  if (!requireDeviceToken(req, res)) return;
+  const deviceId = String(req.body.device_id || req.body.hostname || "unknown");
+  deviceStatus.set(deviceId, {
+    ...req.body,
+    deviceId,
+    receivedAt: Date.now(),
+  });
+  const commands = pendingCommands.get(deviceId) || [];
+  pendingCommands.delete(deviceId); // 一度渡したら消す(取りに来た=実行される前提)
+  res.json({ ok: true, commands });
+});
+
+// 管理サイトから見る、全デバイスの最新状態一覧
+app.get("/admin/api/devices", (req, res) => {
+  if (!requireAdminToken(req, res)) return;
+  const now = Date.now();
+  const devices = [...deviceStatus.values()].map((d) => ({
+    ...d,
+    online: now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS,
+  }));
+  res.json({ devices });
+});
+
+// 管理サイトから「次にこのデバイスが状態報告に来た時にreboot等を
+// 実行させる」ためのコマンドを予約する
+app.post("/admin/api/devices/:deviceId/command", (req, res) => {
+  if (!requireAdminToken(req, res)) return;
+  const { deviceId } = req.params;
+  const command = String(req.body.command || "");
+  if (!["reboot", "force_update_check"].includes(command)) {
+    return res.status(400).json({ error: "未対応のコマンドです" });
+  }
+  const list = pendingCommands.get(deviceId) || [];
+  list.push({ command, requestedAt: Date.now() });
+  pendingCommands.set(deviceId, list);
+  console.log(`🛠️ デバイス[${deviceId}]にコマンドを予約しました: ${command}`);
+  res.json({ ok: true });
+});
+
+app.get("/device-admin", (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, "device-admin.html"));
+});
+
 const server = http.createServer(app);
 
 server.listen(PORT, () => {
