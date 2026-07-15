@@ -405,12 +405,12 @@ app.post("/ingest", (req, res) => {
 // 状態を送ってくる(push)」「ラズパイが定期的に保留中のコマンドが
 // 無いか確認しに来る(pull)」という組み合わせにする。
 // 状態はメモリ上にのみ保持する(Cloud Runの再起動で消えるが、次の
-// 状態報告(数分おき)で自然に復元されるので実運用上問題ない)。
+// 状態報告(1時間おき)で自然に復元されるので実運用上問題ない)。
 // ==================================================
 const ADMIN_TOKEN = (process.env.ADMIN_TOKEN || "").trim();
 const deviceStatus = new Map(); // device_id -> 最新の状態報告
 const pendingCommands = new Map(); // device_id -> [{command, requestedAt}, ...]
-const DEVICE_OFFLINE_AFTER_MS = 15 * 60 * 1000; // この時間報告が無ければオフライン扱い
+const DEVICE_OFFLINE_AFTER_MS = 130 * 60 * 1000; // この時間報告が無ければオフライン扱い(状態報告は1時間おきなので、それより余裕を持たせる)
 
 function requireDeviceToken(req, res) {
   if (INGEST_TOKEN && req.get("X-Api-Key") !== INGEST_TOKEN) {

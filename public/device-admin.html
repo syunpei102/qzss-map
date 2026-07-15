@@ -99,7 +99,10 @@
 </div>
 
 <div id="dashboard" style="display:none">
-  <h1>QZSS デバイス管理</h1>
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px">
+    <h1>QZSS デバイス管理</h1>
+    <button class="btn" id="logout-btn" style="background:#3a3f47">ログアウト</button>
+  </div>
   <p><a class="btn" href="./admin.html" style="text-decoration:none; display:inline-block">表示地域の設定はこちら →</a></p>
   <div id="last-refresh"></div>
   <div id="devices"></div>
@@ -254,6 +257,11 @@ document.getElementById('login-btn').addEventListener('click', async () => {
 });
 document.getElementById('token-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('login-btn').click();
+});
+document.getElementById('logout-btn').addEventListener('click', () => {
+  sessionStorage.removeItem(TOKEN_KEY);
+  document.getElementById('token-input').value = '';
+  showLogin();
 });
 
 (async () => {
