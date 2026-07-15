@@ -56,6 +56,11 @@ const commands = [
       },
     ],
   },
+  {
+    name: "create_device_token",
+    description: "拠点用のINGEST_TOKENを新規発行する(既存の拠点に対して行うと再発行=旧トークン失効)",
+    options: [deviceOption],
+  },
 ];
 
 async function main() {

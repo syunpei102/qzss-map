@@ -395,13 +395,13 @@ function handleIncomingLine(line) {
 }
 
 // ラズパイなど現地の受信機からデコード済みJSONを受け取るエンドポイント。
-// 秘密トークン(INGEST_TOKEN)を X-Api-Key ヘッダで照合する。
+// 拠点ごとのトークン(X-Api-Keyヘッダ)で照合する。1台分が漏えいしても
+// 他の拠点は影響を受けない(requireDeviceToken参照)。
 app.post("/ingest", (req, res) => {
-  if (INGEST_TOKEN && req.get("X-Api-Key") !== INGEST_TOKEN) {
-    return res.status(401).json({ error: "unauthorized" });
-  }
+  const auth = requireDeviceToken(req, res);
+  if (!auth.ok) return;
   const line = JSON.stringify(req.body);
-  console.log("📡 ingest受信:", line.slice(0, 400));
+  console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 400));
   handleIncomingLine(line);
   res.status(204).end();
 });
@@ -420,12 +420,23 @@ const deviceStatus = new Map(); // device_id -> 最新の状態報告
 const pendingCommands = new Map(); // device_id -> [{command, requestedAt}, ...]
 const DEVICE_OFFLINE_AFTER_MS = 130 * 60 * 1000; // この時間報告が無ければオフライン扱い(状態報告は1時間おきなので、それより余裕を持たせる)
 
+// 拠点ごとのINGEST_TOKEN(deviceIngestTokens、GCS永続化)で認証する。
+// トークンから拠点IDを逆引きするため、リクエスト本文の自己申告
+// device_idは信用しない(なりすまし防止)。deviceIngestTokensの実体は
+// このファイル下部(GCS永続化セクション)で定義しているが、実際に
+// 呼ばれるのはサーバー起動・GCS読み込み完了後なので参照して問題ない。
+//
+// 後方互換/ローカル動作確認用に、共有のINGEST_TOKENも引き続き使える
+// (この場合は拠点を特定できないのでdeviceId=nullを返す)。
 function requireDeviceToken(req, res) {
-  if (INGEST_TOKEN && req.get("X-Api-Key") !== INGEST_TOKEN) {
+  if (deviceIngestTokens.size === 0 && !INGEST_TOKEN) return { ok: true, deviceId: null };
+  const token = req.get("X-Api-Key") || "";
+  const deviceId = resolveDeviceToken(token);
+  if (deviceId === undefined) {
     res.status(401).json({ error: "unauthorized" });
-    return false;
+    return { ok: false, deviceId: null };
   }
-  return true;
+  return { ok: true, deviceId };
 }
 
 // ==================================================
@@ -569,8 +580,12 @@ if (ENABLE_WEB_ADMIN) {
 // (ラズパイ側から見れば「状態を送ったら、ついでにやることが無いか
 // 教えてもらえる」という1往復で完結する設計)
 app.post("/device/status", (req, res) => {
-  if (!requireDeviceToken(req, res)) return;
-  const deviceId = String(req.body.device_id || req.body.hostname || "unknown");
+  const auth = requireDeviceToken(req, res);
+  if (!auth.ok) return;
+  // 拠点ごとのトークンで認証できていればそちらを正とする(本文の
+  // device_idはなりすまし防止のため信用しない)。共有トークン使用時
+  // (auth.deviceId===null、後方互換/ローカル動作確認用)のみ本文を使う
+  const deviceId = auth.deviceId || String(req.body.device_id || req.body.hostname || "unknown");
   deviceStatus.set(deviceId, {
     ...req.body,
     deviceId,
@@ -657,29 +672,117 @@ const REGION_STATE_BUCKET = process.env.REGION_STATE_BUCKET || "qzss-map-state";
 const REGION_STATE_FILE = "device_region_config.json";
 const gcsStorage = new Storage();
 
-async function loadRegionConfig() {
+// server.jsはCloud Run上でもラズパイの完全ローカルkiosk運用
+// (start_pi_local.sh、インターネット接続なし)でも同じコードで動く。
+// 完全ローカル運用ではそもそもインターネットに届かずGCSは使えない
+// (使おうとしても無駄な待ち時間・警告ログが出るだけ)ため、
+// LOCAL_STATE_ONLY=true が設定されている場合はGCSに一切アクセスせず、
+// 最初からローカルディスクのJSONファイルだけを永続化先にする
+// (start_demo.sh/start_prod.sh/start_pi_local.shが自動で設定する)。
+// 未設定(Cloud Run本番)の場合はGCSが実質的な永続化先になる。
+const LOCAL_STATE_ONLY = (process.env.LOCAL_STATE_ONLY || "").trim() === "true";
+const LOCAL_STATE_DIR = path.join(__dirname, ".local_state");
+
+function localStatePath(filename) {
+  return path.join(LOCAL_STATE_DIR, filename);
+}
+
+function loadLocalStateFile(filename) {
   try {
-    const file = gcsStorage.bucket(REGION_STATE_BUCKET).file(REGION_STATE_FILE);
+    return JSON.parse(fs.readFileSync(localStatePath(filename), "utf8"));
+  } catch (err) {
+    return null;
+  }
+}
+
+async function loadPersistedJson(filename) {
+  if (LOCAL_STATE_ONLY) return loadLocalStateFile(filename);
+  try {
+    const file = gcsStorage.bucket(REGION_STATE_BUCKET).file(filename);
     const [exists] = await file.exists();
-    if (!exists) return;
-    const [contents] = await file.download();
-    const restored = JSON.parse(contents.toString("utf8"));
-    if (restored && typeof restored === "object") {
-      for (const [deviceId, config] of Object.entries(restored)) deviceRegionConfig.set(deviceId, config);
-      console.log(`♻️  デバイス地域設定を復元しました(${deviceRegionConfig.size}件)`);
+    if (exists) {
+      const [contents] = await file.download();
+      return JSON.parse(contents.toString("utf8"));
     }
   } catch (err) {
-    console.warn("⚠️ デバイス地域設定の復元に失敗しました:", err.message);
+    console.warn(`⚠️ GCSからの復元に失敗しました(${filename})。ローカルファイルを試します:`, err.message);
+  }
+  return loadLocalStateFile(filename);
+}
+
+function persistJson(filename, data) {
+  const json = JSON.stringify(data);
+  try {
+    fs.mkdirSync(LOCAL_STATE_DIR, { recursive: true });
+    fs.writeFileSync(localStatePath(filename), json);
+  } catch (err) {
+    console.warn(`⚠️ ローカルファイルへの保存に失敗しました(${filename}):`, err.message);
+  }
+  if (LOCAL_STATE_ONLY) return;
+  gcsStorage
+    .bucket(REGION_STATE_BUCKET)
+    .file(filename)
+    .save(json, { contentType: "application/json" })
+    .catch((err) => console.warn(`⚠️ GCSへの保存に失敗しました(${filename}):`, err.message));
+}
+
+// ==================================================
+// 拠点ごとのINGEST_TOKEN
+//
+// 以前は全拠点共通の1つのINGEST_TOKENだったが、1台分が漏えいすると
+// 全拠点になりすまして偽の通報を送り込めてしまうため、拠点ごとに別々の
+// トークンを発行できるようにする(Discordの /create_device_token)。
+// 1台分が漏えいしても、そのトークンだけ再発行すれば他の拠点は無傷。
+// ==================================================
+const deviceIngestTokens = new Map(); // device_id -> token
+const DEVICE_TOKENS_STATE_FILE = "device_ingest_tokens.json";
+
+async function loadDeviceIngestTokens() {
+  const restored = await loadPersistedJson(DEVICE_TOKENS_STATE_FILE);
+  if (restored && typeof restored === "object") {
+    for (const [deviceId, token] of Object.entries(restored)) deviceIngestTokens.set(deviceId, token);
+    console.log(`♻️  拠点別INGEST_TOKENを復元しました(${deviceIngestTokens.size}件)`);
+  }
+}
+
+function persistDeviceIngestTokens() {
+  persistJson(DEVICE_TOKENS_STATE_FILE, Object.fromEntries(deviceIngestTokens));
+}
+
+// 新規発行(既存の拠点IDに対して呼ぶと再発行=旧トークンは即座に失効)
+function createDeviceToken(deviceId) {
+  const token = crypto.randomBytes(16).toString("hex");
+  deviceIngestTokens.set(deviceId, token);
+  persistDeviceIngestTokens();
+  return token;
+}
+
+// トークン→拠点IDの逆引き。一致なしはundefined、共有INGEST_TOKENと
+// 一致した場合はnull(拠点不明、後方互換/ローカル動作確認用)を返す
+function resolveDeviceToken(token) {
+  if (!token) return undefined;
+  const tokenBuf = Buffer.from(token);
+  for (const [deviceId, t] of deviceIngestTokens) {
+    const tBuf = Buffer.from(t);
+    if (tBuf.length === tokenBuf.length && crypto.timingSafeEqual(tBuf, tokenBuf)) return deviceId;
+  }
+  if (INGEST_TOKEN) {
+    const sharedBuf = Buffer.from(INGEST_TOKEN);
+    if (sharedBuf.length === tokenBuf.length && crypto.timingSafeEqual(sharedBuf, tokenBuf)) return null;
+  }
+  return undefined;
+}
+
+async function loadRegionConfig() {
+  const restored = await loadPersistedJson(REGION_STATE_FILE);
+  if (restored && typeof restored === "object") {
+    for (const [deviceId, config] of Object.entries(restored)) deviceRegionConfig.set(deviceId, config);
+    console.log(`♻️  デバイス地域設定を復元しました(${deviceRegionConfig.size}件)`);
   }
 }
 
 function persistRegionConfig() {
-  const obj = Object.fromEntries(deviceRegionConfig);
-  gcsStorage
-    .bucket(REGION_STATE_BUCKET)
-    .file(REGION_STATE_FILE)
-    .save(JSON.stringify(obj), { contentType: "application/json" })
-    .catch((err) => console.warn("⚠️ デバイス地域設定の保存に失敗しました:", err.message));
+  persistJson(REGION_STATE_FILE, Object.fromEntries(deviceRegionConfig));
 }
 
 // 管理者パスワード(/device-adminから自分で変更できる)。同じバケットに
@@ -688,27 +791,15 @@ function persistRegionConfig() {
 const ADMIN_PASSWORD_STATE_FILE = "admin_password_hash.json";
 
 async function loadAdminPasswordHash() {
-  try {
-    const file = gcsStorage.bucket(REGION_STATE_BUCKET).file(ADMIN_PASSWORD_STATE_FILE);
-    const [exists] = await file.exists();
-    if (!exists) return;
-    const [contents] = await file.download();
-    const restored = JSON.parse(contents.toString("utf8"));
-    if (restored && restored.hash) {
-      currentAdminPasswordHash = restored.hash;
-      console.log("♻️  管理者パスワードを復元しました");
-    }
-  } catch (err) {
-    console.warn("⚠️ 管理者パスワードの復元に失敗しました(環境変数の初期値のまま続行):", err.message);
+  const restored = await loadPersistedJson(ADMIN_PASSWORD_STATE_FILE);
+  if (restored && restored.hash) {
+    currentAdminPasswordHash = restored.hash;
+    console.log("♻️  管理者パスワードを復元しました");
   }
 }
 
 function persistAdminPasswordHash() {
-  gcsStorage
-    .bucket(REGION_STATE_BUCKET)
-    .file(ADMIN_PASSWORD_STATE_FILE)
-    .save(JSON.stringify({ hash: currentAdminPasswordHash, updatedAt: Date.now() }), { contentType: "application/json" })
-    .catch((err) => console.warn("⚠️ 管理者パスワードの保存に失敗しました:", err.message));
+  persistJson(ADMIN_PASSWORD_STATE_FILE, { hash: currentAdminPasswordHash, updatedAt: Date.now() });
 }
 
 // 拠点の対象地域を設定する共通処理。Web管理画面・Discordのどちらの
@@ -805,7 +896,12 @@ function handleAutocomplete(interaction) {
   const query = String((focused && focused.value) || "").toLowerCase();
   let choices = [];
   if (focused && focused.name === "device") {
-    choices = [...deviceStatus.keys()]
+    // create_device_tokenは未稼働の新規拠点にも使うため、状態報告済み
+    // (deviceStatus)だけでなく既にトークン発行済み(deviceIngestTokens)の
+    // IDも候補に含める。他のコマンドは動いている拠点だけで十分だが、
+    // 含めても害はないので共通化する
+    const knownIds = new Set([...deviceStatus.keys(), ...deviceIngestTokens.keys()]);
+    choices = [...knownIds]
       .filter((id) => id.toLowerCase().includes(query))
       .slice(0, 25)
       .map((id) => ({ name: id, value: id }));
@@ -847,6 +943,16 @@ function handleCommand(interaction) {
       ? `✅ ${deviceId} の対象地域を「${prefectureName}」周辺に設定しました`
       : `❌ ${result.error}`);
   }
+  if (interaction.data.name === "create_device_token") {
+    if (!deviceId) return ephemeralReply("❌ deviceを指定してください");
+    const alreadyExisted = deviceIngestTokens.has(deviceId);
+    const token = createDeviceToken(deviceId);
+    return ephemeralReply(
+      `✅ ${deviceId} 用のトークンを${alreadyExisted ? "再発行しました(旧トークンは失効しました)" : "発行しました"}。\n` +
+      `この拠点の \`qzss.env\` に設定してください:\n` +
+      `\`\`\`\nQZSS_DEVICE_ID=${deviceId}\nQZSS_INGEST_TOKEN=${token}\n\`\`\``
+    );
+  }
   return ephemeralReply("❌ 未対応のコマンドです");
 }
 
@@ -872,7 +978,7 @@ app.post("/discord/interactions", async (req, res) => {
 
 const server = http.createServer(app);
 
-Promise.all([loadRegionConfig(), loadAdminPasswordHash()]).finally(() => {
+Promise.all([loadRegionConfig(), loadAdminPasswordHash(), loadDeviceIngestTokens()]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
     if (!INGEST_TOKEN) {

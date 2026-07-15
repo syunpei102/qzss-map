@@ -24,7 +24,7 @@ if [ ! -d venv ]; then
 fi
 
 echo "📡 サーバー起動 (静的配信+WebSocket, port 8080)"
-node server.js &
+LOCAL_STATE_ONLY=true node server.js &
 SERVER_PID=$!
 
 echo "🧪 擬似データ送信を開始 (test.py, 5秒おき)"
