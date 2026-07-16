@@ -2189,9 +2189,9 @@ async function initMap() {
     center: initialView.center,
     zoom: initialView.zoom,
     minZoom: MAP_MIN_ZOOM,
-    // ローカルキオスクは操作する人がいない(自動ズームのみ)ため、
-    // 実際に必要な範囲まで上限を下げる(実機で確認して決定した値)
-    maxZoom: IS_LOCAL_KIOSK ? 9 : 13,
+    // 対象地域の把握にそこまでの拡大は不要なため上限を下げる
+    // (ローカルキオスク・公開Web版どちらも実機/実際の操作感で確認した値)
+    maxZoom: 9,
     maxBounds: bounds,
     // Pi 3等の非力なGPU向けの描画負荷軽減。見た目への影響はほぼ無い
     // (フェード遷移が無くなる程度)が、毎フレームの合成コストを削れる
