@@ -163,6 +163,11 @@ function summarizeReport(r) {
   return parts.join(' / ');
 }
 
+// 5秒ごとの自動更新でテーブルを丸ごと作り直すと、開いていた<details>
+// (内容の詳細表示)がその都度閉じてしまい読めないため、どのキーが
+// 開いていたかを覚えておいて再描画後に復元する
+const openDetailKeys = new Set();
+
 function renderTable(history) {
   const tbody = document.querySelector('#history-table tbody');
   const emptyMsg = document.getElementById('empty-msg');
@@ -173,12 +178,14 @@ function renderTable(history) {
     return;
   }
   emptyMsg.style.display = 'none';
-  tbody.innerHTML = recent.map((h) => `
+  tbody.innerHTML = recent.map((h) => {
+    const key = String(h.recordedAt);
+    return `
     <tr>
       <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
       <td>${h.isTestData ? '<span style="color:#f1c40f">🧪 テスト</span>' : '<span style="color:#2ecc71">実データ</span>'}</td>
       <td style="text-align:left; max-width:260px;">
-        <details>
+        <details data-key="${key}" ${openDetailKeys.has(key) ? 'open' : ''}>
           <summary style="cursor:pointer">${escapeHtml(summarizeReport(h.reportSummary))}</summary>
           <pre style="white-space:pre-wrap; font-size:11px; color:#9aa0a6; margin:6px 0 0;">${escapeHtml(JSON.stringify(h.reportSummary, null, 2))}</pre>
         </details>
@@ -189,7 +196,15 @@ function renderTable(history) {
       <td>${h.dispatchPrepMs}ms</td>
       <td>${h.renderMs}ms</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
+
+  for (const el of tbody.querySelectorAll('details')) {
+    el.addEventListener('toggle', () => {
+      if (el.open) openDetailKeys.add(el.dataset.key);
+      else openDetailKeys.delete(el.dataset.key);
+    });
+  }
 }
 
 async function refresh() {
