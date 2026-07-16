@@ -453,10 +453,24 @@ app.post("/ingest", (req, res) => {
 });
 
 // レイテンシ計測(T0受信〜T4描画完了)の履歴。ダッシュボード表示用に
-// 直近LATENCY_HISTORY_MAXSIZE件だけメモリ上に保持する(永続化不要、
-// Cloud Run再起動で消えても実運用に支障は無い計測専用データのため)
+// 直近LATENCY_HISTORY_MAX_SIZE件だけ保持する。deviceRegionConfig等と
+// 同じパターンでGCS/ローカルファイルに永続化し、デプロイ・再起動を
+// またいでも消えないようにする
 const LATENCY_HISTORY_MAX_SIZE = 200;
+const LATENCY_HISTORY_STATE_FILE = "latency_history.json";
 const latencyHistory = [];
+
+async function loadLatencyHistory() {
+  const restored = await loadPersistedJson(LATENCY_HISTORY_STATE_FILE);
+  if (Array.isArray(restored)) {
+    latencyHistory.push(...restored);
+    console.log(`♻️  レイテンシ履歴を復元しました(${latencyHistory.length}件)`);
+  }
+}
+
+function persistLatencyHistory() {
+  persistJson(LATENCY_HISTORY_STATE_FILE, latencyHistory);
+}
 
 // レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
 // ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
@@ -482,6 +496,7 @@ app.post("/client-timing", (req, res) => {
     );
     latencyHistory.push(entry);
     if (latencyHistory.length > LATENCY_HISTORY_MAX_SIZE) latencyHistory.shift();
+    persistLatencyHistory();
   }
   res.status(204).end();
 });
@@ -1182,6 +1197,7 @@ Promise.all([
   loadDeviceIngestTokens(),
   loadTrainingBroadcastSettings(),
   loadActiveReports(),
+  loadLatencyHistory(),
 ]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
