@@ -1364,8 +1364,15 @@ function addActiveEvent(eventData, ttlMs = null) {
   // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
   // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
   // しまうため、一度そのままの画面で色を見せてから少し遅れてズームする
-  requestAnimationFrame(() => setTimeout(() => updateCameraForActiveEvents(record), CAMERA_ZOOM_DELAY_MS));
-  renderEventsPanel();
+  // updateCameraForActiveEventsはfocusedEventIds(パネルにどれを表示
+  // するか)もここで決めるため、ズームを遅延させた分パネル表示も
+  // 遅延後のコールバック内で改めて更新する(遅延前に呼ぶと
+  // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
+  // されてしまう)
+  requestAnimationFrame(() => setTimeout(() => {
+    updateCameraForActiveEvents(record);
+    renderEventsPanel();
+  }, CAMERA_ZOOM_DELAY_MS));
 }
 
 // 既にアクティブな同一地震のイベントに、新しい通報の内容を統合する
@@ -1439,8 +1446,15 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     currentPatrolCode = null;
     updateFocusOutline();
   }
-  requestAnimationFrame(() => setTimeout(() => updateCameraForActiveEvents(record), CAMERA_ZOOM_DELAY_MS));
-  renderEventsPanel();
+  // updateCameraForActiveEventsはfocusedEventIds(パネルにどれを表示
+  // するか)もここで決めるため、ズームを遅延させた分パネル表示も
+  // 遅延後のコールバック内で改めて更新する(遅延前に呼ぶと
+  // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
+  // されてしまう)
+  requestAnimationFrame(() => setTimeout(() => {
+    updateCameraForActiveEvents(record);
+    renderEventsPanel();
+  }, CAMERA_ZOOM_DELAY_MS));
 }
 
 function removeActiveEvent(id) {
