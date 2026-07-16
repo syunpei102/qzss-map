@@ -2136,6 +2136,10 @@ async function initMap() {
     minZoom: MAP_MIN_ZOOM,
     maxZoom: 13,
     maxBounds: bounds,
+    // Pi 3等の非力なGPU向けの描画負荷軽減。見た目への影響はほぼ無い
+    // (フェード遷移が無くなる程度)が、毎フレームの合成コストを削れる
+    fadeDuration: 0,
+    refreshExpiredTiles: false,
   });
 
   await new Promise(resolve => map.on('load', resolve));
