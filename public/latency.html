@@ -53,7 +53,7 @@
   <h2 style="font-size:15px; margin-top:32px;">直近の計測(新しい順)</h2>
   <table id="history-table">
     <thead>
-      <tr><th>時刻</th><th>種別</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
+      <tr><th>時刻</th><th>種別</th><th style="text-align:left">内容</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -139,6 +139,30 @@ function renderChart(history) {
   ctx.stroke();
 }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// レポートの種類ごとにフィールド名が違うため、よくある項目を拾えるだけ
+// 拾って短い要約文にする(無ければ type だけ表示する)
+function summarizeReport(r) {
+  if (!r) return '(内容なし)';
+  const parts = [];
+  if (r.disaster_category) parts.push(r.disaster_category);
+  if (r.seismic_epicenter) parts.push(r.seismic_epicenter);
+  if (r.magnitude) parts.push('M' + r.magnitude);
+  if (r.seismic_intensity_lower_limit) parts.push(r.seismic_intensity_lower_limit);
+  if (r.a4_hazard_type) parts.push(r.a4_hazard_type);
+  for (const key of ['weather_forecast_regions', 'ex9_target_area_list_ja', 'eew_forecast_regions']) {
+    if (Array.isArray(r[key]) && r[key].length) {
+      parts.push(r[key].slice(0, 3).join('・') + (r[key].length > 3 ? ' 他' : ''));
+      break;
+    }
+  }
+  if (!parts.length) parts.push(r.type || '(種別不明)');
+  return parts.join(' / ');
+}
+
 function renderTable(history) {
   const tbody = document.querySelector('#history-table tbody');
   const emptyMsg = document.getElementById('empty-msg');
@@ -153,6 +177,12 @@ function renderTable(history) {
     <tr>
       <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
       <td>${h.isTestData ? '<span style="color:#f1c40f">🧪 テスト</span>' : '<span style="color:#2ecc71">実データ</span>'}</td>
+      <td style="text-align:left; max-width:260px;">
+        <details>
+          <summary style="cursor:pointer">${escapeHtml(summarizeReport(h.reportSummary))}</summary>
+          <pre style="white-space:pre-wrap; font-size:11px; color:#9aa0a6; margin:6px 0 0;">${escapeHtml(JSON.stringify(h.reportSummary, null, 2))}</pre>
+        </details>
+      </td>
       <td>${h.totalMs}ms</td>
       <td>${h.decodeMs}ms</td>
       <td>${h.networkMs}ms</td>

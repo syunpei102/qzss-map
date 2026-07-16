@@ -2481,7 +2481,16 @@ function connectWebSocket() {
     // まとめる(受信機・サーバー・ブラウザで別々に見なくて済むように)
     if (report.client_timestamps) {
       const t4 = Date.now();
-      const timestamps = { ...report.client_timestamps, t4_rendered_ms: t4, isTestData: !!report.is_test_data };
+      // sentence/raw/message/nmeaは同じ信号の別エンコーディングに過ぎず
+      // ダッシュボードでの内容確認には不要なので除外する(このためだけに
+      // ペイロードを膨らませたくない)
+      const { sentence, raw, message, nmea, client_timestamps, ...reportSummary } = report;
+      const timestamps = {
+        ...report.client_timestamps,
+        t4_rendered_ms: t4,
+        isTestData: !!report.is_test_data,
+        reportSummary,
+      };
       fetch('/client-timing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

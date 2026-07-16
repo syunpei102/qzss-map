@@ -472,6 +472,13 @@ function persistLatencyHistory() {
   persistJson(LATENCY_HISTORY_STATE_FILE, latencyHistory);
 }
 
+// ラズパイのローカルキオスクは、誰も公開サイトを見ていなくても実測値を
+// 貯めておきたい(資料用途)ため、設定されていればここで受けた計測を
+// そのままクラウド側の/client-timingへも転送する(相手も同じ処理をして
+// 自分のlatencyHistoryに積む)。ローカルのqzss-map.serviceにだけ設定する
+// 環境変数で、Cloud Run側では未設定のまま(自分自身には転送しない)
+const CLOUD_LATENCY_REPORT_URL = (process.env.CLOUD_LATENCY_REPORT_URL || "").trim();
+
 // レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
 // ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
 // 実運用に影響しない計測専用の経路のため)
@@ -481,6 +488,7 @@ app.post("/client-timing", (req, res) => {
     const entry = {
       recordedAt: Date.now(),
       isTestData: !!ts.isTestData,
+      reportSummary: ts.reportSummary || null,
       decodeMs: ts.t1_decoded_ms - ts.t0_received_ms,
       networkMs: ts.t2_server_received_ms - ts.t1_decoded_ms,
       dispatchPrepMs: ts.t3_dispatched_ms - ts.t2_server_received_ms,
@@ -497,6 +505,14 @@ app.post("/client-timing", (req, res) => {
     latencyHistory.push(entry);
     if (latencyHistory.length > LATENCY_HISTORY_MAX_SIZE) latencyHistory.shift();
     persistLatencyHistory();
+
+    if (CLOUD_LATENCY_REPORT_URL) {
+      fetch(CLOUD_LATENCY_REPORT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(ts),
+      }).catch((err) => console.warn("⚠️ クラウドへのレイテンシ転送に失敗:", err.message));
+    }
   }
   res.status(204).end();
 });
