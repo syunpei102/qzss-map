@@ -2433,9 +2433,18 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+// ラズパイ本体のkiosk表示(localhostでアクセス)では、操作する人が
+// その場にいない前提なので通知ボタン自体を表示しない
+const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname);
+
 async function initPushNotificationButton() {
   const button = document.getElementById('notify_button');
   if (!button) return;
+
+  if (IS_LOCAL_KIOSK) {
+    button.style.display = 'none';
+    return;
+  }
 
   if (!('PushManager' in window) || !swRegistration) {
     button.disabled = true;
@@ -2506,3 +2515,20 @@ async function unsubscribePush(subscription) {
     console.error('プッシュ通知の解除に失敗しました:', err);
   }
 }
+
+// ==================================================
+// キオスク表示向け: マウスカーソルを一定時間動かさなかったら隠す
+// (操作する人がいない常設ディスプレイで、カーソルが映ったままだと
+// 見栄えが悪いため)
+// ==================================================
+const CURSOR_HIDE_DELAY_MS = 3000;
+let cursorHideTimer = null;
+function resetCursorHideTimer() {
+  document.body.classList.remove('cursor-hidden');
+  clearTimeout(cursorHideTimer);
+  cursorHideTimer = setTimeout(() => {
+    document.body.classList.add('cursor-hidden');
+  }, CURSOR_HIDE_DELAY_MS);
+}
+document.addEventListener('mousemove', resetCursorHideTimer);
+resetCursorHideTimer();
