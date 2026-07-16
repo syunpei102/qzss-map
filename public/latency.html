@@ -78,17 +78,17 @@ function percentile(sorted, p) {
 
 function renderStats(history) {
   const el = document.getElementById('stats');
-  // テストデータは実際の性能を表さないため、統計(平均・p50・p95等)からは
-  // 除外する(下の表には種別バッジ付きで両方とも表示する)
-  const real = history.filter((h) => !h.isTestData);
-  if (!real.length) { el.innerHTML = '<p style="color:#9aa0a6">実データはまだありません(テストデータのみ)</p>'; return; }
-  const totals = real.map((h) => h.totalMs).sort((a, b) => a - b);
+  if (!history.length) { el.innerHTML = ''; return; }
+  // テストデータも含めて集計する(件数の内訳は種別ごとに表示するので、
+  // どれだけがテストかは分かるようにしておく)
+  const testCount = history.filter((h) => h.isTestData).length;
+  const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
   const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
   const max = totals[totals.length - 1];
   el.innerHTML = [
-    ['件数', real.length],
+    ['件数', `${history.length}(うちテスト${testCount})`],
     ['平均', avg + 'ms'],
     ['p50', p50 + 'ms'],
     ['p95', p95 + 'ms'],
