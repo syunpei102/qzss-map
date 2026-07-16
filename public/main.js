@@ -2179,8 +2179,8 @@ async function initMap() {
     zoom: initialView.zoom,
     minZoom: MAP_MIN_ZOOM,
     // ローカルキオスクは操作する人がいない(自動ズームのみ)ため、
-    // 試験的に上限を下げてデータ量削減の余地を確認する
-    maxZoom: IS_LOCAL_KIOSK ? 6 : 13,
+    // 実際に必要な範囲まで上限を下げる(実機で確認して決定した値)
+    maxZoom: IS_LOCAL_KIOSK ? 9 : 13,
     maxBounds: bounds,
     // Pi 3等の非力なGPU向けの描画負荷軽減。見た目への影響はほぼ無い
     // (フェード遷移が無くなる程度)が、毎フレームの合成コストを削れる
@@ -2358,7 +2358,9 @@ let municipalityLayerLoaded = false;
 async function loadMunicipalityLayer() {
   if (municipalityLayerLoaded) return;
   try {
-    const res = await fetch('./data/municipalities.geojson');
+    // ローカルキオスクは最大ズームを抑えているため(9)、市区町村境界を
+    // より簡略化した専用データで十分(細部が見えるほど寄れない)
+    const res = await fetch(IS_LOCAL_KIOSK ? './data/municipalities_kiosk.geojson' : './data/municipalities.geojson');
     const municipalityGeoJSON = await res.json();
     // Lアラートの市区町村コード(ex1)は「全国地方公共団体コード」(JIS X0402、
     // 先頭0埋め5桁)そのものなので、国土数値情報(N03)の行政区域データを
