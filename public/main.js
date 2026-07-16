@@ -2481,7 +2481,7 @@ function connectWebSocket() {
     // まとめる(受信機・サーバー・ブラウザで別々に見なくて済むように)
     if (report.client_timestamps) {
       const t4 = Date.now();
-      const timestamps = { ...report.client_timestamps, t4_rendered_ms: t4 };
+      const timestamps = { ...report.client_timestamps, t4_rendered_ms: t4, isTestData: !!report.is_test_data };
       fetch('/client-timing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

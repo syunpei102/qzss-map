@@ -53,7 +53,7 @@
   <h2 style="font-size:15px; margin-top:32px;">直近の計測(新しい順)</h2>
   <table id="history-table">
     <thead>
-      <tr><th>時刻</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
+      <tr><th>時刻</th><th>種別</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
     </thead>
     <tbody></tbody>
   </table>
@@ -78,14 +78,17 @@ function percentile(sorted, p) {
 
 function renderStats(history) {
   const el = document.getElementById('stats');
-  if (!history.length) { el.innerHTML = ''; return; }
-  const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
+  // テストデータは実際の性能を表さないため、統計(平均・p50・p95等)からは
+  // 除外する(下の表には種別バッジ付きで両方とも表示する)
+  const real = history.filter((h) => !h.isTestData);
+  if (!real.length) { el.innerHTML = '<p style="color:#9aa0a6">実データはまだありません(テストデータのみ)</p>'; return; }
+  const totals = real.map((h) => h.totalMs).sort((a, b) => a - b);
   const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
   const max = totals[totals.length - 1];
   el.innerHTML = [
-    ['件数', history.length],
+    ['件数', real.length],
     ['平均', avg + 'ms'],
     ['p50', p50 + 'ms'],
     ['p95', p95 + 'ms'],
@@ -149,6 +152,7 @@ function renderTable(history) {
   tbody.innerHTML = recent.map((h) => `
     <tr>
       <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
+      <td>${h.isTestData ? '<span style="color:#f1c40f">🧪 テスト</span>' : '<span style="color:#2ecc71">実データ</span>'}</td>
       <td>${h.totalMs}ms</td>
       <td>${h.decodeMs}ms</td>
       <td>${h.networkMs}ms</td>

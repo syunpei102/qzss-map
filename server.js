@@ -466,6 +466,7 @@ app.post("/client-timing", (req, res) => {
   if (ts.t0_received_ms && ts.t4_rendered_ms) {
     const entry = {
       recordedAt: Date.now(),
+      isTestData: !!ts.isTestData,
       decodeMs: ts.t1_decoded_ms - ts.t0_received_ms,
       networkMs: ts.t2_server_received_ms - ts.t1_decoded_ms,
       dispatchPrepMs: ts.t3_dispatched_ms - ts.t2_server_received_ms,
