@@ -1317,6 +1317,10 @@ function createIntensityBadgeMarkers(prefectures) {
   return markers;
 }
 
+// 警報対象地域の塗りつぶしを先に見せてから、少し遅れてカメラをズーム
+// させるまでの間隔(ミリ秒)。0にすると従来通り同時になる
+const CAMERA_ZOOM_DELAY_MS = 400;
+
 // ttlMs を指定しない場合は自動消滅させない(取消・警報解除など明示的な
 // 信号が来るまで表示し続ける)。「取消」「警報解除」等の短時間だけ
 // 出す通知カードにのみ ttlMs を明示的に渡す。
@@ -1346,7 +1350,10 @@ function addActiveEvent(eventData, ttlMs = null) {
     updateFocusOutline();
   }
   syncActiveEventLayers();
-  updateCameraForActiveEvents(record);
+  // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
+  // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
+  // しまうため、一度そのままの画面で色を見せてから少し遅れてズームする
+  requestAnimationFrame(() => setTimeout(() => updateCameraForActiveEvents(record), CAMERA_ZOOM_DELAY_MS));
   renderEventsPanel();
 }
 
@@ -1421,7 +1428,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     currentPatrolCode = null;
     updateFocusOutline();
   }
-  updateCameraForActiveEvents(record);
+  requestAnimationFrame(() => setTimeout(() => updateCameraForActiveEvents(record), CAMERA_ZOOM_DELAY_MS));
   renderEventsPanel();
 }
 
