@@ -2392,7 +2392,6 @@ function connectWebSocket() {
 
     if (report.type === 'Heartbeat') {
       lastHeartbeatTime = Date.now();
-      console.log(`ハートビート受信: ${nowTimeString()}`, report);
       noteSatelliteReceived(report);
       refreshStatusPill();
       return;
