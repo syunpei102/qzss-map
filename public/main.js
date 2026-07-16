@@ -1,3 +1,8 @@
+// ラズパイ本体のkiosk表示(localhostでアクセス)では、操作する人が
+// その場にいない前提(マウス・タッチ操作は一切無い)。通知ボタンの
+// 非表示だけでなく、地図の操作ハンドラ自体を無効化する判定にも使う
+const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname);
+
 // ==================================================
 // 時計表示
 // ==================================================
@@ -1557,16 +1562,17 @@ function syncActiveEventLayers() {
   // まだ読み込まれていない間は何もしない(読み込み完了後に改めて
   // syncActiveEventLayersが呼ばれる)
   if (map.getLayer('municipality-fill')) {
+    // ソースには今アクティブな市区町村の分だけを入れる(全国約1900件を
+    // 常時保持しない。詳細はensureMunicipalityLayer参照)
+    const activeFeatures = [...municipalityColorByCode.keys()]
+      .map((code) => municipalityFeaturesByCode.get(code))
+      .filter(Boolean);
+    map.getSource('municipality-regions').setData({ type: 'FeatureCollection', features: activeFeatures });
     if (municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
       for (const [code, color] of municipalityColorByCode) matchExpr.push(code, color);
       matchExpr.push('rgba(0,0,0,0)');
-      map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
-      map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', [...municipalityColorByCode.keys()]]]);
       map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
-    } else {
-      map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', []]]);
-      map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', []]]);
     }
   }
 
@@ -2158,6 +2164,11 @@ async function initMap() {
     // (フェード遷移が無くなる程度)が、毎フレームの合成コストを削れる
     fadeDuration: 0,
     refreshExpiredTiles: false,
+    // ラズパイのkiosk表示にはマウス・タッチ操作をする人がいないため、
+    // ドラッグ/ズーム/回転等の操作ハンドラ自体を無効化し、イベント
+    // リスナー登録・ジェスチャー判定のオーバーヘッドを無くす。
+    // 一般公開ページ(eq.shum10.com)の閲覧者には影響しない
+    interactive: !IS_LOCAL_KIOSK,
   });
 
   await new Promise(resolve => map.on('load', resolve));
@@ -2188,15 +2199,6 @@ async function initMap() {
     prefectureFeaturesByName.set(f.properties.name, f);
   }
   for (const f of weatherRegionsGeoJSON.features) weatherFeaturesByCode.set(f.properties.code, f);
-
-  // デバイスロックモード: 拠点(?device=)に地域が割り当てられていれば、
-  // prefectureFeaturesByIdが揃った直後(=bbox計算可能になった時点)で
-  // 取得・カメラを固定する
-  await applyDeviceRegionLock();
-  // 訓練放送を表示するかどうか(Discordの/set_training_broadcastsで
-  // 変更できる設定)。WebSocketが最初の通報を処理する前(mapReady解決前)
-  // に読み込んでおく
-  await loadShowTrainingBroadcastsSetting();
 
   // 国土地理院のベクトルタイルはzoom4未満だとタイルデータ自体が存在せず
   // 真っ白になる。都道府県ポリゴン(prefectures.geojson)を使った境界線
@@ -2293,6 +2295,13 @@ async function initMap() {
     paint: { 'line-color': '#ffffff', 'line-width': 4 },
   });
 
+  // ここまでで地図本体(日本の形・警報エリアを塗れる状態)の描画が
+  // 完了している。デバイスロック・訓練放送設定は地図の見た目そのもの
+  // ではなく付随設定なので、地図が画面に出た後に読み込む(体感の
+  // 起動速度優先: 「まず地図、その後にパネル/設定」の順にする)
+  await applyDeviceRegionLock();
+  await loadShowTrainingBroadcastsSetting();
+
   // 段階2: 使用頻度が低い/主要な情報表示に必須ではないデータは、ここまでの
   // 「警報エリアを塗れる」状態が整った後に、バックグラウンドで読み込む。
   // await しない(=呼び出し元のinitMap完了を待たせない)ことで、地図の
@@ -2331,7 +2340,11 @@ async function loadMunicipalityLayer() {
     // 同じコードで直接紐付けられる(名前でのあいまい一致は不要)
     for (const f of municipalityGeoJSON.features) municipalityFeaturesByCode.set(f.properties.code, f);
     if (!map.getSource('municipality-regions')) {
-      map.addSource('municipality-regions', { type: 'geojson', data: municipalityGeoJSON });
+      // 全国約1900件をまるごとソースに入れるとMapLibre内部でのタイル化
+      // コストが常時かかり続けるため、ソース自体は空で作り、実際に
+      // 対象になった市区町村だけをsyncActiveEventLayersがsetDataで
+      // 都度入れる(ルックアップ用のmunicipalityFeaturesByCodeとは別)
+      map.addSource('municipality-regions', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({
         id: 'municipality-fill',
         type: 'fill',
@@ -2454,10 +2467,6 @@ function urlBase64ToUint8Array(base64String) {
   const rawData = atob(base64);
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
-
-// ラズパイ本体のkiosk表示(localhostでアクセス)では、操作する人が
-// その場にいない前提なので通知ボタン自体を表示しない
-const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname);
 
 async function initPushNotificationButton() {
   const button = document.getElementById('notify_button');
