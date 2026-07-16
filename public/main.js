@@ -69,10 +69,17 @@ function refreshStatusPill() {
   }
   // wsState === 'online' の場合、ハートビートの途絶もオフライン扱いにする
   if (lastHeartbeatTime !== null && Date.now() - lastHeartbeatTime > HEARTBEAT_TIMEOUT_MS) {
+    if (statusEl.textContent !== '🔴 オフライン') {
+      const sec = Math.round((Date.now() - lastHeartbeatTime) / 1000);
+      console.log(`🔴 ハートビート途絶によりオフライン表示に切り替え(最終受信から${sec}秒経過、閾値${HEARTBEAT_TIMEOUT_MS / 1000}秒)`);
+    }
     statusEl.textContent = '🔴 オフライン';
     statusEl.className = 'status-pill status-offline';
     if (satelliteEl) satelliteEl.textContent = '';
     return;
+  }
+  if (statusEl.textContent !== '🟢 オンライン' && lastHeartbeatTime !== null) {
+    console.log(`🟢 ハートビート受信によりオンライン表示に復帰: ${nowTimeString()}`);
   }
   statusEl.textContent = '🟢 オンライン';
   statusEl.className = 'status-pill status-online';
@@ -2385,6 +2392,7 @@ function connectWebSocket() {
 
     if (report.type === 'Heartbeat') {
       lastHeartbeatTime = Date.now();
+      console.log(`ハートビート受信: ${nowTimeString()}`, report);
       noteSatelliteReceived(report);
       refreshStatusPill();
       return;
