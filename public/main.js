@@ -1796,7 +1796,12 @@ function lalertTtlMs(report) {
   return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL_JALERT_MS; // Unknown/未設定なら24時間
 }
 
+// テストデータ(is_test_data)は動作確認用の一時的な表示なので、
+// 本物の警報と同じ長いTTLを待たず、短時間(1分)で自動的に消す
+const TTL_TEST_DATA_MS = 60 * 1000;
+
 function ttlMsForReport(report) {
+  if (report.is_test_data) return TTL_TEST_DATA_MS;
   if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
   if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
   return null;
@@ -2089,7 +2094,7 @@ function renderReport(report) {
       const near = event.bounds && record.bounds && boundsAreNear(event.bounds, record.bounds);
       if (sameGroup || near) removeActiveEvent(id);
     }
-    addActiveEvent(event, TTL_EEW_MS);
+    addActiveEvent(event, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
     return;
   }
 
@@ -2523,16 +2528,23 @@ async function unsubscribePush(subscription) {
 // ==================================================
 // キオスク表示向け: マウスカーソルを一定時間動かさなかったら隠す
 // (操作する人がいない常設ディスプレイで、カーソルが映ったままだと
-// 見栄えが悪いため)
+// 見栄えが悪いため)。一般公開ページの通常の閲覧者には影響しないよう、
+// ローカルキオスク(localhostアクセス)限定にする。
+// なお実機(Pi、labwc)ではこのCSSベースの非表示は効かなかった
+// (カーソルがWayland/XWayland compositor側の描画のため、ページの
+// CSSでは制御できない)。実機側はunclutter-xfixesで別途対応済みだが、
+// 将来他のOS/ブラウザでkiosk表示する場合の保険として残しておく
 // ==================================================
-const CURSOR_HIDE_DELAY_MS = 3000;
-let cursorHideTimer = null;
-function resetCursorHideTimer() {
-  document.body.classList.remove('cursor-hidden');
-  clearTimeout(cursorHideTimer);
-  cursorHideTimer = setTimeout(() => {
-    document.body.classList.add('cursor-hidden');
-  }, CURSOR_HIDE_DELAY_MS);
+if (IS_LOCAL_KIOSK) {
+  const CURSOR_HIDE_DELAY_MS = 3000;
+  let cursorHideTimer = null;
+  const resetCursorHideTimer = () => {
+    document.body.classList.remove('cursor-hidden');
+    clearTimeout(cursorHideTimer);
+    cursorHideTimer = setTimeout(() => {
+      document.body.classList.add('cursor-hidden');
+    }, CURSOR_HIDE_DELAY_MS);
+  };
+  document.addEventListener('mousemove', resetCursorHideTimer);
+  resetCursorHideTimer();
 }
-document.addEventListener('mousemove', resetCursorHideTimer);
-resetCursorHideTimer();
