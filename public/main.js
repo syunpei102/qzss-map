@@ -1230,9 +1230,6 @@ const DEFAULT_VIEW = { center: [135.7671, 35.6812], zoom: 4.55 };
 // スマホは最大限ズームアウトした状態を初期値にする
 // (実際にはmaxBoundsの都合でMAP_MIN_ZOOMより少し高い値にクランプされる)
 const DEFAULT_VIEW_MOBILE = { center: [136.5, 35.5], zoom: MAP_MIN_ZOOM };
-// ローカルキオスクは日本本土中心に少し寄せて、常時表示する範囲(=読み
-// 込むタイル数)を減らす(周辺国は画面端に少し映る程度になる)
-const DEFAULT_VIEW_LOCAL_KIOSK = { center: [137.5, 36.5], zoom: 5.3 };
 
 // デバイスロックモード(?device=拠点ID、kiosk設置向け)で、拠点に割り
 // 当てられた地域が判明したら、アイドル時の既定表示をそこに固定する。
@@ -1243,7 +1240,6 @@ let lockedDefaultView = null; // {center, zoom} | null
 
 function getDefaultView() {
   if (lockedDefaultView) return lockedDefaultView;
-  if (IS_LOCAL_KIOSK) return DEFAULT_VIEW_LOCAL_KIOSK;
   return isMobileLayout() ? DEFAULT_VIEW_MOBILE : DEFAULT_VIEW;
 }
 
