@@ -405,7 +405,7 @@ function maxZoomForBounds(bounds) {
   return diagonal > 0 && diagonal < 0.6 ? 11 : 9;
 }
 
-function flyToBounds(bounds, pad = 24, maxZoomOverride = null) {
+function flyToBounds(bounds, pad = 24, maxZoomOverride = null, instant = false) {
   if (!isFinite(bounds[0])) return;
   const clamped = clampBoundsToJapanVicinity(bounds);
   if (!clamped) return;
@@ -432,7 +432,11 @@ function flyToBounds(bounds, pad = 24, maxZoomOverride = null) {
     {
       padding,
       maxZoom: maxZoomOverride ?? maxZoomForBounds(bounds),
-      duration: 800,
+      // 気象警報の巡回や、全て収束して日本全体表示に戻すだけの場合は
+      // 急いで見せる必要が無いので、アニメーションさせず(=毎フレームの
+      // 計算が発生しない)瞬時に切り替える方が非力な端末には軽い。
+      // 新規の地震・津波等、注目を引きたい場面だけアニメーションさせる
+      duration: instant ? 0 : 800,
     }
   );
 }
@@ -1005,7 +1009,8 @@ const WEATHER_PATROL_MAX_ZOOM = 7.5;
 function zoomToWeatherCode(code) {
   const feature = weatherFeaturesByCode.get(code);
   if (!feature) return;
-  flyToBounds(geometryBounds(feature.geometry), 40, WEATHER_PATROL_MAX_ZOOM);
+  // 巡回表示は急いで切り替える必要が無いので瞬時ジャンプにする(軽量化)
+  flyToBounds(geometryBounds(feature.geometry), 40, WEATHER_PATROL_MAX_ZOOM, true);
 }
 
 function updateFocusOutline() {
@@ -1042,7 +1047,7 @@ function patrolStep() {
       updateFocusOutline();
       renderEventsPanel();
       const view = getDefaultView();
-      map.easeTo({ center: view.center, zoom: view.zoom, duration: 1000 });
+      map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     }
     patrolIndex = 0;
     schedulePatrolNext(PATROL_DWELL_MS); // 警報が出ていないか定期的に確認する
@@ -1054,7 +1059,7 @@ function patrolStep() {
     patrolIndex = 0;
     currentPatrolCode = null;
     const view = getDefaultView();
-    map.easeTo({ center: view.center, zoom: view.zoom, duration: 1000 });
+    map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     updateFocusOutline();
     renderEventsPanel();
     schedulePatrolNext(PATROL_CYCLE_PAUSE_MS);
@@ -1653,7 +1658,7 @@ function updateCameraForActiveEvents(preferredRecord) {
       focusedEventIds = new Set([preferredRecord.id]);
       if (currentPatrolCode === null) {
         const view = getDefaultView();
-        map.easeTo({ center: view.center, zoom: view.zoom, duration: 1200 });
+        map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
       }
     }
     return;
@@ -1683,7 +1688,7 @@ function updateCameraForActiveEvents(preferredRecord) {
     // ここでは何もしない(勝手にリセットして巡回とカメラの取り合いに
     // ならないようにする)
     const view = getDefaultView();
-    map.easeTo({ center: view.center, zoom: view.zoom, duration: 1200 });
+    map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     focusedEventIds = new Set();
   } else {
     focusedEventIds = new Set();
