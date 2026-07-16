@@ -1126,7 +1126,13 @@ function buildEventFromReport(report) {
     const feature = epicenterFeaturesById.get(report.seismic_epicenter_raw);
     if (feature) {
       const centroid = geometryCentroid(feature.geometry);
-      if (centroid) geo.hypocenter = { lon: centroid[0], lat: centroid[1], label: feature.properties.name };
+      if (centroid) {
+        geo.hypocenter = { lon: centroid[0], lat: centroid[1], label: feature.properties.name };
+        // 都道府県の塗りつぶし範囲だけでカメラを合わせると、震源が海上等で
+        // その範囲の外にある場合に✕マークが画面外へ見切れてしまうため、
+        // 震源座標もカメラ範囲の計算に含める
+        boundsList.push([centroid[0], centroid[1], centroid[0], centroid[1]]);
+      }
     }
   }
 
