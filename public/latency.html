@@ -40,6 +40,11 @@
   <h1>⏱️ レイテンシダッシュボード</h1>
   <p class="sub">信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)。5秒ごとに自動更新。</p>
 
+  <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#9aa0a6; margin-bottom:16px; cursor:pointer;">
+    <input type="checkbox" id="hide-test-toggle" />
+    テストデータを除外(本番信号のみ表示)
+  </label>
+
   <div class="stats" id="stats"></div>
 
   <div class="legend">
@@ -178,10 +183,16 @@ function renderTable(history) {
     return;
   }
   emptyMsg.style.display = 'none';
+  // 合計1秒を超えるものは、通常のネットワーク遅延では説明できない異常値
+  // (例: キオスク再起動でWebSocket再接続中に信号が来た場合等)として
+  // 赤くハイライトする
+  const ANOMALY_THRESHOLD_MS = 1000;
+
   tbody.innerHTML = recent.map((h) => {
     const key = String(h.recordedAt);
+    const isAnomaly = h.totalMs > ANOMALY_THRESHOLD_MS;
     return `
-    <tr>
+    <tr style="${isAnomaly ? 'background:rgba(231,76,60,0.15)' : ''}">
       <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
       <td>${h.isTestData ? '<span style="color:#f1c40f">🧪 テスト</span>' : '<span style="color:#2ecc71">実データ</span>'}</td>
       <td style="text-align:left; max-width:260px;">
@@ -190,7 +201,7 @@ function renderTable(history) {
           <pre style="white-space:pre-wrap; font-size:11px; color:#9aa0a6; margin:6px 0 0;">${escapeHtml(JSON.stringify(h.reportSummary, null, 2))}</pre>
         </details>
       </td>
-      <td>${h.totalMs}ms</td>
+      <td style="${isAnomaly ? 'color:#e74c3c; font-weight:600' : ''}">${h.totalMs}ms${isAnomaly ? ' ⚠️' : ''}</td>
       <td>${h.decodeMs}ms</td>
       <td>${h.networkMs}ms</td>
       <td>${h.dispatchPrepMs}ms</td>
@@ -207,13 +218,17 @@ function renderTable(history) {
   }
 }
 
+const hideTestToggle = document.getElementById('hide-test-toggle');
+
 async function refresh() {
-  const history = await fetchHistory();
+  const all = await fetchHistory();
+  const history = hideTestToggle.checked ? all.filter((h) => !h.isTestData) : all;
   renderStats(history);
   renderChart(history);
   renderTable(history);
 }
 
+hideTestToggle.addEventListener('change', refresh);
 refresh();
 setInterval(refresh, 5000);
 window.addEventListener('resize', refresh);
