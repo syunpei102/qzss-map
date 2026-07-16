@@ -427,21 +427,42 @@ app.post("/ingest", (req, res) => {
   res.status(204).end();
 });
 
+// レイテンシ計測(T0受信〜T4描画完了)の履歴。ダッシュボード表示用に
+// 直近LATENCY_HISTORY_MAXSIZE件だけメモリ上に保持する(永続化不要、
+// Cloud Run再起動で消えても実運用に支障は無い計測専用データのため)
+const LATENCY_HISTORY_MAX_SIZE = 200;
+const latencyHistory = [];
+
 // レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
 // ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
 // 実運用に影響しない計測専用の経路のため)
 app.post("/client-timing", (req, res) => {
   const ts = req.body || {};
   if (ts.t0_received_ms && ts.t4_rendered_ms) {
+    const entry = {
+      recordedAt: Date.now(),
+      decodeMs: ts.t1_decoded_ms - ts.t0_received_ms,
+      networkMs: ts.t2_server_received_ms - ts.t1_decoded_ms,
+      dispatchPrepMs: ts.t3_dispatched_ms - ts.t2_server_received_ms,
+      renderMs: ts.t4_rendered_ms - ts.t3_dispatched_ms,
+      totalMs: ts.t4_rendered_ms - ts.t0_received_ms,
+    };
     console.log(
-      `⏱️ end-to-end合計: ${ts.t4_rendered_ms - ts.t0_received_ms}ms `
-      + `(受信→デコード${ts.t1_decoded_ms - ts.t0_received_ms}ms, `
-      + `受信機→サーバー${ts.t2_server_received_ms - ts.t1_decoded_ms}ms, `
-      + `配信準備${ts.t3_dispatched_ms - ts.t2_server_received_ms}ms, `
-      + `配信→描画完了${ts.t4_rendered_ms - ts.t3_dispatched_ms}ms)`
+      `⏱️ end-to-end合計: ${entry.totalMs}ms `
+      + `(受信→デコード${entry.decodeMs}ms, `
+      + `受信機→サーバー${entry.networkMs}ms, `
+      + `配信準備${entry.dispatchPrepMs}ms, `
+      + `配信→描画完了${entry.renderMs}ms)`
     );
+    latencyHistory.push(entry);
+    if (latencyHistory.length > LATENCY_HISTORY_MAX_SIZE) latencyHistory.shift();
   }
   res.status(204).end();
+});
+
+// ダッシュボード(public/latency.html)用に直近の計測履歴を返す
+app.get("/api/latency-history", (req, res) => {
+  res.json(latencyHistory);
 });
 
 // ==================================================

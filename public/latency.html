@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>QZSS レイテンシダッシュボード</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background-color: #14161a;
+    color: azure;
+    font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: #9aa0a6; font-size: 13px; margin: 0 0 24px; }
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px; margin-bottom: 28px;
+  }
+  .stat-card {
+    background: #1e2126; border-radius: 8px; padding: 14px 16px;
+    border-left: 3px solid #2ecc71;
+  }
+  .stat-card .label { color: #9aa0a6; font-size: 12px; }
+  .stat-card .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  canvas { width: 100%; background: #1e2126; border-radius: 8px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 28px; font-size: 12px; color: #9aa0a6; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid #2a2e35; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: #9aa0a6; font-weight: 500; }
+  .empty { color: #9aa0a6; font-size: 13px; padding: 40px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⏱️ レイテンシダッシュボード</h1>
+  <p class="sub">信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)。5秒ごとに自動更新。</p>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="legend">
+    <span><i style="background:#4c8bf5"></i>デコード</span>
+    <span><i style="background:#f1c40f"></i>受信機→サーバー</span>
+    <span><i style="background:#9c7fe0"></i>配信準備</span>
+    <span><i style="background:#2ecc71"></i>配信→描画完了</span>
+  </div>
+  <canvas id="chart" height="220"></canvas>
+
+  <h2 style="font-size:15px; margin-top:32px;">直近の計測(新しい順)</h2>
+  <table id="history-table">
+    <thead>
+      <tr><th>時刻</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div class="empty" id="empty-msg" style="display:none">まだ計測データがありません。通報を受信すると自動的に記録されます。</div>
+</div>
+
+<script>
+async function fetchHistory() {
+  try {
+    const res = await fetch('./api/latency-history');
+    return await res.json();
+  } catch (e) {
+    return [];
+  }
+}
+
+function percentile(sorted, p) {
+  if (!sorted.length) return 0;
+  const idx = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
+  return sorted[idx];
+}
+
+function renderStats(history) {
+  const el = document.getElementById('stats');
+  if (!history.length) { el.innerHTML = ''; return; }
+  const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
+  const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
+  const p50 = percentile(totals, 0.5);
+  const p95 = percentile(totals, 0.95);
+  const max = totals[totals.length - 1];
+  el.innerHTML = [
+    ['件数', history.length],
+    ['平均', avg + 'ms'],
+    ['p50', p50 + 'ms'],
+    ['p95', p95 + 'ms'],
+    ['最大', max + 'ms'],
+  ].map(([label, value]) => `
+    <div class="stat-card">
+      <div class="label">${label}</div>
+      <div class="value">${value}</div>
+    </div>
+  `).join('');
+}
+
+function renderChart(history) {
+  const canvas = document.getElementById('chart');
+  const dpr = window.devicePixelRatio || 1;
+  const cssWidth = canvas.clientWidth || 900;
+  const cssHeight = 220;
+  canvas.width = cssWidth * dpr;
+  canvas.height = cssHeight * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+  if (!history.length) return;
+
+  const recent = history.slice(-60);
+  const maxTotal = Math.max(...recent.map((h) => h.totalMs), 100);
+  const barGap = 3;
+  const barWidth = Math.max(2, (cssWidth - barGap * recent.length) / recent.length);
+  const padBottom = 20;
+  const scale = (cssHeight - padBottom) / maxTotal;
+  const colors = { decodeMs: '#4c8bf5', networkMs: '#f1c40f', dispatchPrepMs: '#9c7fe0', renderMs: '#2ecc71' };
+
+  recent.forEach((h, i) => {
+    let y = cssHeight - padBottom;
+    const x = i * (barWidth + barGap);
+    for (const key of ['decodeMs', 'networkMs', 'dispatchPrepMs', 'renderMs']) {
+      const segH = Math.max(0, h[key]) * scale;
+      ctx.fillStyle = colors[key];
+      ctx.fillRect(x, y - segH, barWidth, segH);
+      y -= segH;
+    }
+  });
+
+  ctx.strokeStyle = '#2a2e35';
+  ctx.beginPath();
+  ctx.moveTo(0, cssHeight - padBottom);
+  ctx.lineTo(cssWidth, cssHeight - padBottom);
+  ctx.stroke();
+}
+
+function renderTable(history) {
+  const tbody = document.querySelector('#history-table tbody');
+  const emptyMsg = document.getElementById('empty-msg');
+  const recent = [...history].slice(-30).reverse();
+  if (!recent.length) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+  tbody.innerHTML = recent.map((h) => `
+    <tr>
+      <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
+      <td>${h.totalMs}ms</td>
+      <td>${h.decodeMs}ms</td>
+      <td>${h.networkMs}ms</td>
+      <td>${h.dispatchPrepMs}ms</td>
+      <td>${h.renderMs}ms</td>
+    </tr>
+  `).join('');
+}
+
+async function refresh() {
+  const history = await fetchHistory();
+  renderStats(history);
+  renderChart(history);
+  renderTable(history);
+}
+
+refresh();
+setInterval(refresh, 5000);
+window.addEventListener('resize', refresh);
+</script>
+</body>
+</html>
