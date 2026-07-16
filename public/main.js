@@ -809,11 +809,12 @@ function buildEventFromLAlert(report) {
         geo.municipality = { code, color };
         boundsList.push(geometryBounds(feature.geometry));
       } else {
-        // 市区町村レイヤーはバックグラウンドで遅延読み込みしているため、
-        // まだ読み込みが終わっていないタイミングで届くと該当ポリゴンが
-        // 見つからないことがある。コードだけ覚えておき、読み込み完了後に
-        // loadMunicipalityLayer側で改めて塗りを反映する
+        // 市区町村レイヤーは実際に必要になるまで読み込まない(オンデマンド)。
+        // まだ読み込んでいなければここで読み込みを開始する
+        // (loadMunicipalityLayerは多重呼び出し安全)。コードだけ覚えておき、
+        // 読み込み完了後にloadMunicipalityLayer側で改めて塗りを反映する
         pendingMunicipalityCode = code;
+        loadMunicipalityLayer();
       }
     }
   }
@@ -1229,6 +1230,9 @@ const DEFAULT_VIEW = { center: [135.7671, 35.6812], zoom: 4.55 };
 // スマホは最大限ズームアウトした状態を初期値にする
 // (実際にはmaxBoundsの都合でMAP_MIN_ZOOMより少し高い値にクランプされる)
 const DEFAULT_VIEW_MOBILE = { center: [136.5, 35.5], zoom: MAP_MIN_ZOOM };
+// ローカルキオスクは日本本土中心に少し寄せて、常時表示する範囲(=読み
+// 込むタイル数)を減らす(周辺国は画面端に少し映る程度になる)
+const DEFAULT_VIEW_LOCAL_KIOSK = { center: [137.5, 36.5], zoom: 5.3 };
 
 // デバイスロックモード(?device=拠点ID、kiosk設置向け)で、拠点に割り
 // 当てられた地域が判明したら、アイドル時の既定表示をそこに固定する。
@@ -1239,6 +1243,7 @@ let lockedDefaultView = null; // {center, zoom} | null
 
 function getDefaultView() {
   if (lockedDefaultView) return lockedDefaultView;
+  if (IS_LOCAL_KIOSK) return DEFAULT_VIEW_LOCAL_KIOSK;
   return isMobileLayout() ? DEFAULT_VIEW_MOBILE : DEFAULT_VIEW;
 }
 
@@ -2311,8 +2316,11 @@ async function initMap() {
   // 「警報エリアを塗れる」状態が整った後に、バックグラウンドで読み込む。
   // await しない(=呼び出し元のinitMap完了を待たせない)ことで、地図の
   // 初回表示・操作可能になるタイミングを優先する。
+  // 市区町村ポリゴン(一番重いデータ)は、ここでは読み込まない。
+  // Lアラート(市区町村指定)が実際に届いた時に初めて読み込む
+  // (buildEventFromLAlert参照)。多くのセッションでは一度も必要と
+  // ならないデータなので、常に先読みするのは無駄になりやすい
   loadEpicenterLookupTable();
-  loadMunicipalityLayer();
 
   // 気象警報の巡回ループを開始する(最初は警報が無いはずなので、
   // 実質的に「定期的に確認するだけ」の待機状態から始まる)
@@ -2450,7 +2458,10 @@ connectWebSocket();
 // PWA: Service Worker登録(ホーム画面追加・オフラインでの見た目表示用)
 // ==================================================
 let swRegistration = null;
-if ('serviceWorker' in navigator) {
+// ローカルキオスクはホーム画面追加もプッシュ通知も使わないため、
+// Service Worker登録自体を省略する(インストール・キャッシュ管理の
+// バックグラウンド処理が無くなる分、非力な端末には軽くなる)
+if ('serviceWorker' in navigator && !IS_LOCAL_KIOSK) {
   window.addEventListener('load', async () => {
     try {
       swRegistration = await navigator.serviceWorker.register('./sw.js');
