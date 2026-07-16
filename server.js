@@ -848,6 +848,28 @@ function resolveShowTrainingBroadcasts(deviceId) {
   return globalShowTrainingBroadcasts;
 }
 
+// 拠点をまるごと「忘れる」(Discordの/delete_device)。状態報告履歴・
+// 予約中コマンド・地域設定・発行済みトークン(以後そのトークンでの
+// 送信は拒否される)・訓練放送の個別設定をすべて削除する。
+// 取り消せない操作なので呼び出し側(handleCommand)で結果を明示する
+function deleteDevice(deviceId) {
+  const existed =
+    deviceStatus.has(deviceId) ||
+    pendingCommands.has(deviceId) ||
+    deviceRegionConfig.has(deviceId) ||
+    deviceIngestTokens.has(deviceId) ||
+    deviceTrainingBroadcastOverrides.has(deviceId);
+
+  deviceStatus.delete(deviceId);
+  pendingCommands.delete(deviceId);
+
+  if (deviceRegionConfig.delete(deviceId)) persistRegionConfig();
+  if (deviceIngestTokens.delete(deviceId)) persistDeviceIngestTokens();
+  if (deviceTrainingBroadcastOverrides.delete(deviceId)) persistTrainingBroadcastSettings();
+
+  return { ok: true, existed };
+}
+
 // 拠点の対象地域を設定する共通処理。Web管理画面・Discordのどちらの
 // ハンドラからも呼ぶ(homePrefectureId=nullで未設定=全国表示に戻す)。
 function setDeviceRegion(deviceId, homePrefectureId) {
@@ -1015,6 +1037,15 @@ function handleCommand(interaction) {
       targetDevice
         ? `✅ ${targetDevice} の訓練放送表示を${enabled ? "ON" : "OFF"}にしました(この拠点だけの設定)`
         : `✅ 全体(拠点ごとの上書きが無い端末すべて)の訓練放送表示を${enabled ? "ON" : "OFF"}にしました`
+    );
+  }
+  if (interaction.data.name === "delete_device") {
+    if (!deviceId) return ephemeralReply("❌ deviceを指定してください");
+    const result = deleteDevice(deviceId);
+    if (!result.existed) return ephemeralReply(`ℹ️ ${deviceId} という拠点の記録は元々ありませんでした`);
+    return ephemeralReply(
+      `✅ ${deviceId} を削除しました(状態報告・地域設定・トークン・訓練放送設定を全て削除。` +
+      `トークンは即座に無効化されたので、以後そのトークンでの送信は拒否されます)`
     );
   }
   return ephemeralReply("❌ 未対応のコマンドです");

@@ -81,6 +81,11 @@ const commands = [
       optionalDeviceOption,
     ],
   },
+  {
+    name: "delete_device",
+    description: "拠点の記録を全て削除する(状態報告履歴・地域設定・トークン失効・訓練放送設定)。元に戻せません",
+    options: [deviceOption],
+  },
 ];
 
 async function main() {
