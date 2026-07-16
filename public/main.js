@@ -2474,6 +2474,20 @@ function connectWebSocket() {
 
     await mapReady;
     renderReport(report);
+
+    // レイテンシ計測(T0受信〜T4描画完了)。renderReportは同期関数で、
+    // 警報の塗りつぶし(最優先の描画)はこの時点で既に反映済みのため、
+    // ここでのDate.now()がT4として妥当。サーバーへ返して1箇所のログに
+    // まとめる(受信機・サーバー・ブラウザで別々に見なくて済むように)
+    if (report.client_timestamps) {
+      const t4 = Date.now();
+      const timestamps = { ...report.client_timestamps, t4_rendered_ms: t4 };
+      fetch('/client-timing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(timestamps),
+      }).catch(() => {});
+    }
   });
 }
 

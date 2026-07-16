@@ -363,6 +363,22 @@ function handleIncomingLine(line) {
     // JSONとして解釈できないものはそのまま流すだけで、保持対象にはしない
   }
 
+  // レイテンシ計測: T3(WebSocket配信直前)を追記し、ここまでの各段階の
+  // 所要時間をログに出す(T4はブラウザ側で描画完了後にこの値を使って
+  // 計算し、/client-timingへ返してくる)
+  if (report && report.client_timestamps) {
+    const ts = report.client_timestamps;
+    ts.t3_dispatched_ms = Date.now();
+    if (ts.t0_received_ms && ts.t1_decoded_ms && ts.t2_server_received_ms) {
+      console.log(
+        `⏱️ レイテンシ内訳: デコード${ts.t1_decoded_ms - ts.t0_received_ms}ms `
+        + `→ 受信機→サーバー${ts.t2_server_received_ms - ts.t1_decoded_ms}ms `
+        + `→ 配信準備${ts.t3_dispatched_ms - ts.t2_server_received_ms}ms`
+      );
+    }
+    line = JSON.stringify(report);
+  }
+
   // ハートビートは接続状態の指標なので、重複判定の対象にせず必ず流す
   if (report && report.type === "Heartbeat") {
     broadcast(line);
@@ -400,9 +416,31 @@ function handleIncomingLine(line) {
 app.post("/ingest", (req, res) => {
   const auth = requireDeviceToken(req, res);
   if (!auth.ok) return;
+  // レイテンシ計測(T0受信→T1デコード→T2サーバー受信→T3配信→T4描画完了)。
+  // 受信機側が埋めたT0/T1がある場合のみ、ここでT2を追記する
+  if (req.body && req.body.client_timestamps) {
+    req.body.client_timestamps.t2_server_received_ms = Date.now();
+  }
   const line = JSON.stringify(req.body);
   console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 400));
   handleIncomingLine(line);
+  res.status(204).end();
+});
+
+// レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
+// ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
+// 実運用に影響しない計測専用の経路のため)
+app.post("/client-timing", (req, res) => {
+  const ts = req.body || {};
+  if (ts.t0_received_ms && ts.t4_rendered_ms) {
+    console.log(
+      `⏱️ end-to-end合計: ${ts.t4_rendered_ms - ts.t0_received_ms}ms `
+      + `(受信→デコード${ts.t1_decoded_ms - ts.t0_received_ms}ms, `
+      + `受信機→サーバー${ts.t2_server_received_ms - ts.t1_decoded_ms}ms, `
+      + `配信準備${ts.t3_dispatched_ms - ts.t2_server_received_ms}ms, `
+      + `配信→描画完了${ts.t4_rendered_ms - ts.t3_dispatched_ms}ms)`
+    );
+  }
   res.status(204).end();
 });
 
