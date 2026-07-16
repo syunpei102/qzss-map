@@ -1348,9 +1348,6 @@ function addActiveEvent(eventData, ttlMs = null) {
     markers: { hypocenter: null, hypocenterLabel: null, intensityBadges: [] },
   };
 
-  if (record.geo.hypocenter) Object.assign(record.markers, createHypocenterMarkers(record.geo.hypocenter));
-  record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
-
   record.timer = ttlMs ? setTimeout(() => removeActiveEvent(id), ttlMs) : null;
   activeEvents.set(id, record);
   // 地震・津波・Jアラート・Lアラート等が発生した場合、地図はそちらに
@@ -1360,7 +1357,13 @@ function addActiveEvent(eventData, ttlMs = null) {
     currentPatrolCode = null;
     updateFocusOutline();
   }
+  // 表示の優先順位: 1.警報対象地域の塗りつぶし(最優先、一目で範囲が
+  // 分かる) 2.震源(✕)・震度バッジのマーカー 3.カメラズーム(最後、
+  // 遅延させて色を見せてから動かす)。マーカー生成(DOM要素の作成・
+  // マップへの追加)は塗りより後にすることで、色が先に画面へ反映される
   syncActiveEventLayers();
+  if (record.geo.hypocenter) Object.assign(record.markers, createHypocenterMarkers(record.geo.hypocenter));
+  record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
   // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
   // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
   // しまうため、一度そのままの画面で色を見せてから少し遅れてズームする
@@ -1385,12 +1388,12 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   clearTimeout(record.timer);
   if (newTtlMs != null) record.ttlMs = Math.max(record.ttlMs || 0, newTtlMs);
 
-  if (eventData.geo.hypocenter) {
-    if (record.markers.hypocenter) record.markers.hypocenter.remove();
-    if (record.markers.hypocenterLabel) record.markers.hypocenterLabel.remove();
-    Object.assign(record.markers, createHypocenterMarkers(eventData.geo.hypocenter));
-    record.geo.hypocenter = eventData.geo.hypocenter;
-  }
+  // 表示の優先順位: 1.警報対象地域の塗りつぶし 2.震源・震度バッジの
+  // マーカー 3.カメラズーム。まずマーカーに関わるデータだけ更新し
+  // (DOM操作はまだしない)、塗りつぶし(syncActiveEventLayers)を
+  // 先に反映してから、その後でマーカーのDOM要素を作り直す
+  const hypocenterChanged = !!eventData.geo.hypocenter;
+  if (hypocenterChanged) record.geo.hypocenter = eventData.geo.hypocenter;
 
   // 都道府県の塗りつぶしは「統合」ではなく「置き換え」にする。
   // 例えば緊急地震速報(予報区ベースの広い赤塗り)のあとに震度速報
@@ -1398,11 +1401,8 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // 赤塗りが残り続けるのを防ぐため、新しい情報を持つ通報が来たら
   // 都道府県リストはその内容で丸ごと置き換える(情報を持たない
   // 通報、例えば震源に関する情報は何もしない=前の表示を維持する)
-  if (eventData.geo.prefectures.length) {
-    record.geo.prefectures = eventData.geo.prefectures;
-    for (const marker of record.markers.intensityBadges) marker.remove();
-    record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
-  }
+  const prefecturesChanged = !!eventData.geo.prefectures.length;
+  if (prefecturesChanged) record.geo.prefectures = eventData.geo.prefectures;
 
   if (eventData.geo.tsunami.length) {
     record.geo.tsunami = eventData.geo.tsunami;
@@ -1440,6 +1440,17 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 
   record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
   syncActiveEventLayers();
+  // 塗りつぶしを反映した後で、変化があった分だけマーカーのDOM要素を
+  // 作り直す(優先順位2番目)
+  if (hypocenterChanged) {
+    if (record.markers.hypocenter) record.markers.hypocenter.remove();
+    if (record.markers.hypocenterLabel) record.markers.hypocenterLabel.remove();
+    Object.assign(record.markers, createHypocenterMarkers(record.geo.hypocenter));
+  }
+  if (prefecturesChanged) {
+    for (const marker of record.markers.intensityBadges) marker.remove();
+    record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
+  }
   // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
   // そちらを優先してズームする(気象警報の巡回フォーカスは解除する)
   if (currentPatrolCode !== null) {
