@@ -244,7 +244,29 @@ function sendPushNotifications(report) {
 // Lアラートまで(新規接続したブラウザから見て)消えてしまうバグがあった
 // (52パターンのテストケースを流して発見)。reportGroupKey で「同じ
 // 通報グループ」を判定し、一致するものだけを取り除くようにする。
+//
+// { report, receivedAt } の配列で保持する(receivedAtは下記の安全策用)。
 let activeReports = [];
+
+// 安全策: 取消・解除信号を万一受信し損ねた場合、その通報が永久に
+// activeReportsに居座り新規接続の全員に配信され続けてしまう
+// (実機テストで、テストデータの取消を送らなかったところ何分経っても
+// 再送され続けることを確認した)。実際の災危通報がこれほど長時間
+// アクティブで居続けることは無いはずなので、24時間を安全策の上限とする
+// (通常はreportGroupKeyによる正規の取消処理で先に消える)
+const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function pruneStaleActiveReports() {
+  const before = activeReports.length;
+  activeReports = activeReports.filter((entry) => Date.now() - entry.receivedAt < ACTIVE_REPORT_MAX_AGE_MS);
+  if (activeReports.length !== before) {
+    console.log(`🧹 24時間以上前のactiveReportsを削除しました(${before - activeReports.length}件)`);
+    persistActiveReports();
+  }
+}
+
+// 新しい通報が届かない間もいずれ安全策が効くよう、1時間おきにも確認する
+setInterval(pruneStaleActiveReports, 60 * 60 * 1000);
 
 function isEndSignal(report) {
   if (!report) return false;
@@ -399,12 +421,15 @@ function handleIncomingLine(line) {
   if (isEndSignal(report)) {
     const key = reportGroupKey(report);
     if (key !== null) {
-      activeReports = activeReports.filter((r) => reportGroupKey(r) !== key);
+      activeReports = activeReports.filter((entry) => reportGroupKey(entry.report) !== key);
+      persistActiveReports();
     }
     // key が判定できない場合は何もしない(誤って無関係の通報まで
     // 消してしまうより、消し忘れて残る方が安全なため)
   } else if (isReplayable(report)) {
-    activeReports.push(report);
+    activeReports.push({ report, receivedAt: Date.now() });
+    pruneStaleActiveReports();
+    persistActiveReports();
   }
   broadcast(line);
   sendPushNotifications(report);
@@ -844,6 +869,24 @@ function persistRegionConfig() {
   persistJson(REGION_STATE_FILE, Object.fromEntries(deviceRegionConfig));
 }
 
+// 現在アクティブな通報(activeReports)の永続化。Cloud Runのインスタンス
+// 再起動(デプロイ・コールドスタート等)を挟んでも、まだ解除されていない
+// 警報が新規接続の閲覧者から見えなくならないようにする
+const ACTIVE_REPORTS_STATE_FILE = "active_reports.json";
+
+async function loadActiveReports() {
+  const restored = await loadPersistedJson(ACTIVE_REPORTS_STATE_FILE);
+  if (Array.isArray(restored)) {
+    activeReports = restored;
+    pruneStaleActiveReports(); // 長期間落ちていた場合、復元直後に古いものを除く
+    console.log(`♻️  アクティブな通報を復元しました(${activeReports.length}件)`);
+  }
+}
+
+function persistActiveReports() {
+  persistJson(ACTIVE_REPORTS_STATE_FILE, activeReports);
+}
+
 // 管理者パスワード(/device-adminから自分で変更できる)。同じバケットに
 // 別ファイルとして保存し、環境変数ADMIN_PASSWORD_HASHは「GCSにまだ何も
 // 無い場合の初期値」としてのみ使う
@@ -1137,6 +1180,7 @@ Promise.all([
   loadAdminPasswordHash(),
   loadDeviceIngestTokens(),
   loadTrainingBroadcastSettings(),
+  loadActiveReports(),
 ]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
@@ -1154,8 +1198,8 @@ wss.on("connection", (ws) => {
   console.log("WebSocket クライアント接続");
   // 保持している「現在アクティブな」通報を、新しく繋がったクライアントにだけ
   // 順番に再送する(ブラウザ側の統合ロジックが同じ表示状態を再現する)
-  for (const report of activeReports) {
-    ws.send(JSON.stringify(report));
+  for (const entry of activeReports) {
+    ws.send(JSON.stringify(entry.report));
   }
 });
 
