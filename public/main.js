@@ -1842,15 +1842,23 @@ function renderEventsPanel() {
   // 割り込み)がカメラを持っているのでその地域だけ、そうでなければ
   // ズームフォーカス中のactiveEvents(地震・津波・Jアラート・Lアラート等)、
   // どちらでも無い(=全体表示に戻っている)時だけ、その他の通報
-  // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す
+  // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す。
+  //
+  // テストデータ・訓練放送はカメラを奪わない(=focusedEventIdsに入らない)
+  // 方針だが、パネルからも完全に消えてしまうと「今何が届いているか」
+  // 監視できず動作確認しづらいため、focusedEventIds有無に関わらず常に
+  // 追加で表示する
   const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
+  const alwaysShownEvents = [...activeEvents.values()].filter(
+    (r) => (r.isTestData || r.isTraining) && !focusedEventIds.has(r.id)
+  );
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
-    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
-  } else if (focusedEvents.length) {
-    visibleRecords = focusedEvents;
+    visibleRecords = [weatherSiteCard(focusedWeatherSite), ...alwaysShownEvents];
+  } else if (focusedEvents.length || alwaysShownEvents.length) {
+    visibleRecords = [...focusedEvents, ...alwaysShownEvents];
   } else {
     visibleRecords = [...otherReports.values()].map(otherReportCard);
   }
