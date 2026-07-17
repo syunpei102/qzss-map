@@ -1698,8 +1698,15 @@ function updateCameraForActiveEvents(preferredRecord) {
   // 他のイベントと同じく「一番新しいものを優先」の対象にし、それが
   // たまたま津波警報だった場合だけ、沿岸に寄った見せ方をする
   if (!preferredRecord) {
+    // テストデータ・訓練放送はカメラを占有しない方針(addActiveEvent/
+    // mergeIntoActiveEventの呼び出し元では既に除外しているが、
+    // removeActiveEvent等からpreferredRecord無しで呼ばれた時のこの
+    // フォールバック選択でも同様に除外しないと、訓練放送だけが
+    // activeEventsに残っている状況で「一番新しいもの」として選ばれて
+    // しまい、巡回ズームがそちらに奪われ続ける不具合になる(実機で確認)
     let latest = null;
     for (const record of activeEvents.values()) {
+      if (record.isTestData || record.isTraining) continue;
       if (record.bounds && (!latest || record.updatedAt > latest.updatedAt)) latest = record;
     }
     preferredRecord = latest;
