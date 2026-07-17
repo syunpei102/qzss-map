@@ -92,6 +92,16 @@ const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 8, 9, 10, 11]);
 function shouldNotify(report) {
   if (!PUSH_ENABLED || !report) return false;
   if (report.type === "Heartbeat" || report.type === "DecodeError") return false;
+  // 訓練放送(DCRはreport_classification_no===7、DCX/LアラートJアラートは
+  // a1_message_type==='Test')は、地図側(public/main.jsのrenderReport)
+  // がshowTrainingBroadcastsに従って表示するかどうかを決めているのに、
+  // プッシュ通知はその設定に関わらず常に送っていた。訓練放送の表示を
+  // OFFにしているのに通知だけ届き、地図で確認すると何も描画されていない
+  // (=通知とmapの表示が食い違う)という紛らわしい状態になっていたため、
+  // 通知も同じ設定に従わせる。通知には拠点(device)の紐付けが無いため、
+  // 全体設定(globalShowTrainingBroadcasts)を見る
+  const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === "Test";
+  if (isOfficialTrainingBroadcast && !globalShowTrainingBroadcasts) return false;
   if (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return true;
   return PUSH_NOTIFY_CATEGORY_NOS.has(report.disaster_category_no);
 }
