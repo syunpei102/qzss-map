@@ -4,35 +4,57 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>QZSS レイテンシダッシュボード</title>
+<link rel="stylesheet" href="./style.css">
 <style>
   html, body {
-    margin: 0; padding: 0; height: 100%;
+    margin: 0; padding: 0;
     background-color: #14161a;
     color: azure;
     font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
   }
-  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 20px 60px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
-  p.sub { color: #9aa0a6; font-size: 13px; margin: 0 0 24px; }
+  p.sub { color: #9aa0a6; font-size: 13px; margin: 0 0 20px; }
   .stats {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: 12px; margin-bottom: 28px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 10px; margin-bottom: 24px;
   }
   .stat-card {
-    background: #1e2126; border-radius: 8px; padding: 14px 16px;
+    background: #1e2126; border-radius: 8px; padding: 12px 14px;
     border-left: 3px solid #2ecc71;
   }
   .stat-card .label { color: #9aa0a6; font-size: 12px; }
-  .stat-card .value { font-size: 22px; font-weight: 600; margin-top: 4px; }
+  .stat-card .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
   canvas { width: 100%; background: #1e2126; border-radius: 8px; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 28px; font-size: 12px; color: #9aa0a6; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
   .legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid #2a2e35; }
-  th:first-child, td:first-child { text-align: left; }
-  th { color: #9aa0a6; font-weight: 500; }
   .empty { color: #9aa0a6; font-size: 13px; padding: 40px 0; text-align: center; }
+  .toggle-row {
+    display: flex; align-items: center; gap: 6px; font-size: 13px; color: #9aa0a6;
+    margin-bottom: 16px; cursor: pointer;
+  }
+  h2.section-title { font-size: 15px; margin: 32px 0 0; }
+
+  /* パネル(main.jsのreport-card)と同じ見た目に揃えつつ、ダッシュボード
+     専用の要素(計測バー・時刻)だけここで追加する */
+  #history_container {
+    background: #1e2126; border-radius: 8px; overflow: hidden; margin-top: 10px;
+  }
+  .report-card { position: relative; }
+  .report-card.anomaly { background: rgba(231, 76, 60, 0.08); }
+  .latency-bar-row {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+    font-size: 11px; color: #9aa0a6;
+  }
+  .latency-bar {
+    flex: 1; height: 6px; border-radius: 3px; overflow: hidden; display: flex;
+    background: #0f1114;
+  }
+  .latency-bar span { display: block; height: 100%; }
+  .latency-total { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .latency-total.anomaly { color: #e74c3c; font-weight: 600; }
+  .recorded-time { font-size: 11px; color: #666; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -40,7 +62,7 @@
   <h1>⏱️ レイテンシダッシュボード</h1>
   <p class="sub">信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)。5秒ごとに自動更新。</p>
 
-  <label style="display:inline-flex; align-items:center; gap:6px; font-size:13px; color:#9aa0a6; margin-bottom:16px; cursor:pointer;">
+  <label class="toggle-row">
     <input type="checkbox" id="hide-test-toggle" />
     テストデータを除外(本番信号のみ表示)
   </label>
@@ -53,15 +75,10 @@
     <span><i style="background:#9c7fe0"></i>配信準備</span>
     <span><i style="background:#2ecc71"></i>配信→描画完了</span>
   </div>
-  <canvas id="chart" height="220"></canvas>
+  <canvas id="chart" height="200"></canvas>
 
-  <h2 style="font-size:15px; margin-top:32px;">直近の計測(新しい順)</h2>
-  <table id="history-table">
-    <thead>
-      <tr><th>時刻</th><th>種別</th><th style="text-align:left">内容</th><th>合計</th><th>デコード</th><th>受信機→サーバー</th><th>配信準備</th><th>配信→描画</th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+  <h2 class="section-title">直近の計測(新しい順)</h2>
+  <div id="history_container"></div>
   <div class="empty" id="empty-msg" style="display:none">まだ計測データがありません。通報を受信すると自動的に記録されます。</div>
 </div>
 
@@ -84,8 +101,6 @@ function percentile(sorted, p) {
 function renderStats(history) {
   const el = document.getElementById('stats');
   if (!history.length) { el.innerHTML = ''; return; }
-  // テストデータも含めて集計する(件数の内訳は種別ごとに表示するので、
-  // どれだけがテストかは分かるようにしておく)
   const testCount = history.filter((h) => h.isTestData).length;
   const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
   const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
@@ -110,7 +125,7 @@ function renderChart(history) {
   const canvas = document.getElementById('chart');
   const dpr = window.devicePixelRatio || 1;
   const cssWidth = canvas.clientWidth || 900;
-  const cssHeight = 220;
+  const cssHeight = 200;
   canvas.width = cssWidth * dpr;
   canvas.height = cssHeight * dpr;
   const ctx = canvas.getContext('2d');
@@ -148,74 +163,147 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// レポートの種類ごとにフィールド名が違うため、よくある項目を拾えるだけ
-// 拾って短い要約文にする(無ければ type だけ表示する)
-function summarizeReport(r) {
-  if (!r) return '(内容なし)';
-  const parts = [];
-  if (r.disaster_category) parts.push(r.disaster_category);
-  if (r.seismic_epicenter) parts.push(r.seismic_epicenter);
-  if (r.magnitude) parts.push('M' + r.magnitude);
-  if (r.seismic_intensity_lower_limit) parts.push(r.seismic_intensity_lower_limit);
-  if (r.a4_hazard_type) parts.push(r.a4_hazard_type);
-  for (const key of ['weather_forecast_regions', 'ex9_target_area_list_ja', 'eew_forecast_regions']) {
-    if (Array.isArray(r[key]) && r[key].length) {
-      parts.push(r[key].slice(0, 3).join('・') + (r[key].length > 3 ? ' 他' : ''));
-      break;
-    }
-  }
-  if (!parts.length) parts.push(r.type || '(種別不明)');
-  return parts.join(' / ');
+// ==================================================
+// レポート内容の人間可読化。main.js の buildEventFromXxx 群と同じ
+// 発想(種別ごとにタイトル・バッジ・詳細項目を組み立てる)を、地図の
+// 描画には使わない読み取り専用の要約として簡易移植したもの。
+// 翻訳テーブルもmain.jsの同名定数と揃えてある(表記がズレないように)
+// ==================================================
+const JALERT_HAZARD_JA = {
+  'Missile attack': 'ミサイル発射', 'Air strike': '航空攻撃',
+  'Guerrilla attack': 'ゲリラ・特殊部隊による攻撃', 'Special forces attack': 'ゲリラ・特殊部隊による攻撃',
+  'Terrorism': 'テロ', 'Chemical attack': '化学攻撃', 'Attack with nuclear weapons': '核攻撃',
+  'Earthquake': '地震', 'Tsunami': '津波', 'Volcano eruption': '火山噴火',
+  'Safety warning': '安全に関する警告(訓練/試験を含む)',
+};
+const LALERT_HAZARD_JA = {
+  'Earthquake': '地震', 'Tsunami': '津波', 'Tidal wave': '高波', 'Flood': '洪水',
+  'Coastal flooding': '高潮', 'Rainfall': '大雨', 'Debris flow': '土石流', 'Landslide': '地すべり',
+  'Crack in the ground / sinkhole': '地割れ・陥没', 'Avalanche risk': '雪崩', 'Snowdrifts': '吹きだまり',
+  'Snow storm / blizzard': '暴風雪', 'Snowfall': '大雪', 'Volcano eruption': '火山噴火',
+  'Ash fall': '降灰', 'Lava flow': '溶岩流', 'Pyroclastic flow': '火砕流',
+  'Volcanic mud flow': '融雪型火山泥流', 'Tornado': '竜巻', 'Tropical cyclone (typhoon)': '台風',
+  'Storm or thunderstorm': '暴風・雷', 'Wind / wave / storm surge': '強風・高波・高潮',
+  'Lightning': '雷', 'Hail': 'ひょう', 'Structure fire / Industrial fire': '火災',
+  'Forest fire': '林野火災', 'Building collapse': '建物倒壊',
+  'Dam failure or bursting of a dam': 'ダム決壊', 'Dike failure or bursting of a dike': '堤防決壊',
+  'Life Threatening situation': '生命に関わる状況', 'Safety warning': '安全に関する警告',
+};
+const HAZARD_DURATION_JA = {
+  'Unknown': '不明', 'Duration < 6H': '6時間未満',
+  '6H <= Duration < 12H': '6〜12時間', '12H <= Duration < 24H': '12〜24時間',
+};
+function hazardTypeJa(r) {
+  const table = r.type === 'QzssDcxJAlert' ? JALERT_HAZARD_JA : LALERT_HAZARD_JA;
+  return table[r.a4_hazard_type] || r.a4_hazard_type;
+}
+function hazardDurationJa(text) {
+  return HAZARD_DURATION_JA[text] || text;
 }
 
-// 5秒ごとの自動更新でテーブルを丸ごと作り直すと、開いていた<details>
-// (内容の詳細表示)がその都度閉じてしまい読めないため、どのキーが
-// 開いていたかを覚えておいて再描画後に復元する
-const openDetailKeys = new Set();
+function reportBadgeText(r) {
+  if (!r) return '不明';
+  if (r.type === 'QzssDcxLAlert') return 'Lアラート';
+  if (r.type === 'QzssDcxJAlert') return 'Jアラート';
+  if (r.disaster_category) return r.disaster_category;
+  return r.type || '不明';
+}
 
-function renderTable(history) {
-  const tbody = document.querySelector('#history-table tbody');
+function reportSeverityClass(r) {
+  if (!r) return 'sev-info';
+  const isTraining = r.report_classification_no === 7 || r.a1_message_type === 'Test';
+  if (isTraining) return 'sev-training';
+  if (r.disaster_category_no === 1 || r.disaster_category_no === 5) return 'sev-emergency';
+  if (r.disaster_category_no === 2 || r.disaster_category_no === 3) return 'sev-warning';
+  if (r.disaster_category_no === 10) return 'sev-caution';
+  if (r.type === 'QzssDcxLAlert' || r.type === 'QzssDcxJAlert') return 'sev-info';
+  return 'sev-info';
+}
+
+function reportTitle(r) {
+  if (!r) return '(内容なし)';
+  if (r.disaster_category) {
+    return r.information_type && r.information_type !== '発表'
+      ? `${r.disaster_category}(${r.information_type})`
+      : r.disaster_category;
+  }
+  if (r.a4_hazard_type) return r.a1_message_type === 'Test' ? `${hazardTypeJa(r)}(訓練)` : hazardTypeJa(r);
+  return r.type || '(種別不明)';
+}
+
+function reportRows(r) {
+  if (!r) return [];
+  const rows = [];
+  const push = (k, v) => { if (v !== undefined && v !== null && v !== '') rows.push([k, v]); };
+  if (r.type === 'QzssDcxLAlert' || r.type === 'QzssDcxJAlert') {
+    const sev = (r.a5_severity || '').startsWith('Extreme') ? '最高度'
+      : (r.a5_severity || '').startsWith('Severe') ? '警戒'
+      : (r.a5_severity || '').startsWith('Moderate') ? '注意' : null;
+    if (sev) push('深刻度', sev);
+  }
+  push('発表時刻', r.report_time);
+  push('震央', r.seismic_epicenter);
+  push('マグニチュード', r.magnitude);
+  push('震度', r.seismic_intensity_lower_limit);
+  if (Array.isArray(r.eew_forecast_regions) && r.eew_forecast_regions.length) {
+    push('対象地域', r.eew_forecast_regions.slice(0, 6).join('・') + (r.eew_forecast_regions.length > 6 ? ' 他' : ''));
+  }
+  push('対象地域', r.ex1_target_area_ja);
+  if (Array.isArray(r.ex9_target_area_list_ja) && r.ex9_target_area_list_ja.length) {
+    push('対象地域', r.ex9_target_area_list_ja.slice(0, 6).join('・') + (r.ex9_target_area_list_ja.length > 6 ? ' 他' : ''));
+  }
+  if (Array.isArray(r.weather_forecast_regions) && r.weather_forecast_regions.length) {
+    push('対象地域', r.weather_forecast_regions.slice(0, 6).join('・') + (r.weather_forecast_regions.length > 6 ? ' 他' : ''));
+  }
+  if (r.a8_hazard_duration) push('継続時間', hazardDurationJa(r.a8_hazard_duration));
+  return rows;
+}
+
+const LATENCY_SEGMENTS = [
+  ['decodeMs', '#4c8bf5'],
+  ['networkMs', '#f1c40f'],
+  ['dispatchPrepMs', '#9c7fe0'],
+  ['renderMs', '#2ecc71'],
+];
+const ANOMALY_THRESHOLD_MS = 1000;
+
+function renderHistory(history) {
+  const container = document.getElementById('history_container');
   const emptyMsg = document.getElementById('empty-msg');
   const recent = [...history].slice(-30).reverse();
   if (!recent.length) {
-    tbody.innerHTML = '';
+    container.innerHTML = '';
     emptyMsg.style.display = 'block';
     return;
   }
   emptyMsg.style.display = 'none';
-  // 合計1秒を超えるものは、通常のネットワーク遅延では説明できない異常値
-  // (例: キオスク再起動でWebSocket再接続中に信号が来た場合等)として
-  // 赤くハイライトする
-  const ANOMALY_THRESHOLD_MS = 1000;
 
-  tbody.innerHTML = recent.map((h) => {
-    const key = String(h.recordedAt);
+  container.innerHTML = recent.map((h) => {
+    const r = h.reportSummary;
     const isAnomaly = h.totalMs > ANOMALY_THRESHOLD_MS;
+    const testBanner = h.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
+    const rowsHtml = reportRows(r).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+    const maxSeg = Math.max(h.totalMs, 1);
+    const barHtml = LATENCY_SEGMENTS.map(([key, color]) =>
+      `<span style="width:${Math.max(0, h[key]) / maxSeg * 100}%; background:${color}"></span>`
+    ).join('');
     return `
-    <tr style="${isAnomaly ? 'background:rgba(231,76,60,0.15)' : ''}">
-      <td>${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}</td>
-      <td>${h.isTestData ? '<span style="color:#f1c40f">🧪 テスト</span>' : '<span style="color:#2ecc71">実データ</span>'}</td>
-      <td style="text-align:left; max-width:260px;">
-        <details data-key="${key}" ${openDetailKeys.has(key) ? 'open' : ''}>
-          <summary style="cursor:pointer">${escapeHtml(summarizeReport(h.reportSummary))}</summary>
-          <pre style="white-space:pre-wrap; font-size:11px; color:#9aa0a6; margin:6px 0 0;">${escapeHtml(JSON.stringify(h.reportSummary, null, 2))}</pre>
-        </details>
-      </td>
-      <td style="${isAnomaly ? 'color:#e74c3c; font-weight:600' : ''}">${h.totalMs}ms${isAnomaly ? ' ⚠️' : ''}</td>
-      <td>${h.decodeMs}ms</td>
-      <td>${h.networkMs}ms</td>
-      <td>${h.dispatchPrepMs}ms</td>
-      <td>${h.renderMs}ms</td>
-    </tr>
-  `;
+      <div class="report-card ${reportSeverityClass(r)} ${isAnomaly ? 'anomaly' : ''}">
+        ${testBanner}
+        <div class="report-badge-row">
+          <div class="badges-list"><div class="report-badge ${reportSeverityClass(r)}">${escapeHtml(reportBadgeText(r))}</div></div>
+          <span class="satellite-tag">${h.isTestData ? '🧪 テスト' : '📡 実データ'}</span>
+        </div>
+        <div class="report-title">${escapeHtml(reportTitle(r))}</div>
+        <dl class="report-summary">${rowsHtml}</dl>
+        <div class="latency-bar-row">
+          <div class="latency-bar">${barHtml}</div>
+          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${h.totalMs}ms${isAnomaly ? ' ⚠️' : ''}</span>
+        </div>
+        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}(デコード${h.decodeMs}ms・受信機→サーバー${h.networkMs}ms・配信準備${h.dispatchPrepMs}ms・配信→描画${h.renderMs}ms)</div>
+      </div>
+    `;
   }).join('');
-
-  for (const el of tbody.querySelectorAll('details')) {
-    el.addEventListener('toggle', () => {
-      if (el.open) openDetailKeys.add(el.dataset.key);
-      else openDetailKeys.delete(el.dataset.key);
-    });
-  }
 }
 
 const hideTestToggle = document.getElementById('hide-test-toggle');
@@ -225,7 +313,7 @@ async function refresh() {
   const history = hideTestToggle.checked ? all.filter((h) => !h.isTestData) : all;
   renderStats(history);
   renderChart(history);
-  renderTable(history);
+  renderHistory(history);
 }
 
 hideTestToggle.addEventListener('change', refresh);

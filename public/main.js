@@ -1053,19 +1053,15 @@ function patrolStep() {
   }
 
   const codes = [...weatherSites.keys()];
-  if (!codes.length) {
-    if (currentPatrolCode !== null) {
-      currentPatrolCode = null;
-      updateFocusOutline();
-      renderEventsPanel();
-      const view = getDefaultView();
-      map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
-    }
-    patrolIndex = 0;
-    schedulePatrolNext(PATROL_DWELL_MS); // 警報が出ていないか定期的に確認する
-    return;
-  }
-
+  // 気象警報が0件の場合、patrolIndex(0) >= codes.length(0)が常に成り立つ
+  // ため、以前ここに専用の早期returnを置いていたが、それは
+  // 「currentPatrolCodeが既にnullなら何もしない」という条件付きで
+  // カメラを日本全体表示に戻していなかった。テスト/訓練放送だけが
+  // activeEventsに残っている状況(currentPatrolCodeはそもそも一度も
+  // 立たない)だと、カメラがそこに固定されたまま巡回が永久に始まらない
+  // 不具合になっていた(実機で確認)。専用分岐を無くし、下の「一通り
+  // 巡回し終えた」分岐(0件なら0周目で即座に真になる)に任せることで、
+  // 常に無条件でカメラを戻すようにする
   if (patrolIndex >= codes.length) {
     // 一通り巡回し終えたので、いったん全体表示に戻して休止する
     patrolIndex = 0;
