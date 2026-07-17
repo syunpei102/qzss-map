@@ -6,6 +6,31 @@ html, body {
   font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 
+/* 巡回が一周して日本全体表示に戻る瞬間は、それまでズームインして1つずつ
+   見せていた警報エリアが一気に画面内に収まり、MapLibreが多数のポリゴンを
+   同時にラスタライズすることになる。ラズパイ3B+はソフトウェアレンダリング
+   (SwiftShader、GPUドライバの不安定さを避けるため意図的に無効化している。
+   qzss-kiosk@.serviceのコメント参照)のため、大雨などで同時にアクティブな
+   警報が多い時にこの一気の再描画でキオスクが落ちることがある。
+   カメラを動かす瞬間だけこのマスクで地図を覆い隠すことで、再描画が
+   一度に集中する様子を画面に出さないようにする(処理そのものを軽くする
+   わけではないが、真っ黒な画面のまま固まって見えるより「読み込み中」に
+   見え、かつJS側の他の更新(パネル再描画等)をこの間に後ろへずらして
+   同じフレームに集中させない=処理を分散させる効果もある)
+*/
+#patrol_transition_mask {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgb(100, 100, 100);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+#patrol_transition_mask.is-active {
+  opacity: 1;
+}
+
 .panel {
   position: fixed;
   /* iOSのノッチ/ステータスバーとPWAのホームインジケーターに重ならないよう、
@@ -108,6 +133,15 @@ html, body {
      ページ送りする=is-kioskクラスでスクロール自体を無効化する) */
   max-height: 480px;
   overflow-y: auto;
+}
+/* スマホ幅は画面自体が小さく、480pxはおろか700pxにするとパネルだけで
+   画面が埋まってしまう(スマホは元々パネルが上部に幅いっぱいで出る
+   レイアウト)。デスクトップ幅だけ、文章が長いカードでも3件が
+   スクロール無しで収まるよう高さを広げる */
+@media (min-width: 701px) {
+  #events_container {
+    max-height: 700px;
+  }
 }
 body.is-kiosk #events_container {
   overflow-y: hidden;
@@ -241,6 +275,7 @@ body.is-kiosk #events_container {
   font-weight: bold;
   line-height: 1.4;
   margin-bottom: 6px;
+  color: #ffffff;
 }
 
 .report-meta {

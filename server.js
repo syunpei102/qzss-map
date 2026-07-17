@@ -348,11 +348,17 @@ const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 15分
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間(解除信号が主、これは保険)
 const TTL_TEST_DATA_MS = 60 * 1000; // テストデータ: 1分
+// 気象警報・注意報とLアラートは、public/main.js側のTTL_WEATHER_MS/
+// TTL_LALERT_UNKNOWN_MSと同じ3時間に揃える(以前は24時間の安全策
+// 任せで、新規接続のたびに何時間も前の警報が再送され続けていた)
+const TTL_WEATHER_LALERT_MS = 3 * 60 * 60 * 1000;
 
 function ttlMsForReport(report) {
   if (report.is_test_data) return TTL_TEST_DATA_MS;
   if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
   if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
+  if (report.disaster_category_no === 10) return TTL_WEATHER_LALERT_MS;
+  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return TTL_WEATHER_LALERT_MS;
   return null; // 判定できないものは従来通りACTIVE_REPORT_MAX_AGE_MSの安全策に任せる
 }
 

@@ -365,6 +365,7 @@ let prefectureFeaturesByName = new Map();
 let municipalityFeaturesByCode = new Map();
 let weatherFeaturesByCode = new Map();
 let floodRiverFeaturesByCode10 = new Map(); // 河川コード(10桁)-> 流路のGeoJSON Feature(主要109水系分のみ)
+let volcanoesByName = new Map(); // 火山名(azarashiのvolcano_nameと同じ表記) -> {lat, lon}
 
 // 左上に情報パネルが常時かぶさっているため、その分だけ
 // 地図を右側に寄せてfitBoundsする(パネルの真下に対象が
@@ -533,6 +534,7 @@ function severityClass(report) {
 // カード左端の色帯用。複数の通報が1枚に統合されている場合(緊急地震速報+
 // 震度+津波など)は、その中で最も緊急度が高いものの色を使う
 const SEVERITY_RANK = {
+  'sev-tokubetsu': 5, // 特別警報・火山の噴火(volcanoSeverityClass)。既存の最上位
   'sev-emergency': 4,
   'sev-keihou': 3, // 洪水の氾濫危険情報(floodSeverityClass)。sev-warningと同格
   'sev-warning': 3,
@@ -856,10 +858,14 @@ function buildEventFromLAlert(report) {
     satellitePrn: report.satellite_prn,
     badgeText: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
     badgeClass: 'report-badge ' + jalertSeverityClass(report),
-    // 災害種別名(例: 津波)は、丸角の見出しとして一番目立つ位置に表示する
-    // (気象警報カードと同じ見た目に統一)
-    headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
-    title: '',
+    // 丸角の見出しは「情報の種類」(Lアラート/自治体情報)を固定で表示し、
+    // 災害種別名(例: 大雨)はその下に太字白文字で表示する(火山と同じ
+    // 考え方: 見出しと同じ内容をバッジでも繰り返さないようshowBadgesは
+    // falseにする)。以前は逆(見出しが災害種別名)だったが、見出しと
+    // バッジの両方に同じ災害種別名が出て冗長という指摘を受けて入れ替えた
+    showBadges: false,
+    headline: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
+    title: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
     meta: `受信 ${nowTimeString()}`,
     // 「指示」(例: 河口から離れてください)は避難行動に直結しうる自由文
     // なので、dt/ddの1行に埋もれさせず独立したメッセージブロックで見せる
@@ -973,13 +979,148 @@ function cleanDescriptionMessage(description) {
   return cleaned.join('\n');
 }
 
-// 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱うため、
-// ここでは南海トラフ地震(4)・火山(8)・降灰(9)だけを対象にする
+// 火山(8)の警報本文からおおよその警戒範囲(半径km)を読み取る。
+// 「火口から約3kmの範囲では警戒が必要です」のような定型文が入っている
+// ことが多いが、無い場合は暫定的に2kmとする
+function volcanoWarningRadiusKm(description) {
+  const match = description && description.match(/約([0-9.]+)\s*km/);
+  return match ? parseFloat(match[1]) : 2;
+}
+
+// 火山(8)の安全策TTL。噴火そのものは短時間で状況が動くことが多い一方、
+// 取消(information_type_no===2)が来ない運用もありうるため、気象警報等
+// (24時間)より短い12時間を保険として使う
+const TTL_VOLCANO_MS = 12 * 60 * 60 * 1000;
+
+// azarashiのqzss_dcr_jma_volcanic_warning_code。噴火警戒レベル(11〜15)・
+// 危険度表現(21〜25)・海底火山向け(35〜36)には「警戒が続いている」状態
+// そのものを表すコードが多く、取消(解除)信号が来ないまま何日も続く。
+// これを地図に出し続けると、24時間の安全策TTLの度に消えては復活しを
+// 繰り返し紛らわしいうえ、常時テロップのように出続けて注意報レベルの
+// 情報まで大袈裟に見える。「本当にやばそうな時だけ」に絞るため、各
+// 系統の最も深刻な段階(高齢者等避難・避難・厳重警戒・噴火)だけを対象にする
+const VOLCANO_DANGEROUS_CODES = new Set([
+  14, // 警戒レベル4: 高齢者等避難
+  15, // 警戒レベル5: 避難
+  24, // 山麓厳重警戒
+  25, // 居住地域厳重警戒
+  36, // 海底火山: 周辺海域警戒
+  52, // 噴火
+  62, // 噴火したもよう
+]);
+
+// 避難系(高齢者等避難・避難)は赤(sev-emergency)、噴火そのものは紫
+// (sev-tokubetsu)、それ以外(厳重警戒等)は火山の既定色(sev-warning、
+// オレンジ)。地図の円とパネルの帯・見出しが同じ色になるよう、
+// 両方をこのクラス名から導出する(色の食い違いは洪水で一度踏んだ失敗)
+function volcanoSeverityClass(code) {
+  if (code === 52 || code === 62) return 'sev-tokubetsu'; // 噴火・噴火したもよう
+  if (code === 14 || code === 15) return 'sev-emergency'; // 高齢者等避難・避難
+  return 'sev-warning';
+}
+const VOLCANO_SEVERITY_COLOR = {
+  'sev-tokubetsu': '#8e24aa',
+  'sev-emergency': '#b3261e',
+  'sev-warning': '#d9822b',
+};
+
+// 火山(8)は、座標が分かる火山(volcanoesByName、Wikidata由来の223件)なら
+// 火口を中心とした円を実イベント(activeEvents)として描き、洪水の主要河川と
+// 同じく巡回ズームの対象にする。座標が無い(名前が一致しない)火山は、
+// 南海トラフ等と同じテキストのみのotherReportsカードにフォールバックする
+function handleVolcanoReport(report) {
+  const name = report.volcano_name;
+  const isCancel = report.information_type_no === 2;
+
+  if (isCancel) {
+    for (const [id, record] of activeEvents) {
+      if (record.volcanoKey === name) removeActiveEvent(id);
+    }
+    const existing = otherReports.get(8);
+    if (existing && existing.timer) clearTimeout(existing.timer);
+    otherReports.delete(8);
+    syncActiveEventLayers();
+    return;
+  }
+
+  // 警戒レベルの「留意」程度など、深刻とは言えない段階はそもそも
+  // 表示自体をしない(取消が来ない運用のため、TTLが切れるまでずっと
+  // 居座って紛らわしくなるのを避ける)
+  if (!VOLCANO_DANGEROUS_CODES.has(report.volcanic_warning_code_raw)) return;
+
+  const rows = [];
+  if (report.volcanic_warning_code) rows.push(['警報', report.volcanic_warning_code]);
+  const cleanedMessage = cleanDescriptionMessage(report.description);
+  if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
+
+  const severityClass = volcanoSeverityClass(report.volcanic_warning_code_raw);
+  const coord = name ? volcanoesByName.get(name) : null;
+  if (coord) {
+    // 地図の円とパネルの帯・見出しが違う色に見えないよう、両方とも
+    // severityClassから導く(洪水で一度踏んだ失敗と同じにしない)
+    const color = VOLCANO_SEVERITY_COLOR[severityClass];
+    const radiusKm = volcanoWarningRadiusKm(report.description);
+    const polygon = ellipsePolygon([coord.lon, coord.lat], radiusKm, radiusKm, 0);
+    const event = applyTrainingLabel({
+      isTestData: !!report.is_test_data,
+      satelliteId: report.satellite_id,
+      satellitePrn: report.satellite_prn,
+      volcanoKey: name,
+      badgeText: '火山',
+      badgeClass: 'report-badge ' + severityClass,
+      showBadges: false,
+      // 丸角の見出しは種別名(火山)固定にし、山の名前はその下に
+      // 太字白文字で出す(report-titleの既存スタイル、weatherSiteCardの
+      // 「📍 東京都」と同じ位置づけ)
+      headline: '火山',
+      title: name || '',
+      meta: `受信 ${nowTimeString()}`,
+      message: cleanedMessage,
+      rows,
+      geo: { hypocenter: null, tsunami: [], prefectures: [], ellipse: { polygon, color } },
+      bounds: geometryBounds(polygon),
+      boundsMaxZoom: 10,
+    }, report);
+    if (isRelevantToTargetRegion(event)) {
+      const match = findMatchingGroup(report, event);
+      if (match) mergeIntoActiveEvent(match, event, report, TTL_VOLCANO_MS);
+      else addActiveEvent(event, TTL_VOLCANO_MS);
+    }
+  } else {
+    const existing = otherReports.get(8);
+    if (existing && existing.timer) clearTimeout(existing.timer);
+    const event = applyTrainingLabel({
+      isTestData: !!report.is_test_data,
+      satelliteId: report.satellite_id,
+      satellitePrn: report.satellite_prn,
+      badgeText: '火山',
+      badgeClass: 'report-badge ' + severityClass,
+      showBadges: false,
+      headline: '火山',
+      title: name || '',
+      meta: `受信 ${nowTimeString()}`,
+      message: cleanedMessage,
+      rows,
+      geo: { hypocenter: null, tsunami: [], prefectures: [] },
+      bounds: null,
+      updatedAt: Date.now(),
+    }, report);
+    event.timer = setTimeout(() => {
+      otherReports.delete(8);
+      renderEventsPanel();
+    }, TTL_VOLCANO_MS);
+    otherReports.set(8, event);
+  }
+  syncActiveEventLayers();
+}
+
+// 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱う。
+// 火山(8)も専用のhandleVolcanoReportで扱うため、ここでは
+// 南海トラフ地震(4)・降灰(9)だけを対象にする
 function buildEventFromOtherCategory(report) {
   const rows = [];
-  // 火山(8)・降灰(9): 火山名と警報種別
+  // 降灰(9): 火山名と降灰予報
   if (report.volcano_name) rows.push(['火山', report.volcano_name]);
-  if (report.volcanic_warning_code) rows.push(['警報', report.volcanic_warning_code]);
   if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
     rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
   }
@@ -1249,6 +1390,44 @@ function schedulePatrolNext(delayMs) {
   patrolTimer = setTimeout(patrolStep, delayMs);
 }
 
+// 巡回が一周して日本全体表示に戻る瞬間は、それまでズームインして
+// 1件ずつ見せていた警報エリア(気象警報・洪水の河川・火山の円等)が
+// 一気に画面内へ収まり、MapLibreが多数のポリゴンを同時にラスタライズ
+// することになる。ラズパイ3B+はソフトウェアレンダリング(SwiftShader、
+// GPUドライバの不安定さを避けるため意図的に無効化している)なので、
+// 大雨などで同時にアクティブな警報が多い日にこの一気の再描画で
+// キオスクが落ちることが実機で確認された。
+// #patrol_transition_maskで地図を覆い隠している間にカメラを動かし、
+// MapLibreの'idle'イベント(再描画・タイル読み込みが落ち着いたサイン)
+// を待ってからパネル更新・マスク解除を行う。処理そのものを軽くする
+// わけではないが、(1)一番重い瞬間を画面に出さない、(2)カメラ移動と
+// パネル再描画を同じフレームに詰め込まず後段の処理を後ろへずらす
+// (=処理を分散させる)、の2点で体感のクラッシュ率を下げる狙い。
+// 'idle'がいつまでも来ない場合に画面が覆われたまま固まらないよう、
+// 上限時間(PATROL_MASK_MAX_WAIT_MS)を超えたら強制的にマスクを外す
+const PATROL_MASK_MAX_WAIT_MS = 4000;
+function returnToWholeJapanSafely() {
+  const mask = document.getElementById('patrol_transition_mask');
+  if (mask) mask.classList.add('is-active');
+  // マスクのCSSトランジション(フェードイン)が実際に1フレーム分適用
+  // されてから重いカメラ移動に入るよう、1フレーム分だけ間を空ける
+  requestAnimationFrame(() => {
+    const view = getDefaultView();
+    map.jumpTo({ center: view.center, zoom: view.zoom });
+    let settled = false;
+    const finishTransition = () => {
+      if (settled) return;
+      settled = true;
+      updateFocusOutline();
+      focusedEventIds = new Set();
+      renderEventsPanel();
+      if (mask) mask.classList.remove('is-active');
+    };
+    map.once('idle', finishTransition);
+    setTimeout(finishTransition, PATROL_MASK_MAX_WAIT_MS);
+  });
+}
+
 function patrolStep() {
   // 気象警報(weatherSites)・位置情報を持つ訓練放送・そして地震/津波/
   // Jアラート/Lアラート等の「本物」のイベント(isTraining以外でbounds
@@ -1282,15 +1461,12 @@ function patrolStep() {
   // 常に無条件でカメラを戻すようにする
   if (patrolIndex >= targets.length) {
     // 一通り巡回し終えたので、いったん全体表示に戻して休止する
+    // (マスク越しに安全に戻す。returnToWholeJapanSafely参照)
     patrolIndex = 0;
     currentPatrolCode = null;
     currentPatrolTrainingId = null;
     currentPatrolEventId = null;
-    const view = getDefaultView();
-    map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
-    updateFocusOutline();
-    focusedEventIds = new Set();
-    renderEventsPanel();
+    returnToWholeJapanSafely();
     schedulePatrolNext(PATROL_CYCLE_PAUSE_MS);
     return;
   }
@@ -1568,12 +1744,13 @@ function findMatchingGroup(report, eventData) {
   // 超えた場合に同じアラートなのに別カードとして重複作成されてしまう
   // (実機で確認: 12時間有効なLアラート訓練放送が数分間隔で再送され、
   // 一部だけ統合されず複数カード化していた)
-  if (eventData.lalertKey || eventData.jalertKey || eventData.floodRiverKey) {
+  if (eventData.lalertKey || eventData.jalertKey || eventData.floodRiverKey || eventData.volcanoKey) {
     for (const record of activeEvents.values()) {
       if (record.isTransientNotice) continue;
       if (eventData.lalertKey && record.lalertKey === eventData.lalertKey) return record;
       if (eventData.jalertKey && record.jalertKey === eventData.jalertKey) return record;
       if (eventData.floodRiverKey && record.floodRiverKey === eventData.floodRiverKey) return record;
+      if (eventData.volcanoKey && record.volcanoKey === eventData.volcanoKey) return record;
     }
     return null;
   }
@@ -1899,7 +2076,7 @@ function syncActiveEventLayers() {
     if (record.geo.ellipse) {
       ellipseFeatures.push({
         type: 'Feature',
-        properties: { color: record.geo.ellipse.color },
+        properties: { color: record.geo.ellipse.color, recordId: record.id },
         geometry: record.geo.ellipse.polygon,
       });
     }
@@ -2311,23 +2488,23 @@ function renderEventsPanel() {
   // 訓練放送を全てまとめて表示する。
   //
   // その他の通報(otherReports: 南海トラフ/火山/降灰/洪水のうち地図に
-  // 描く場所が無いもの)は、特定の位置にズームする仕組みが無いため
-  // どの状態であっても単独では選ばれないが、常に追加で表示する
-  // (訓練放送と同じ考え方)。以前は「他に何も無い時だけ」出していたが、
-  // 実際にはほぼ常にどこかの気象警報が巡回中で「他に何も無い」状態には
-  // ほとんどならず、洪水の警報が届いても地図にもパネルにも一切出ない
-  // (実質握りつぶされる)という不具合が実機で見つかったため
-  const otherCards = [...otherReports.values()].map(otherReportCard);
-
+  // 描く場所が無いもの)は、特定の位置にズームする仕組みが無い。
+  // 巡回が何かにズームしている間は「今どこの話をしているか」を
+  // 迷わせないよう単独表示のままにし、日本全体表示に戻っている
+  // (=idle)時にだけ、アクティブな気象警報等と一緒に常に追加で表示する
+  // (訓練放送と同じ考え方)。以前は「他に何も無い時だけ」出す判定に
+  // なっており、常にどこかの気象警報が巡回中の実運用ではidle状態でも
+  // 他のカードがある限りずっと出てこない(実質握りつぶされる)不具合が
+  // あったため、idle時は無条件に追加するよう直した
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
   const focusedTrainingEvent = currentPatrolTrainingId !== null ? activeEvents.get(currentPatrolTrainingId) : null;
   const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
-    visibleRecords = [weatherSiteCard(focusedWeatherSite), ...otherCards];
+    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
   } else if (focusedTrainingEvent) {
-    visibleRecords = [focusedTrainingEvent, ...otherCards];
+    visibleRecords = [focusedTrainingEvent];
   } else if (focusedRealEvent) {
     // 同じ地域を対象にした複数の情報(例: 緊急地震速報+Jアラート)が
     // 同時にアクティブな場合、バラバラの複数カードではなく1枚の統合
@@ -2335,7 +2512,7 @@ function renderEventsPanel() {
     const nonTraining = [...activeEvents.values()].filter((r) => !r.isTraining);
     const clusters = clusterOverlappingRecords(nonTraining);
     const myCluster = clusters.find((g) => g.includes(focusedRealEvent)) || [focusedRealEvent];
-    visibleRecords = [mergedCardForRecords(myCluster), ...otherCards];
+    visibleRecords = [mergedCardForRecords(myCluster)];
   } else {
     // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
     // PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版のスクロール/
@@ -2344,6 +2521,7 @@ function renderEventsPanel() {
     const weatherCards = [...weatherSites.values()].map(weatherSiteCard);
     const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
+    const otherCards = [...otherReports.values()].map(otherReportCard);
     visibleRecords = [...weatherCards, ...eventCards, ...trainingCards, ...otherCards];
   }
 
@@ -2397,19 +2575,24 @@ const TTL_EEW_MS = 10 * 60 * 1000; // 緊急地震速報: 10分
 const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 最後の更新から15分
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間
 const TTL_JALERT_MS = 24 * 60 * 60 * 1000; // Jアラート: 24時間
-const TTL_WEATHER_MS = 24 * 60 * 60 * 1000; // 気象警報・注意報: 最後の更新から24時間
-const TTL_OTHER_CATEGORY_MS = 24 * 60 * 60 * 1000; // 南海トラフ/火山/降灰/洪水: 最後の更新から24時間
+// 気象警報・注意報・Lアラート(継続時間不明の場合)の安全策TTL。
+// 以前は24時間だったが、実際には24時間も更新が無いまま居座ることは
+// 珍しくなく「長すぎる」との指摘を受けて3時間に短縮した
+const TTL_WEATHER_MS = 3 * 60 * 60 * 1000; // 気象警報・注意報: 最後の更新から3時間
+const TTL_LALERT_UNKNOWN_MS = 3 * 60 * 60 * 1000; // Lアラート(継続時間不明): 最後の更新から3時間
+const TTL_OTHER_CATEGORY_MS = 24 * 60 * 60 * 1000; // 南海トラフ/降灰/洪水(地図非対応分): 最後の更新から24時間
 
 // Lアラートはa8_hazard_duration(CAP標準の継続時間、azarashi定義で
 // 4値のみ)を持っていればそれを上限として使う。HAZARD_DURATION_JA
-// (623行目付近)と同じキーで揃えてある
+// (623行目付近)と同じキーで揃えてある。値が無い(Unknown/未設定)場合は
+// TTL_LALERT_UNKNOWN_MS(3時間)を使う
 const LALERT_DURATION_TTL_MS = {
   'Duration < 6H': 6 * 60 * 60 * 1000,
   '6H <= Duration < 12H': 12 * 60 * 60 * 1000,
   '12H <= Duration < 24H': 24 * 60 * 60 * 1000,
 };
 function lalertTtlMs(report) {
-  return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL_JALERT_MS; // Unknown/未設定なら24時間
+  return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL_LALERT_UNKNOWN_MS;
 }
 
 // テストデータ(is_test_data)は動作確認用の一時的な表示なので、
@@ -2699,8 +2882,16 @@ function renderReport(report) {
     return;
   }
 
-  // 南海トラフ地震(4)・火山(8)・降灰(9): カテゴリごとに1枚
-  if ([4, 8, 9].includes(report.disaster_category_no)) {
+  // 火山(8): 座標が分かる火山は実イベントとして円を描き巡回ズームの
+  // 対象にする専用関数へ(handleVolcanoReport参照。洪水(11)と同じ考え方)
+  if (report.disaster_category_no === 8) {
+    handleVolcanoReport(report);
+    renderEventsPanel();
+    return;
+  }
+
+  // 南海トラフ地震(4)・降灰(9): カテゴリごとに1枚
+  if ([4, 9].includes(report.disaster_category_no)) {
     const existing = otherReports.get(report.disaster_category_no);
     if (existing && existing.timer) clearTimeout(existing.timer);
     if (report.information_type_no === 2) {
@@ -2828,7 +3019,7 @@ async function initMap() {
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
   // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する
-  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON, floodRiversGeoJSON] = await Promise.all([
+  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON, floodRiversGeoJSON, volcanoesJSON] = await Promise.all([
     fetch('./data/tsunami_regions.geojson').then(res => res.json()),
     fetch('./data/prefectures.geojson').then(res => res.json()),
     fetch('./data/weather_regions.geojson').then(res => res.json()),
@@ -2839,10 +3030,17 @@ async function initMap() {
     // 河川のうち主要水系のみ。対応していない河川は地図には描かず、
     // パネルのテキストのみで表示する)
     fetch('./data/flood_rivers.geojson').then(res => res.json()),
+    // 日本の火山(Wikidata由来、223件)の座標。azarashiのvolcano_name
+    // (気象庁の火山名表記、122件)と完全一致する分だけ火口中心の円を
+    // 描く(handleVolcanoReport参照、洪水の主要河川と同じ考え方)
+    fetch('./data/volcanoes.json').then(res => res.json()),
   ]);
 
   for (const f of floodRiversGeoJSON.features) {
     floodRiverFeaturesByCode10.set(f.properties.code10, f);
+  }
+  for (const [name, coord] of Object.entries(volcanoesJSON)) {
+    volcanoesByName.set(name, coord);
   }
 
   for (const f of tsunamiGeoJSON.features) tsunamiFeaturesByCode.set(f.properties.code, f);
@@ -2967,7 +3165,11 @@ async function initMap() {
   // (スマホ・一般公開Webページのみ)
   if (!IS_LOCAL_KIOSK) {
     map.on('click', (e) => {
-      const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill'].filter((id) => map.getLayer(id));
+      // lalert-ellipse-fill: Lアラートの円形指定に加え、火山の警報円
+      // (handleVolcanoReport)も同じレイヤーを使って描画しているため、
+      // ここに追加するだけで両方タップ/クリック対応になる
+      const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill', 'lalert-ellipse-fill']
+        .filter((id) => map.getLayer(id));
       if (fillLayers.length) {
         const features = map.queryRenderedFeatures(e.point, { layers: fillLayers });
         if (features.length) {
@@ -2984,6 +3186,8 @@ async function initMap() {
               (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
             );
             if (record) interruptPatrolForNewEvent(record.id);
+          } else if (feature.layer.id === 'lalert-ellipse-fill') {
+            if (activeEvents.has(feature.properties.recordId)) interruptPatrolForNewEvent(feature.properties.recordId);
           }
           return;
         }
