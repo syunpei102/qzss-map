@@ -935,6 +935,26 @@ function regionDisplayName(code, rawName) {
   return `${prefName} ${rawName}`;
 }
 
+// JMAのdescriptionは、機械可読な項目を全部そのまま並べた生の多行テキスト
+// (例: 「防災気象情報(火山)(発表)(通常)\n火山に関連する情報をお知らせ
+// します。\n\n発表時刻: 7月17日15時30分\n\n火山名: 口永良部島\n...」)。
+// 冒頭の定型文(常に同じ文言で情報量が無い)と、既に別の行で表示している
+// 発表時刻を取り除き、残った実質的な内容だけを見せる。改行はそのまま
+// 残し(.report-messageのwhite-space:pre-lineで改行を保持して表示する)、
+// 1行に詰め込んで読みにくくならないようにする
+function cleanDescriptionMessage(description) {
+  if (!description) return '';
+  const lines = description.split('\n').map((l) => l.trim());
+  const cleaned = lines.filter((line) => {
+    if (!line) return false;
+    if (line.startsWith('防災気象情報')) return false;
+    if (line.endsWith('をお知らせします。')) return false;
+    if (line.startsWith('発表時刻')) return false;
+    return true;
+  });
+  return cleaned.join('\n');
+}
+
 function buildEventFromOtherCategory(report) {
   const rows = [];
   // 洪水(11): 対象河川と警戒レベルをそれぞれの欄で表示する
@@ -951,7 +971,7 @@ function buildEventFromOtherCategory(report) {
   if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
     rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
   }
-  const firstLine = (report.description || '').split('\n').map((l) => l.trim()).find(Boolean);
+  const cleanedMessage = cleanDescriptionMessage(report.description);
   if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
   return {
     isTestData: !!report.is_test_data,
@@ -967,7 +987,7 @@ function buildEventFromOtherCategory(report) {
     title: '',
     meta: `受信 ${nowTimeString()}`,
     // dt/ddの1行に埋もれさせず、独立したメッセージブロックで見せる
-    message: firstLine || '',
+    message: cleanedMessage,
     rows,
     updatedAt: Date.now(),
   };
@@ -1928,7 +1948,12 @@ function weatherSiteCard(site) {
     headline: worst || '気象',
     title: `📍 ${site.name}`,
     meta: `更新 ${nowTimeString()}`,
-    message: site.description || '',
+    // JMAのdescriptionは生の多行テキストで、しかも1通の気象警報に
+    // 複数の都道府県が同時に含まれている場合、その全部の文章が
+    // (地域ごとに分けずに)そのまま入っている。この地域のカードには
+    // 無関係な他県の情報まで混ざって表示されてしまうため使わない。
+    // 種別(見出し)・発表時刻(行)は既に構造化データから出しているので
+    // 実質的な情報の欠落は無い
     rows,
     updatedAt: site.updatedAt,
   };
@@ -1940,8 +1965,11 @@ function otherReportCard(rec) {
     satelliteId: rec.satelliteId,
     satellitePrn: rec.satellitePrn,
     badges: [{ text: rec.badgeText, class: rec.badgeClass }],
+    showBadges: rec.showBadges,
+    headline: rec.headline,
     title: rec.title,
     meta: rec.meta,
+    message: rec.message,
     rows: rec.rows,
     updatedAt: rec.updatedAt,
   };

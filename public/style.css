@@ -260,6 +260,9 @@ body.is-kiosk #events_container {
   font-size: 13.5px;
   line-height: 1.6;
   color: #e8eaed;
+  /* cleanDescriptionMessage等が残した改行をそのまま活かして複数行を
+     見やすく分ける(既定のnormalだと改行が詰まって1行に潰れてしまう) */
+  white-space: pre-line;
 }
 
 .report-summary {
