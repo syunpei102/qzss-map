@@ -1833,35 +1833,76 @@ function otherReportCard(rec) {
   };
 }
 
+function buildReportCardHtml(record) {
+  const testBanner = record.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
+  const tsunamiBanner = record.tsunamiWarningActive
+    ? `<div class="tsunami-alert-banner" style="background:${escapeHtml(record.tsunamiWarningColor || TSUNAMI_DEFAULT_COLOR)}">${escapeHtml(record.tsunamiWarningText)}</div>`
+    : '';
+  const satelliteTag = (record.satellitePrn !== undefined && record.satellitePrn !== null)
+    ? `<span class="satellite-tag">🛰️ ${escapeHtml(SATELLITE_NAMES[record.satelliteId] || `PRN${record.satellitePrn}`)}</span>`
+    : '';
+  const badgesHtml = (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
+    .map((b) => `<div class="${escapeHtml(b.class)}">${escapeHtml(b.text)}</div>`)
+    .join('');
+  const rowsHtml = record.rows
+    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+    .join('');
+  const cardClass = cardSeverityClass(record.badges || [{ class: record.badgeClass }]);
+  return `
+    <div class="report-card ${escapeHtml(cardClass)}">
+      ${testBanner}
+      ${tsunamiBanner}
+      <div class="report-badge-row">
+        <div class="badges-list">${badgesHtml}</div>
+        ${satelliteTag}
+      </div>
+      <div class="report-title">${escapeHtml(record.title)}</div>
+      <div class="report-meta">${escapeHtml(record.meta)}</div>
+      <dl class="report-summary">${rowsHtml}</dl>
+    </div>`;
+}
+
+// パネルに一度に出すカード数の上限。それを超える分は、Web版はCSSの
+// スクロール(#events_containerのmax-height)に任せ、キオスクはスクロール
+// 操作ができないためJSでページを切り替えて巡回表示する
+const PANEL_MAX_CARDS = 3;
+const PANEL_PAGE_ROTATE_MS = 10000;
+let panelPageIndex = 0;
+let panelPageTimer = null;
+
 function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
 
   // パネルには「地図が今まさにズームして見せている対象」だけを出す。
   // currentPatrolCodeが立っている間は巡回(または新規気象警報への
-  // 割り込み)がカメラを持っているのでその地域だけ、そうでなければ
+  // 割り込み)がカメラを持っているので、その地域だけを単独表示する
+  // (テストデータ・訓練放送が同時にあっても混ぜない)。そうでなければ
   // ズームフォーカス中のactiveEvents(地震・津波・Jアラート・Lアラート等)、
   // どちらでも無い(=全体表示に戻っている)時だけ、その他の通報
   // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す。
   //
   // テストデータ・訓練放送はカメラを奪わない(=focusedEventIdsに入らない)
   // 方針だが、パネルからも完全に消えてしまうと「今何が届いているか」
-  // 監視できず動作確認しづらいため、focusedEventIds有無に関わらず常に
-  // 追加で表示する
-  const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
-  const alwaysShownEvents = [...activeEvents.values()].filter(
-    (r) => (r.isTestData || r.isTraining) && !focusedEventIds.has(r.id)
-  );
+  // 監視できず動作確認しづらいため、巡回中でない時はfocusedEventIds
+  // 有無に関わらず常に追加で表示する
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
-    visibleRecords = [weatherSiteCard(focusedWeatherSite), ...alwaysShownEvents];
-  } else if (focusedEvents.length || alwaysShownEvents.length) {
-    visibleRecords = [...focusedEvents, ...alwaysShownEvents];
+    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
   } else {
-    visibleRecords = [...otherReports.values()].map(otherReportCard);
+    const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
+    const alwaysShownEvents = [...activeEvents.values()].filter(
+      (r) => (r.isTestData || r.isTraining) && !focusedEventIds.has(r.id)
+    );
+    visibleRecords = focusedEvents.length || alwaysShownEvents.length
+      ? [...focusedEvents, ...alwaysShownEvents]
+      : [...otherReports.values()].map(otherReportCard);
   }
+
+  clearInterval(panelPageTimer);
+  panelPageTimer = null;
 
   if (!visibleRecords.length) {
     // 何もアクティブでなく、気象警報の巡回でズームしている地域も無い場合は
@@ -1872,38 +1913,28 @@ function renderEventsPanel() {
     return;
   }
 
-  const cardsHtml = visibleRecords
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)) // 新しい順
-    .map((record) => {
-      const testBanner = record.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
-      const tsunamiBanner = record.tsunamiWarningActive
-        ? `<div class="tsunami-alert-banner" style="background:${escapeHtml(record.tsunamiWarningColor || TSUNAMI_DEFAULT_COLOR)}">${escapeHtml(record.tsunamiWarningText)}</div>`
-        : '';
-      const satelliteTag = (record.satellitePrn !== undefined && record.satellitePrn !== null)
-        ? `<span class="satellite-tag">🛰️ ${escapeHtml(SATELLITE_NAMES[record.satelliteId] || `PRN${record.satellitePrn}`)}</span>`
-        : '';
-      const badgesHtml = (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
-        .map((b) => `<div class="${escapeHtml(b.class)}">${escapeHtml(b.text)}</div>`)
-        .join('');
-      const rowsHtml = record.rows
-        .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
-        .join('');
-      const cardClass = cardSeverityClass(record.badges || [{ class: record.badgeClass }]);
-      return `
-        <div class="report-card ${escapeHtml(cardClass)}">
-          ${testBanner}
-          ${tsunamiBanner}
-          <div class="report-badge-row">
-            <div class="badges-list">${badgesHtml}</div>
-            ${satelliteTag}
-          </div>
-          <div class="report-title">${escapeHtml(record.title)}</div>
-          <div class="report-meta">${escapeHtml(record.meta)}</div>
-          <dl class="report-summary">${rowsHtml}</dl>
-        </div>`;
-    })
-    .join('');
-  container.innerHTML = cardsHtml;
+  const sorted = [...visibleRecords].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); // 新しい順
+
+  if (IS_LOCAL_KIOSK && sorted.length > PANEL_MAX_CARDS) {
+    // キオスクはスクロールできないので、PANEL_MAX_CARDS件ずつページを
+    // 切り替えて全件を順番に見せる
+    const pageCount = Math.ceil(sorted.length / PANEL_MAX_CARDS);
+    if (panelPageIndex >= pageCount) panelPageIndex = 0;
+    const renderPage = () => {
+      const start = panelPageIndex * PANEL_MAX_CARDS;
+      container.innerHTML = sorted.slice(start, start + PANEL_MAX_CARDS).map(buildReportCardHtml).join('');
+    };
+    renderPage();
+    panelPageTimer = setInterval(() => {
+      panelPageIndex = (panelPageIndex + 1) % pageCount;
+      renderPage();
+    }, PANEL_PAGE_ROTATE_MS);
+  } else {
+    // Web版は全件描画し、#events_containerのmax-height+overflow-yで
+    // 3件分を超えた分はスクロールさせる(CSS側、style.css参照)
+    panelPageIndex = 0;
+    container.innerHTML = sorted.map(buildReportCardHtml).join('');
+  }
 }
 
 // ==================================================

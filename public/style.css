@@ -103,6 +103,11 @@ html, body {
 #events_container {
   display: flex;
   flex-direction: column;
+  /* カード3件分程度の目安の高さで切り、それを超えた分はスクロールさせる
+     (キオスクは代わりにJS側でページ送りするため実際に溢れることは無いが、
+     Web版ではここでスクロールが効く) */
+  max-height: 480px;
+  overflow-y: auto;
 }
 
 .report-card {
