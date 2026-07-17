@@ -534,6 +534,7 @@ function severityClass(report) {
 // 震度+津波など)は、その中で最も緊急度が高いものの色を使う
 const SEVERITY_RANK = {
   'sev-emergency': 4,
+  'sev-keihou': 3, // 洪水の氾濫危険情報(floodSeverityClass)。sev-warningと同格
   'sev-warning': 3,
   'sev-caution': 2,
   'sev-info': 1,
@@ -1015,7 +1016,11 @@ function floodRiverCode10(code) {
 
 function floodSeverityClass(level) {
   if (level === 4) return 'sev-emergency'; // 氾濫発生情報
-  if (level === 3) return 'sev-warning'; // 氾濫危険情報
+  // sev-keihouはstyle.cssの.report-badge/.report-headlineが#e63946で、
+  // FLOOD_WARNING_LEVEL_COLOR[3](地図の色)と全く同じ赤に揃えてある。
+  // 以前sev-warning(オレンジ系)を使っていたため、地図は赤なのにパネルの
+  // 帯・見出しはオレンジのままという食い違いが起きていた
+  if (level === 3) return 'sev-keihou'; // 氾濫危険情報
   return 'sev-caution'; // 2: 氾濫警戒情報
 }
 
