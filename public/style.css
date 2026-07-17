@@ -68,6 +68,24 @@ html, body {
   padding: 4px 14px 0;
 }
 
+/* 同時に多数の警報が出ている時、日本全体表示では地図上に軽いマーカーの
+   代表N件しか出さない(ラズパイの負荷対策)。省略していることに気付け
+   ないと「なぜか地図に出ていない警報がある」と誤解されるため、その旨を
+   常時表示のバナーで知らせる */
+.idle-overview-notice {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #ffd166;
+  background: rgba(255, 209, 102, 0.12);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  border-radius: 6px;
+  margin: 6px 14px 0;
+  padding: 6px 8px;
+}
+.idle-overview-notice[hidden] {
+  display: none;
+}
+
 .settings-link {
   font-size: 16px;
   text-decoration: none;

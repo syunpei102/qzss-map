@@ -51,7 +51,7 @@ const commands = [
   },
   {
     name: "set_region",
-    description: "拠点の対象地域(都道府県)を設定する。未指定に戻すには管理画面かAPIを使う",
+    description: "拠点の対象地域(都道府県)を設定する。未指定に戻すにはclear_regionを使う",
     options: [
       deviceOption,
       {
@@ -62,6 +62,11 @@ const commands = [
         autocomplete: true,
       },
     ],
+  },
+  {
+    name: "clear_region",
+    description: "拠点の対象地域設定を解除し、絞り込み無し(全国)に戻す",
+    options: [deviceOption],
   },
   {
     name: "create_device_token",

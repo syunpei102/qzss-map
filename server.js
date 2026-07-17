@@ -1316,6 +1316,13 @@ function handleCommand(interaction) {
       ? `✅ ${deviceId} の対象地域を「${prefectureName}」周辺に設定しました`
       : `❌ ${result.error}`);
   }
+  if (interaction.data.name === "clear_region") {
+    if (!deviceId) return ephemeralReply("❌ deviceを指定してください");
+    const result = setDeviceRegion(deviceId, null);
+    return ephemeralReply(result.ok
+      ? `✅ ${deviceId} の対象地域設定を解除しました(絞り込み無し・全国に戻りました)`
+      : `❌ ${result.error}`);
+  }
   if (interaction.data.name === "create_device_token") {
     if (!deviceId) return ephemeralReply("❌ deviceを指定してください");
     const alreadyExisted = deviceIngestTokens.has(deviceId);

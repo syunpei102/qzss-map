@@ -546,11 +546,15 @@ const SEVERITY_RANK = {
   'sev-resolved': -1,
 };
 
+function extractSevClass(classAttr) {
+  return (classAttr || '').split(' ').find((c) => c.startsWith('sev-')) || 'sev-info';
+}
+
 function cardSeverityClass(badges) {
   let best = 'sev-info';
   let bestRank = -Infinity;
   for (const b of badges) {
-    const cls = (b.class || '').split(' ').find((c) => c.startsWith('sev-'));
+    const cls = extractSevClass(b.class);
     const rank = SEVERITY_RANK[cls] ?? 0;
     if (rank > bestRank) {
       bestRank = rank;
@@ -559,6 +563,19 @@ function cardSeverityClass(badges) {
   }
   return best;
 }
+
+// 日本全体表示(idle)の軽量マーカー用。style.cssの.report-badge/.report-headline
+// 各sev-*クラスの背景色と同じ値を使い、パネルの色と地図の点の色を揃える
+const SEVERITY_CLASS_COLOR = {
+  'sev-tokubetsu': '#8e24aa',
+  'sev-emergency': '#b3261e',
+  'sev-keihou': '#e63946',
+  'sev-warning': '#d9822b',
+  'sev-caution': '#d0b400',
+  'sev-info': '#2f6fed',
+  'sev-training': '#7a4fd1',
+  'sev-error': '#555555',
+};
 
 function buildTitle(report) {
   if (report.tsunami_warning_code) return report.tsunami_warning_code;
@@ -1276,7 +1293,10 @@ function handleFloodReport(report) {
 
 function updateWeatherDisplay() {
   if (!map || !map.getLayer('weather-fill')) return;
-  const codes = [...weatherSites.keys()];
+  // 日本全体表示(idle)の間は重いポリゴン塗りをやめ、
+  // updateIdleOverviewMarkersの軽量マーカーに任せる
+  // (syncActiveEventLayersのidle対応と同じ考え方)
+  const codes = isPatrolIdle() ? [] : [...weatherSites.keys()];
   if (!codes.length) {
     map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
     map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
@@ -1411,6 +1431,15 @@ const PATROL_MASK_MAX_WAIT_MS = 4000;
 function returnToWholeJapanSafely() {
   const mask = document.getElementById('patrol_transition_mask');
   if (mask) mask.classList.add('is-active');
+  // マスクで隠れている間に、重いポリゴン塗り(都道府県・市区町村・河川・
+  // 楕円・気象警報)を軽量マーカーへ切り替えておく(syncActiveEventLayers/
+  // updateWeatherDisplayはisPatrolIdle()を見て自動的にこちらへ倒れる。
+  // 呼び出し元のpatrolStepが既にcurrentPatrolCode等をnullにしてから
+  // ここへ来るので、この時点で確実にidle判定になる)。カメラを動かす前に
+  // 済ませておくことで、一番重い瞬間そのものを無くす(マスクは万一の
+  // 保険として残す)
+  syncActiveEventLayers();
+  updateWeatherDisplay();
   // マスクのCSSトランジション(フェードイン)が実際に1フレーム分適用
   // されてから重いカメラ移動に入るよう、1フレーム分だけ間を空ける
   requestAnimationFrame(() => {
@@ -1493,6 +1522,11 @@ function patrolStep() {
     currentPatrolEventId = target.key;
     updateCameraForActiveEvents(activeEvents.get(target.key));
   }
+  // idle(日本全体表示)から特定の対象へズームし直すタイミングなので、
+  // idle中は止めていた重いポリゴン塗りを元に戻す(syncActiveEventLayers/
+  // updateWeatherDisplay自身がisPatrolIdle()を見て判断する)
+  syncActiveEventLayers();
+  updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
   patrolIndex += 1;
@@ -1515,6 +1549,10 @@ function interruptPatrolForNewRegion(code) {
   currentPatrolEventId = null;
   patrolIndex = idx + 1;
   zoomToWeatherCode(code);
+  // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
+  // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
+  syncActiveEventLayers();
+  updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
   schedulePatrolNext(PATROL_DWELL_MS);
@@ -1531,6 +1569,10 @@ function interruptPatrolForNewEvent(id) {
   currentPatrolEventId = id;
   patrolIndex = 0;
   updateCameraForActiveEvents(activeEvents.get(id));
+  // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
+  // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
+  syncActiveEventLayers();
+  updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
   schedulePatrolNext(PATROL_DWELL_MS);
@@ -2050,8 +2092,127 @@ function setIfMoreSevere(map, key, color, rank) {
   if (!existing || rank >= existing.rank) map.set(key, { color, rank });
 }
 
+// 巡回がどこにもズームしていない(日本全体表示・idle)かどうか。
+// この間は「今どこを見せているか」の制約が無いぶん、通常は全アクティブ
+// イベントの塗りが一気に画面内に収まってしまう(ラズパイのクラッシュ
+// 原因、returnToWholeJapanSafely参照)。巡回でどこかに寄っている間は
+// 元々そこしかカメラに映らないため、重いポリゴン塗りを維持していても
+// 実害は無い(画面外は実質レンダリングされない)
+function isPatrolIdle() {
+  return currentPatrolCode === null && currentPatrolTrainingId === null && currentPatrolEventId === null;
+}
+
+// 日本全体表示(idle)の間は、都道府県・市区町村・河川等の重いポリゴン
+// 塗りを全部やめて、代わりにこの軽量マーカー(DOM要素のピンだけなので
+// MapLibreにポリゴンをラスタライズさせるより遥かに軽い)で「だいたいの
+// 場所と深刻度」だけ示す。同時にアクティブな警報が多い日でもマーカーの
+// 数を絞ることで、ラズパイでもクラッシュしにくくする
+const MAX_IDLE_OVERVIEW_MARKERS = 12;
+let idleOverviewMarkers = [];
+let idleOverviewOmittedCount = 0;
+
+function clearIdleOverviewMarkers() {
+  for (const m of idleOverviewMarkers) m.remove();
+  idleOverviewMarkers = [];
+}
+
+function createOverviewDotElement(color) {
+  const el = document.createElement('div');
+  el.style.width = '14px';
+  el.style.height = '14px';
+  el.style.borderRadius = '50%';
+  el.style.background = color;
+  el.style.border = '2px solid rgba(255,255,255,0.9)';
+  el.style.boxShadow = '0 0 4px rgba(0,0,0,0.6)';
+  return el;
+}
+
+// activeEventsの1件について、マーカーを置くのに使う代表座標を
+// 手がかりの精度が高い順に探す(震源 > 楕円 > 市区町村 > 都道府県 >
+// 津波区域 > 河川)。どれも無ければnull(=マーカーを出せない)
+function representativePointForRecord(record) {
+  if (record.geo.hypocenter) return [record.geo.hypocenter.lon, record.geo.hypocenter.lat];
+  if (record.geo.ellipse) {
+    const c = geometryCentroid(record.geo.ellipse.polygon);
+    if (c) return c;
+  }
+  if (record.geo.municipality) {
+    const f = municipalityFeaturesByCode.get(record.geo.municipality.code);
+    const c = f && geometryCentroid(f.geometry);
+    if (c) return c;
+  }
+  if (record.geo.prefectures && record.geo.prefectures.length) {
+    const f = prefectureFeaturesById.get(record.geo.prefectures[0].id);
+    const c = f && geometryCentroid(f.geometry);
+    if (c) return c;
+  }
+  if (record.geo.tsunami && record.geo.tsunami.length) {
+    const f = tsunamiFeaturesByCode.get(record.geo.tsunami[0].code);
+    const c = f && geometryCentroid(f.geometry);
+    if (c) return c;
+  }
+  if (record.geo.floodRivers && record.geo.floodRivers.length) {
+    const f = floodRiverFeaturesByCode10.get(record.geo.floodRivers[0].code);
+    const c = f && geometryCentroid(f.geometry);
+    if (c) return c;
+  }
+  return null;
+}
+
+function representativePointForWeatherSite(site) {
+  if (!site.bounds) return null;
+  const [minX, minY, maxX, maxY] = site.bounds;
+  return [(minX + maxX) / 2, (minY + maxY) / 2];
+}
+
+function updateIdleOverviewMarkers() {
+  clearIdleOverviewMarkers();
+  const candidates = [];
+  for (const site of weatherSites.values()) {
+    const point = representativePointForWeatherSite(site);
+    if (!point) continue;
+    const cls = extractSevClass(weatherSeverityBadgeClass(worstSubCategory(site.subCategories)));
+    candidates.push({ point, color: SEVERITY_CLASS_COLOR[cls] || WEATHER_WARNING_COLOR, rank: SEVERITY_RANK[cls] ?? 2, updatedAt: site.updatedAt || 0 });
+  }
+  for (const record of activeEvents.values()) {
+    if (record.isTraining) continue;
+    const point = representativePointForRecord(record);
+    if (!point) continue;
+    const cls = cardSeverityClass(recordBadges(record));
+    candidates.push({ point, color: SEVERITY_CLASS_COLOR[cls] || '#999999', rank: SEVERITY_RANK[cls] ?? 0, updatedAt: record.updatedAt || 0 });
+  }
+  // 深刻度が高い順、同じ深刻度なら新しい順(=一番気にすべきものを優先)
+  candidates.sort((a, b) => (b.rank - a.rank) || (b.updatedAt - a.updatedAt));
+  const shown = candidates.slice(0, MAX_IDLE_OVERVIEW_MARKERS);
+  idleOverviewOmittedCount = Math.max(0, candidates.length - shown.length);
+  for (const c of shown) {
+    const marker = new maplibregl.Marker({ element: createOverviewDotElement(c.color), anchor: 'center' })
+      .setLngLat(c.point)
+      .addTo(map);
+    idleOverviewMarkers.push(marker);
+  }
+  updateIdleOverviewNotice();
+}
+
+function updateIdleOverviewNotice() {
+  const el = document.getElementById('idle_overview_notice');
+  if (!el) return;
+  if (isPatrolIdle() && idleOverviewOmittedCount > 0) {
+    el.textContent = `⚠️ 同時に多数の警報が発生しているため、地図には深刻度の高い${MAX_IDLE_OVERVIEW_MARKERS}件のみ表示しています(他${idleOverviewOmittedCount}件はパネルの一覧のみ)`;
+    el.hidden = false;
+  } else {
+    el.hidden = true;
+  }
+}
+
 function syncActiveEventLayers() {
   if (!map || !map.getLayer('prefecture-fill')) return;
+
+  // 日本全体表示(idle)の間は、重いポリゴン塗り(都道府県・市区町村・
+  // 河川・楕円)を全部やめて軽量マーカー(updateIdleOverviewMarkers)に
+  // 任せる。津波(tsunami-line)だけは対象数が元々少なく命に関わる重要度が
+  // 高いため、idleでも通常通り描画する(意図的に対象外)
+  const idle = isPatrolIdle();
 
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
@@ -2086,7 +2247,7 @@ function syncActiveEventLayers() {
   }
 
   if (map.getLayer('flood-river-line')) {
-    if (floodRiverColorByCode.size) {
+    if (!idle && floodRiverColorByCode.size) {
       const matchExpr = ['match', ['get', 'code10']];
       for (const [code10, entry] of floodRiverColorByCode) matchExpr.push(code10, entry.color);
       matchExpr.push(FLOOD_WARNING_LEVEL_COLOR[2]);
@@ -2098,7 +2259,7 @@ function syncActiveEventLayers() {
   }
 
   if (map.getSource('lalert-ellipses')) {
-    map.getSource('lalert-ellipses').setData({ type: 'FeatureCollection', features: ellipseFeatures });
+    map.getSource('lalert-ellipses').setData({ type: 'FeatureCollection', features: idle ? [] : ellipseFeatures });
   }
 
   if (tsunamiColorByCode.size) {
@@ -2113,7 +2274,7 @@ function syncActiveEventLayers() {
     stopTsunamiBlink();
   }
 
-  if (prefColorById.size) {
+  if (!idle && prefColorById.size) {
     const matchExpr = ['match', ['get', 'id']];
     for (const [id, entry] of prefColorById) matchExpr.push(id, entry.color);
     matchExpr.push('rgba(0,0,0,0)');
@@ -2133,7 +2294,7 @@ function syncActiveEventLayers() {
   if (map.getLayer('municipality-fill')) {
     // ソースには今アクティブな市区町村の分だけを入れる(全国約1900件を
     // 常時保持しない。詳細はensureMunicipalityLayer参照)
-    const activeFeatures = [...municipalityColorByCode.keys()]
+    const activeFeatures = idle ? [] : [...municipalityColorByCode.keys()]
       .map((code) => municipalityFeaturesByCode.get(code))
       .filter(Boolean);
     map.getSource('municipality-regions').setData({ type: 'FeatureCollection', features: activeFeatures });
@@ -2143,10 +2304,10 @@ function syncActiveEventLayers() {
     // 同じパターンだが、こちらは元々setFilterの呼び出し自体が無く、
     // 市区町村単位のLアラートが常に「対象地域は文字では出るのに地図には
     // 一切塗られない」状態になっていた)
-    const codes = [...municipalityColorByCode.keys()];
+    const codes = idle ? [] : [...municipalityColorByCode.keys()];
     map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', codes]]);
     map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', codes]]);
-    if (municipalityColorByCode.size) {
+    if (!idle && municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
       for (const [code, entry] of municipalityColorByCode) matchExpr.push(code, entry.color);
       matchExpr.push('rgba(0,0,0,0)');
@@ -2154,6 +2315,8 @@ function syncActiveEventLayers() {
     }
   }
 
+  if (idle) updateIdleOverviewMarkers();
+  else { clearIdleOverviewMarkers(); updateIdleOverviewNotice(); }
 }
 
 // カメラ位置を決める。preferredRecord を渡すと「今まさに新規追加/更新された
