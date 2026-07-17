@@ -463,15 +463,16 @@ function handleIncomingLine(line) {
     // 置き換える(受信時刻も更新=最新の配信を起点にTTLが延びる)
     const key = reportGroupKey(report);
     if (key !== null) {
-      const idx = activeReports.findIndex((entry) => reportGroupKey(entry.report) === key);
-      if (idx >= 0) {
-        activeReports[idx] = { report, receivedAt: Date.now() };
-      } else {
-        activeReports.push({ report, receivedAt: Date.now() });
-      }
-    } else {
-      activeReports.push({ report, receivedAt: Date.now() });
+      // findIndexで最初の1件だけ差し替えると、何らかの理由(Cloud Runの
+      // コールドスタート時のGCS読み込みと書き込みの競合等)で同じキーの
+      // エントリが複数溜まってしまっていた場合に1件しか解消されず、
+      // 残りが新規接続のたびに再送され続けてしまう(実機で確認: 十津川村
+      // 宛のend-to-endテスト配信が3件重複したまま残っていた)。
+      // isEndSignal側と同じくfilterで一致する分を全て取り除いてから
+      // 新しい1件を積み直す
+      activeReports = activeReports.filter((entry) => reportGroupKey(entry.report) !== key);
     }
+    activeReports.push({ report, receivedAt: Date.now() });
     pruneStaleActiveReports();
     persistActiveReports();
   }
