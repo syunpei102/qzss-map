@@ -1,3 +1,4 @@
+throw new Error("deliberate-ota-rollback-test-2: verifying rollback no longer touches unrelated repos");
 const express = require("express");
 const http = require("http");
 const fs = require("fs");
