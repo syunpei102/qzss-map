@@ -1027,6 +1027,22 @@ function resolveShowTrainingBroadcasts(deviceId) {
   return globalShowTrainingBroadcasts;
 }
 
+// ラズパイのローカルkiosk(LOCAL_STATE_ONLY=true)専用の同期エンドポイント。
+// Discordの/set_training_broadcastsはCloud Run(公開URL)にしか届かず、
+// LAN内だけのローカルkioskサーバーはそのWebhookを一切受け取れない。
+// そのため、ラズパイの受信プログラム(read_legacy_dual.py)側がCloud Run
+// の/configを定期ポーリングし(region_config_refresh_loopと同じ方式)、
+// 変化を検知したらこのエンドポイント経由でローカルサーバーの設定に
+// 反映する。LOCAL_STATE_ONLYでない(=Cloud Run本番)場合は絶対に登録
+// しない(公開URLに無認証の設定変更エンドポイントを晒さないため)
+if (LOCAL_STATE_ONLY) {
+  app.post("/local-sync/training-broadcasts", (req, res) => {
+    setTrainingBroadcastSetting(null, !!req.body.enabled);
+    broadcast(JSON.stringify({ type: "TrainingBroadcastSettingChanged" }));
+    res.status(204).end();
+  });
+}
+
 // 拠点をまるごと「忘れる」(Discordの/delete_device)。状態報告履歴・
 // 予約中コマンド・地域設定・発行済みトークン(以後そのトークンでの
 // 送信は拒否される)・訓練放送の個別設定をすべて削除する。
