@@ -2501,9 +2501,12 @@ let municipalityLayerLoaded = false;
 async function loadMunicipalityLayer() {
   if (municipalityLayerLoaded) return;
   try {
-    // ローカルキオスクは最大ズームを抑えているため(9)、市区町村境界を
-    // より簡略化した専用データで十分(細部が見えるほど寄れない)
-    const res = await fetch(IS_LOCAL_KIOSK ? './data/municipalities_kiosk.geojson' : './data/municipalities.geojson');
+    // 以前はローカルキオスク専用にさらに簡略化したデータ(25%)を使って
+    // いたが、市区町村単位のLアラート(例: 奈良県十津川村のような小さい
+    // 村)がまともに描画できなくなる/歪むことが実機で確認されたため、
+    // 公開版と同じ精度のデータに統一する(ファイルサイズよりも正確な
+    // 表示を優先する)
+    const res = await fetch('./data/municipalities.geojson');
     const municipalityGeoJSON = await res.json();
     // Lアラートの市区町村コード(ex1)は「全国地方公共団体コード」(JIS X0402、
     // 先頭0埋め5桁)そのものなので、国土数値情報(N03)の行政区域データを
