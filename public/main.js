@@ -1104,16 +1104,41 @@ function interruptPatrolForNewRegion(code) {
   schedulePatrolNext(PATROL_DWELL_MS);
 }
 
-// 日本国内の対象地域(都道府県等)が1つも無いのに震源座標だけがある場合、
-// 海外や日本から遠く離れた場所の地震(震源に関する情報でよく届く)と判断する。
-// 震源の点だけにズームすると、単なる海上の1点しか映らず状況が
-// 分かりにくいので、タイトルにも「(海外)」を付けて区別する
+// 震源座標そのものが日本近辺(JAPAN_VICINITY_BOUNDS)から外れているかどうかで
+// 海外/遠方の地震を判定する。震源の点だけにズームすると、単なる海上の1点
+// しか映らず状況が分かりにくいので、タイトルにも「(海外)」を付けて区別する。
+//
+// 以前は「eew_forecast_regions_raw/prefectures_rawが無ければ海外」という
+// 判定だったが、これらはEEW(緊急地震速報)だけが持つフィールドで、
+// 「震源」「震度」種別の通報(disaster_category_no 2, 3)はEEWでない限り
+// 国内の地震であっても持たないため、大隅半島東方沖のような普通の国内
+// 地震まで「(海外)」と誤表示するバグがあった(実機で確認)。座標そのもの
+// で判定するよう修正する
 function isForeignOrDistantEarthquake(report) {
-  const hasDomesticRegions =
-    (Array.isArray(report.eew_forecast_regions_raw) && report.eew_forecast_regions_raw.length > 0) ||
-    (Array.isArray(report.prefectures_raw) && report.prefectures_raw.length > 0);
-  const hasHypocenter = !!report.coordinates_of_hypocenter || typeof report.seismic_epicenter_raw === 'number';
-  return !hasDomesticRegions && hasHypocenter && [1, 2, 3].includes(report.disaster_category_no);
+  if (![1, 2, 3].includes(report.disaster_category_no)) return false;
+
+  let lon, lat;
+  const c = report.coordinates_of_hypocenter;
+  if (c && (c.lat_d || c.lat_m || c.lat_s) && (c.lon_d || c.lon_m || c.lon_s)) {
+    lat = dmsToDecimal({ d: c.lat_d, m: c.lat_m, s: c.lat_s, negative: c.lat_ns === 1 });
+    lon = dmsToDecimal({ d: c.lon_d, m: c.lon_m, s: c.lon_s, negative: c.lon_ew === 1 });
+  } else if (typeof report.seismic_epicenter_raw === 'number') {
+    const feature = epicenterFeaturesById.get(report.seismic_epicenter_raw);
+    const centroid = feature && geometryCentroid(feature.geometry);
+    if (centroid) [lon, lat] = centroid;
+  }
+
+  if (lon === undefined || lat === undefined) {
+    // 座標が全く分からない場合のみ、従来通りEEWの対象地域(都道府県)の
+    // 有無をフォールバックの手がかりにする
+    const hasDomesticRegions =
+      (Array.isArray(report.eew_forecast_regions_raw) && report.eew_forecast_regions_raw.length > 0) ||
+      (Array.isArray(report.prefectures_raw) && report.prefectures_raw.length > 0);
+    return !hasDomesticRegions;
+  }
+
+  const [jMinX, jMinY, jMaxX, jMaxY] = JAPAN_VICINITY_BOUNDS;
+  return lon < jMinX || lon > jMaxX || lat < jMinY || lat > jMaxY;
 }
 
 // 海外/遠方の地震で日本の対象地域が無い場合に、震源とあわせてズームする

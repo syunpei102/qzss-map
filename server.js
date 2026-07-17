@@ -256,17 +256,38 @@ let activeReports = [];
 // (通常はreportGroupKeyによる正規の取消処理で先に消える)
 const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+// 震源・震度速報(disaster_category_no 2/3)はそもそも「取消」の仕組みが
+// 無い(発表して終わりの事実情報)ため、24時間の安全策だけでは長すぎる。
+// public/main.jsのttlMsForReportと同じ考え方(実機で見つけたバグ:
+// クライアント側のTTLはそのブラウザの表示だけを消し、activeReportsには
+// 反映されないため、何時間経っても新規接続に再送され続けていた)を
+// サーバー側にも適用し、判定できる場合はより短いTTLで安全策を効かせる
+const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 15分
+const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間(解除信号が主、これは保険)
+const TTL_TEST_DATA_MS = 60 * 1000; // テストデータ: 1分
+
+function ttlMsForReport(report) {
+  if (report.is_test_data) return TTL_TEST_DATA_MS;
+  if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
+  if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
+  return null; // 判定できないものは従来通りACTIVE_REPORT_MAX_AGE_MSの安全策に任せる
+}
+
 function pruneStaleActiveReports() {
   const before = activeReports.length;
-  activeReports = activeReports.filter((entry) => Date.now() - entry.receivedAt < ACTIVE_REPORT_MAX_AGE_MS);
+  activeReports = activeReports.filter((entry) => {
+    const maxAge = ttlMsForReport(entry.report) ?? ACTIVE_REPORT_MAX_AGE_MS;
+    return Date.now() - entry.receivedAt < maxAge;
+  });
   if (activeReports.length !== before) {
-    console.log(`🧹 24時間以上前のactiveReportsを削除しました(${before - activeReports.length}件)`);
+    console.log(`🧹 期限切れのactiveReportsを削除しました(${before - activeReports.length}件)`);
     persistActiveReports();
   }
 }
 
-// 新しい通報が届かない間もいずれ安全策が効くよう、1時間おきにも確認する
-setInterval(pruneStaleActiveReports, 60 * 60 * 1000);
+// 新しい通報が届かない間もいずれ安全策が効くよう、定期的にも確認する。
+// 震源・震度速報の15分TTLに対して精度が出るよう、1時間より短くする
+setInterval(pruneStaleActiveReports, 5 * 60 * 1000);
 
 function isEndSignal(report) {
   if (!report) return false;
