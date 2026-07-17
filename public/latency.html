@@ -226,6 +226,15 @@ function hazardTypeJa(r) {
 function hazardDurationJa(text) {
   return HAZARD_DURATION_JA[text] || text;
 }
+// report_timeが生のISO文字列(例: 2026-07-17T08:35:00)のまま表示されて
+// いたのを、main.js側のformatDateTimeと同じ「M/D HH:MM」表記に揃える
+function formatDateTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function reportBadgeText(r) {
   if (!r) return '不明';
@@ -268,7 +277,7 @@ function reportRows(r) {
       : (r.a5_severity || '').startsWith('Moderate') ? '注意' : null;
     if (sev) push('深刻度', sev);
   }
-  push('発表時刻', r.report_time);
+  push('発表時刻', formatDateTime(r.report_time));
   push('震央', r.seismic_epicenter);
   push('マグニチュード', r.magnitude);
   push('震度', r.seismic_intensity_lower_limit);
