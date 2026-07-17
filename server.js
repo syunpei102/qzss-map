@@ -1268,9 +1268,14 @@ const wss = new WebSocket.Server({ server });
 wss.on("connection", (ws) => {
   console.log("WebSocket クライアント接続");
   // 保持している「現在アクティブな」通報を、新しく繋がったクライアントにだけ
-  // 順番に再送する(ブラウザ側の統合ロジックが同じ表示状態を再現する)
+  // 順番に再送する(ブラウザ側の統合ロジックが同じ表示状態を再現する)。
+  // client_timestamps(T0-T3)は元の配信時刻のまま埋め込まれているため、
+  // そのまま送るとブラウザが「今」をT4として計算し、実際の受信からの
+  // 経過時間がまるごとレイテンシとして記録されてしまう(実機で数時間分の
+  // 異常値として確認)。再送分はレイテンシ計測の対象外にする
   for (const entry of activeReports) {
-    ws.send(JSON.stringify(entry.report));
+    const { client_timestamps, ...report } = entry.report;
+    ws.send(JSON.stringify(report));
   }
 });
 
