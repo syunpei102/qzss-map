@@ -206,6 +206,35 @@ body.is-kiosk #events_container {
 .report-badge.sev-keihou    { background: #e63946; color: #fff; }
 .report-badge.sev-tokubetsu { background: #8e24aa; color: #fff; }
 
+/* 見出し(丸角の四角): 「記録的短時間大雨情報」「土砂災害警戒情報」の
+   ような長い災害種別名を、小さいバッジ(.report-badge、丸ピル型)や
+   種別の行に詰め込むと読みづらいという指摘を受けて追加。バッジより
+   ひとまわり大きく、角丸の四角(ピルではなく)で災害の種類そのものを
+   一番目立つ位置に見出しとして置く。色はバッジ・カード左端の色帯と
+   同じ深刻度カラーを流用する(cardSeverityClassのsev-*クラスをそのまま
+   充てる)ため、CSSは再定義せず.report-badgeの配色をそのまま使う */
+.report-headline {
+  display: inline-block;
+  font-size: 16px;
+  font-weight: bold;
+  line-height: 1.3;
+  padding: 6px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: azure;
+}
+.report-headline.sev-emergency { background: #b3261e; color: #fff; }
+.report-headline.sev-warning   { background: #d9822b; color: #fff; }
+.report-headline.sev-caution   { background: #d0b400; color: #202020; }
+.report-headline.sev-info      { background: #2f6fed; color: #fff; }
+.report-headline.sev-training  { background: #7a4fd1; color: #fff; }
+.report-headline.sev-error     { background: #555; color: #ddd; }
+.report-headline.sev-cancel    { background: #3a3a3a; color: #bbb; }
+.report-headline.sev-resolved  { background: #2b2b2b; color: #888; }
+.report-headline.sev-keihou    { background: #e63946; color: #fff; }
+.report-headline.sev-tokubetsu { background: #8e24aa; color: #fff; }
+
 .report-title {
   font-size: 17px;
   font-weight: bold;
@@ -217,6 +246,20 @@ body.is-kiosk #events_container {
   font-size: 12px;
   color: #9aa0a6;
   margin-bottom: 10px;
+}
+
+/* メッセージ(指示・案内文): Lアラートの「指示」(例: 河口から離れて
+   ください)や気象庁の解説文など、避難行動に直結しうる自由文を、
+   dt/ddの1行に詰め込むのではなく独立した目立つブロックとして見せる。
+   吹き出し(コメント)っぽく見えないよう背景色・角丸・アイコンは使わず、
+   カード左端の色帯と重なって二重線に見えないよう、色付きの縦罫線も
+   使わない。字下げだけのシンプルな引用スタイルにする */
+.report-message {
+  padding-left: 12px;
+  margin: 6px 0 10px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #e8eaed;
 }
 
 .report-summary {
@@ -342,9 +385,21 @@ body.is-kiosk #events_container {
     font-size: 10px;
   }
 
+  .report-headline {
+    font-size: 13px;
+    padding: 4px 9px;
+    margin-bottom: 6px;
+  }
+
   .report-title {
     font-size: 14px;
     margin-bottom: 0;
+  }
+
+  .report-message {
+    font-size: 12px;
+    padding: 1px 0 1px 10px;
+    margin: 4px 0 6px;
   }
 
   /* シンプル化: 受信時刻(上部の時計と重複する情報)は非表示にし、

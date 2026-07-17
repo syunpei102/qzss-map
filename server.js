@@ -156,31 +156,55 @@ const LALERT_HAZARD_JA = {
   "Safety warning": "安全に関する警告",
 };
 
+// 通知だけを見て「Lアラートなのか気象警報なのか」「新規発表なのか解除
+// なのか」が分かるようにする。以前は情報源ごとに書式がバラバラ(Lアラート
+// だけ解除を扱っていて、気象警報・その他DCRは新規発表と解除の区別が
+// タイトルに一切出ず、本文側も「キャンセル報」とだけ表示され「何が」
+// 解除されたのか分からなかった)だったのを統一する。
+// 気象警報は1通に複数の災害種別(例: 大雨警報・洪水警報)を同時に含み
+// うるため、「気象警報・注意報」という総称だけでは具体的に何が起きて
+// いるのか通知だけでは分からない、という指摘を受けて種別名を直接出す
 function notificationTitleFor(report) {
+  const isCancel = report.information_type_no === 2 || report.a1_message_type === "All Clear";
+  const statusSuffix = isCancel ? "(解除)" : "";
   let title;
   if (report.type === "QzssDcxJAlert") {
-    title = "Jアラート: " + (JALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "緊急情報");
+    title = `Jアラート: ${JALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "緊急情報"}${statusSuffix}`;
   } else if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
     const label = report.type === "QzssDcxMTInfo" ? "自治体情報" : "Lアラート";
     const hazard = LALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "災害情報";
-    title = report.a1_message_type === "All Clear" ? `${label}解除: ${hazard}` : `${label}: ${hazard}`;
+    title = `${label}: ${hazard}${statusSuffix}`;
+  } else if (report.disaster_category_no === 10) {
+    const subs = [...new Set(report.weather_related_disaster_sub_categories || [])];
+    title = `気象: ${subs.length ? subs.join("・") : "気象警報・注意報"}${statusSuffix}`;
   } else {
     const titles = {
       1: "緊急地震速報", 2: "震源に関する情報", 3: "震度速報", 5: "津波情報",
-      4: "南海トラフ地震関連情報", 8: "噴火警報・予報", 9: "降灰予報",
-      10: "気象警報・注意報", 11: "洪水予報",
+      4: "南海トラフ地震関連情報", 8: "噴火警報・予報", 9: "降灰予報", 11: "洪水予報",
     };
-    title = titles[report.disaster_category_no] || report.disaster_category || "防災情報";
+    // 津波は警報レベル(大津波警報/津波警報/津波注意報)自体が既に具体的な
+    // ので、総称の「津波情報」より優先してそのまま使う
+    const base = report.tsunami_warning_code || titles[report.disaster_category_no] || report.disaster_category || "防災情報";
+    title = `${base}${statusSuffix}`;
   }
   if (report.is_test_data) return `[テスト]${title}`;
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
   // (自分で送るテストデータとは別物)。本物の警報と見分けがつくようにする
-  if (report.report_classification_no === 7) return `[訓練]${title}`;
+  if (report.report_classification_no === 7 || report.a1_message_type === "Test") return `[訓練]${title}`;
   return title;
 }
 
+// 以前は解除・取消(information_type_no===2)の通報だと、対象地域や
+// 種別を一切見ずに一律「キャンセル報」とだけ表示していたため、通知欄
+// だけでは「何が」解除されたのか分からなかった。解除信号でも通常通り
+// 対象地域・種別の詳細を組み立て、頭に「解除: 」を付けるだけにする
 function notificationBodyFor(report) {
-  if (report.information_type_no === 2) return "キャンセル報";
+  const isCancel = report.information_type_no === 2 || report.a1_message_type === "All Clear";
+  const detail = notificationBodyDetail(report);
+  return isCancel ? `解除: ${detail}` : detail;
+}
+
+function notificationBodyDetail(report) {
   if (report.type === "QzssDcxJAlert") {
     const areas = report.ex9_target_area_list_ja || [];
     return areas.length ? areas.slice(0, 5).join("・") + (areas.length > 5 ? " 他" : "") : "アプリを開いて確認してください。";

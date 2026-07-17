@@ -712,8 +712,17 @@ function buildEventFromJAlert(report) {
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
     badgeClass: 'report-badge ' + jalertSeverityClass(report),
-    title: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    // 災害種別名(例: ミサイル発射)は、丸角の見出しとして一番目立つ
+    // 位置に表示する(気象警報カードと同じ見た目に統一)
+    headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    title: '',
     meta: `受信 ${nowTimeString()}`,
+    // a11(指示ライブラリ)はLアラートだけでなくJアラートにも同じ
+    // フィールドがあり、ミサイル関連の具体的な避難指示文
+    // (例:「建物の中、又は地下に避難して下さい」)が入っている。
+    // 以前はLアラート側でしか読んでおらず、Jアラートでは黙って
+    // 捨てていた
+    message: report.a11_japanese_library_ja || '',
     rows,
     geo,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
@@ -820,7 +829,6 @@ function buildEventFromLAlert(report) {
     }
   }
 
-  if (report.a11_japanese_library_ja) rows.push(['指示', report.a11_japanese_library_ja]);
   if (report.a8_hazard_duration) rows.push(['継続時間', hazardDurationJa(report.a8_hazard_duration)]);
 
   return {
@@ -830,8 +838,14 @@ function buildEventFromLAlert(report) {
     satellitePrn: report.satellite_prn,
     badgeText: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
     badgeClass: 'report-badge ' + jalertSeverityClass(report),
-    title: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    // 災害種別名(例: 津波)は、丸角の見出しとして一番目立つ位置に表示する
+    // (気象警報カードと同じ見た目に統一)
+    headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    title: '',
     meta: `受信 ${nowTimeString()}`,
+    // 「指示」(例: 河口から離れてください)は避難行動に直結しうる自由文
+    // なので、dt/ddの1行に埋もれさせず独立したメッセージブロックで見せる
+    message: report.a11_japanese_library_ja || '',
     rows: rows.filter(([, v]) => v),
     geo,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
@@ -938,17 +952,22 @@ function buildEventFromOtherCategory(report) {
     rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
   }
   const firstLine = (report.description || '').split('\n').map((l) => l.trim()).find(Boolean);
-  if (firstLine) rows.push(['内容', firstLine]);
+  if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
   return {
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
     badgeText: report.disaster_category || report.type,
     badgeClass: otherBadgeClassForReport(report),
-    title: report.disaster_category
+    // 見出しとバッジが同じ文言(災害種別名)になるため、バッジは非表示にする
+    showBadges: false,
+    headline: report.disaster_category
       ? `${report.disaster_category}${report.information_type && report.information_type !== '発表' ? `(${report.information_type})` : ''}`
       : report.type,
+    title: '',
     meta: `受信 ${nowTimeString()}`,
+    // dt/ddの1行に埋もれさせず、独立したメッセージブロックで見せる
+    message: firstLine || '',
     rows,
     updatedAt: Date.now(),
   };
@@ -1304,7 +1323,10 @@ function buildEventFromReport(report) {
     tsunamiWarningColor: TSUNAMI_COLORS[report.tsunami_warning_code_raw] || null,
     badgeText: report.disaster_category || report.type,
     badgeClass: 'report-badge ' + severityClass(report),
-    title: buildTitle(report),
+    // 見出しとバッジが同じ文言(災害種別名)になるため、バッジは非表示にする
+    showBadges: false,
+    headline: buildTitle(report),
+    title: '',
     meta: `受信 ${nowTimeString()}`,
     rows: buildSummary(report),
     geo,
@@ -1554,6 +1576,9 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   record.rows = [...rowsMap.entries()];
 
   record.title = eventData.title;
+  record.headline = eventData.headline;
+  record.showBadges = eventData.showBadges;
+  record.message = eventData.message;
   record.meta = eventData.meta;
   record.satelliteId = eventData.satelliteId;
   record.satellitePrn = eventData.satellitePrn;
@@ -1887,14 +1912,24 @@ function updateCameraForActiveEvents(preferredRecord) {
 // 無関係な地域の情報が並んでいる、という食い違いを防ぐため)
 function weatherSiteCard(site) {
   const worst = worstSubCategory(site.subCategories);
+  const others = site.subCategories.filter((s) => s !== worst);
+  const rows = [];
+  if (others.length) rows.push(['その他の種別', others.join('・')]);
+  if (site.reportTime) rows.push(['発表時刻', formatDateTime(site.reportTime)]);
   return {
     isTestData: site.isTestData,
     satelliteId: site.satelliteId,
     satellitePrn: site.satellitePrn,
+    // 「記録的短時間大雨情報」等、丸ピルのバッジには収まりきらない長さの
+    // 種別名を見出しとして大きく表示するため、バッジ自体は非表示にする
+    // (badgesは深刻度クラス計算のためだけに残す)
     badges: [{ text: worst || '気象', class: weatherSeverityBadgeClass(worst) }],
+    showBadges: false,
+    headline: worst || '気象',
     title: `📍 ${site.name}`,
     meta: `更新 ${nowTimeString()}`,
-    rows: [['種別', site.subCategories.join('・')]],
+    message: site.description || '',
+    rows,
     updatedAt: site.updatedAt,
   };
 }
@@ -1920,23 +1955,46 @@ function buildReportCardHtml(record) {
   const satelliteTag = (record.satellitePrn !== undefined && record.satellitePrn !== null)
     ? `<span class="satellite-tag">🛰️ ${escapeHtml(SATELLITE_NAMES[record.satelliteId] || `PRN${record.satellitePrn}`)}</span>`
     : '';
-  const badgesHtml = (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
+  // headline(見出し)が種別名を既に大きく表示している場合、同じ文言の
+  // バッジを重ねて出す必要は無い(weatherSiteCard参照)。showBadges===false
+  // の時だけ非表示にし、badges自体はcardSeverityClassの深刻度判定に引き続き使う
+  const badgesHtml = record.showBadges === false ? '' : (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
     .map((b) => `<div class="${escapeHtml(b.class)}">${escapeHtml(b.text)}</div>`)
     .join('');
   const rowsHtml = record.rows
     .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
     .join('');
   const cardClass = cardSeverityClass(record.badges || [{ class: record.badgeClass }]);
+  // 見出し(丸角の四角): 「記録的短時間大雨情報」等、バッジの丸ピルには
+  // 収まりきらない長さの災害種別名を、一番目立つ位置に大きく置く
+  // (weatherSiteCard等、対応するカードだけが設定する任意フィールド)。
+  // 津波警報中は既に全幅の専用バナー(tsunamiBanner)が同じ文言
+  // (buildTitleがtsunami_warning_codeをそのまま返すため)を表示して
+  // いるため、見出しは重ねて出さない
+  const headlineHtml = (record.headline && !tsunamiBanner)
+    ? `<div class="report-headline ${escapeHtml(cardClass)}">${escapeHtml(record.headline)}</div>`
+    : '';
+  // メッセージ(指示・案内文): 「河口から離れてください」のような自由文を
+  // dt/ddの1行に埋もれさせず、独立したブロックとして目立たせる。吹き出し
+  // (コメント)っぽく見えないようアイコン・背景ボックスは無し。カード
+  // 左端の色帯と重なって二重線に見えないよう、色付きの罫線も使わず
+  // 字下げだけのシンプルな引用スタイルにする
+  const messageHtml = record.message
+    ? `<div class="report-message">${escapeHtml(record.message)}</div>`
+    : '';
+  const titleHtml = record.title ? `<div class="report-title">${escapeHtml(record.title)}</div>` : '';
   return `
     <div class="report-card ${escapeHtml(cardClass)}">
       ${testBanner}
       ${tsunamiBanner}
+      ${headlineHtml}
       <div class="report-badge-row">
         <div class="badges-list">${badgesHtml}</div>
         ${satelliteTag}
       </div>
-      <div class="report-title">${escapeHtml(record.title)}</div>
+      ${titleHtml}
       <div class="report-meta">${escapeHtml(record.meta)}</div>
+      ${messageHtml}
       <dl class="report-summary">${rowsHtml}</dl>
     </div>`;
 }
@@ -2298,6 +2356,7 @@ function renderReport(report) {
         name: (report.report_classification_no === 7 ? '[訓練] ' : '') + regionDisplayName(code, rawName),
         subCategories: mergedSubCategories,
         description: report.description || (existing && existing.description) || '',
+        reportTime: report.report_time || (existing && existing.reportTime) || null,
         bounds: feature ? geometryBounds(feature.geometry) : (existing && existing.bounds) || null,
         isTestData: !!report.is_test_data,
         isTraining: report.report_classification_no === 7,
@@ -2569,28 +2628,45 @@ async function initMap() {
   // (スマホ・一般公開Webページのみ)
   if (!IS_LOCAL_KIOSK) {
     map.on('click', (e) => {
-      const layers = ['weather-fill', 'municipality-fill', 'prefecture-fill'].filter((id) => map.getLayer(id));
-      if (!layers.length) return;
-      const features = map.queryRenderedFeatures(e.point, { layers });
-      if (!features.length) return;
-      const feature = features[0];
-      if (feature.layer.id === 'weather-fill') {
-        if (weatherSites.has(feature.properties.code)) interruptPatrolForNewRegion(feature.properties.code);
-      } else if (feature.layer.id === 'municipality-fill') {
-        const record = [...activeEvents.values()].find(
-          (r) => r.geo.municipality && r.geo.municipality.code === feature.properties.code
-        );
-        if (record) interruptPatrolForNewEvent(record.id);
-      } else if (feature.layer.id === 'prefecture-fill') {
-        const record = [...activeEvents.values()].find(
-          (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
-        );
-        if (record) interruptPatrolForNewEvent(record.id);
+      const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill'].filter((id) => map.getLayer(id));
+      if (fillLayers.length) {
+        const features = map.queryRenderedFeatures(e.point, { layers: fillLayers });
+        if (features.length) {
+          const feature = features[0];
+          if (feature.layer.id === 'weather-fill') {
+            if (weatherSites.has(feature.properties.code)) interruptPatrolForNewRegion(feature.properties.code);
+          } else if (feature.layer.id === 'municipality-fill') {
+            const record = [...activeEvents.values()].find(
+              (r) => r.geo.municipality && r.geo.municipality.code === feature.properties.code
+            );
+            if (record) interruptPatrolForNewEvent(record.id);
+          } else if (feature.layer.id === 'prefecture-fill') {
+            const record = [...activeEvents.values()].find(
+              (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
+            );
+            if (record) interruptPatrolForNewEvent(record.id);
+          }
+          return;
+        }
+      }
+      // 津波警報の沿岸ライン(点滅表示)は面ではなく線なので、点そのものの
+      // クリックだとほぼ当たらない。クリック位置を中心にした小さな
+      // 矩形(±6px)で探すことで、線の近くをタップ/クリックすれば拾える
+      // ようにする
+      if (map.getLayer('tsunami-line')) {
+        const r = 6;
+        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+        const tsunamiFeatures = map.queryRenderedFeatures(box, { layers: ['tsunami-line'] });
+        if (tsunamiFeatures.length) {
+          const code = tsunamiFeatures[0].properties.code;
+          const record = [...activeEvents.values()].find((rec) => rec.geo.tsunami.some((t) => t.code === code));
+          if (record) interruptPatrolForNewEvent(record.id);
+        }
       }
     });
     // 塗られている場所の上ではカーソルをポインターにして、タップ/クリック
     // できることが分かるようにする
-    for (const id of ['weather-fill', 'municipality-fill', 'prefecture-fill']) {
+    for (const id of ['weather-fill', 'municipality-fill', 'prefecture-fill', 'tsunami-line']) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
