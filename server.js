@@ -59,22 +59,39 @@ if (PUSH_ENABLED) {
   console.warn("⚠️ VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY が未設定です。プッシュ通知は無効化されます。");
 }
 
-// 購読情報はメモリ上にのみ保持する(このプロジェクトの規模では十分。
-// Cloud Runの再デプロイ/再起動で失われるが、その場合はアプリ側の
-// 「通知を有効にする」ボタンを再度押してもらえば再登録される)。
+// 以前はメモリ上にのみ保持していたため、Cloud Runの再デプロイ・再起動の
+// たびに登録者全員の購読情報が消え、通知が届かなくなっていた
+// (デプロイするたびに毎回「通知を有効にする」を押し直してもらう必要が
+// あった)。他の状態(activeReports・latencyHistory等)と同じGCS/
+// ローカルファイル永続化に乗せ、再デプロイを挟んでも購読が維持される
+// ようにする
 const pushSubscriptions = new Map(); // endpoint -> subscription object
+const PUSH_SUBSCRIPTIONS_STATE_FILE = "push_subscriptions.json";
+
+async function loadPushSubscriptions() {
+  const restored = await loadPersistedJson(PUSH_SUBSCRIPTIONS_STATE_FILE);
+  if (restored && typeof restored === "object") {
+    for (const [endpoint, sub] of Object.entries(restored)) pushSubscriptions.set(endpoint, sub);
+    console.log(`♻️  プッシュ通知の購読情報を復元しました(${pushSubscriptions.size}件)`);
+  }
+}
+
+function persistPushSubscriptions() {
+  persistJson(PUSH_SUBSCRIPTIONS_STATE_FILE, Object.fromEntries(pushSubscriptions));
+}
 
 app.post("/push/subscribe", (req, res) => {
   const sub = req.body;
   if (!sub || !sub.endpoint) return res.status(400).json({ error: "invalid subscription" });
   pushSubscriptions.set(sub.endpoint, sub);
+  persistPushSubscriptions();
   console.log(`🔔 プッシュ通知を購読登録しました(現在 ${pushSubscriptions.size} 件)`);
   res.status(201).json({ ok: true });
 });
 
 app.post("/push/unsubscribe", (req, res) => {
   const endpoint = req.body && req.body.endpoint;
-  if (endpoint) pushSubscriptions.delete(endpoint);
+  if (endpoint && pushSubscriptions.delete(endpoint)) persistPushSubscriptions();
   res.status(204).end();
 });
 
@@ -262,6 +279,7 @@ function sendPushNotifications(report) {
     webpush.sendNotification(sub, payload).catch((err) => {
       if (err.statusCode === 410 || err.statusCode === 404) {
         pushSubscriptions.delete(endpoint);
+        persistPushSubscriptions();
       } else {
         console.error("⚠️ プッシュ通知の送信に失敗しました:", err.statusCode || err.message);
       }
@@ -563,16 +581,30 @@ const CLOUD_LATENCY_REPORT_URL = (process.env.CLOUD_LATENCY_REPORT_URL || "").tr
 // 実運用に影響しない計測専用の経路のため)
 app.post("/client-timing", (req, res) => {
   const ts = req.body || {};
-  if (ts.t0_received_ms && ts.t4_rendered_ms) {
+  if (ts.t0_received_ms && typeof ts.client_processing_ms === "number") {
+    // decodeMs(受信機内、同じ時計)・networkMs(受信機→サーバー)・
+    // dispatchPrepMs(サーバー内、同じ時計)はそれぞれ計算に使う2つの
+    // 時刻が同じ機器の時計同士なので問題無い。renderMs(配信→描画完了)
+    // だけは以前「サーバーが配信した時刻」と「ブラウザが描画し終えた
+    // 時刻」という別々の機器の時計を引き算していて、機器間の時計のズレが
+    // そのまま誤差になっていた(キオスク端末で特に顕著: マイナスや
+    // 数秒〜十数秒という明らかにおかしな値が実機のダッシュボードで
+    // 確認された)。ブラウザが自分の時計だけで測った所要時間
+    // (client_processing_ms)をそのまま使い、totalMsも各区間を足し算
+    // する形にして、機器間の時刻比較を一切行わないようにする
+    const decodeMs = ts.t1_decoded_ms - ts.t0_received_ms;
+    const networkMs = ts.t2_server_received_ms - ts.t1_decoded_ms;
+    const dispatchPrepMs = ts.t3_dispatched_ms - ts.t2_server_received_ms;
+    const renderMs = ts.client_processing_ms;
     const entry = {
       recordedAt: Date.now(),
       isTestData: !!ts.isTestData,
       reportSummary: ts.reportSummary || null,
-      decodeMs: ts.t1_decoded_ms - ts.t0_received_ms,
-      networkMs: ts.t2_server_received_ms - ts.t1_decoded_ms,
-      dispatchPrepMs: ts.t3_dispatched_ms - ts.t2_server_received_ms,
-      renderMs: ts.t4_rendered_ms - ts.t3_dispatched_ms,
-      totalMs: ts.t4_rendered_ms - ts.t0_received_ms,
+      decodeMs,
+      networkMs,
+      dispatchPrepMs,
+      renderMs,
+      totalMs: decodeMs + networkMs + dispatchPrepMs + renderMs,
     };
     console.log(
       `⏱️ end-to-end合計: ${entry.totalMs}ms `
@@ -1314,6 +1346,7 @@ Promise.all([
   loadTrainingBroadcastSettings(),
   loadActiveReports(),
   loadLatencyHistory(),
+  loadPushSubscriptions(),
 ]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);

@@ -1948,12 +1948,6 @@ function weatherSiteCard(site) {
     headline: worst || '気象',
     title: `📍 ${site.name}`,
     meta: `更新 ${nowTimeString()}`,
-    // JMAのdescriptionは生の多行テキストで、しかも1通の気象警報に
-    // 複数の都道府県が同時に含まれている場合、その全部の文章が
-    // (地域ごとに分けずに)そのまま入っている。この地域のカードには
-    // 無関係な他県の情報まで混ざって表示されてしまうため使わない。
-    // 種別(見出し)・発表時刻(行)は既に構造化データから出しているので
-    // 実質的な情報の欠落は無い
     rows,
     updatedAt: site.updatedAt,
   };
@@ -2383,7 +2377,6 @@ function renderReport(report) {
         rawName, // 地域名の無い再送時に existing.rawName で引き継ぐため保存必須
         name: (report.report_classification_no === 7 ? '[訓練] ' : '') + regionDisplayName(code, rawName),
         subCategories: mergedSubCategories,
-        description: report.description || (existing && existing.description) || '',
         reportTime: report.report_time || (existing && existing.reportTime) || null,
         bounds: feature ? geometryBounds(feature.geometry) : (existing && existing.bounds) || null,
         isTestData: !!report.is_test_data,
@@ -2854,6 +2847,11 @@ function connectWebSocket() {
   });
 
   socket.addEventListener('message', async (event) => {
+    // レイテンシ計測用: メッセージを受け取った瞬間のブラウザ自身の時刻。
+    // 「配信→描画完了」の所要時間は、この後この関数の最後で
+    // Date.now()との差分として計算する(サーバー側のタイムスタンプとは
+    // 一切比較しない=別々の機器の時計のズレの影響を受けない)
+    const clientMessageReceivedAt = Date.now();
     console.log('ブラウザ受信:', event.data);
 
     let report;
@@ -2895,19 +2893,27 @@ function connectWebSocket() {
     await mapReady;
     renderReport(report);
 
-    // レイテンシ計測(T0受信〜T4描画完了)。renderReportは同期関数で、
-    // 警報の塗りつぶし(最優先の描画)はこの時点で既に反映済みのため、
-    // ここでのDate.now()がT4として妥当。サーバーへ返して1箇所のログに
-    // まとめる(受信機・サーバー・ブラウザで別々に見なくて済むように)
+    // レイテンシ計測(T0受信〜描画完了)。renderReportは同期関数で、
+    // 警報の塗りつぶし(最優先の描画)はこの時点で既に反映済み。
+    // 「配信→描画完了」の所要時間は、サーバーが配信した時刻
+    // (t3_dispatched_ms、サーバー機の時計)とここでのDate.now()
+    // (ブラウザの時計)を引き算していたが、キオスク(ラズパイ)は正確な
+    // 時刻を持っていないことが多く、機器間で時計がズレていると差分が
+    // マイナスになったり異常に大きくなったりする不具合があった(実機の
+    // ダッシュボードで確認: 一部の通報だけ描画に数秒〜十数秒かかった
+    // ように見えていたが、実際には時計のズレによる見かけ上の数値だった)。
+    // メッセージを受け取ってから描画完了までをブラウザ自身の時計だけで
+    // 測った時間(clientProcessingMs)を代わりに送り、サーバー側の時刻とは
+    // 一切比較しないようにする
     if (report.client_timestamps) {
-      const t4 = Date.now();
+      const clientProcessingMs = Date.now() - clientMessageReceivedAt;
       // sentence/raw/message/nmeaは同じ信号の別エンコーディングに過ぎず
       // ダッシュボードでの内容確認には不要なので除外する(このためだけに
       // ペイロードを膨らませたくない)
       const { sentence, raw, message, nmea, client_timestamps, ...reportSummary } = report;
       const timestamps = {
         ...report.client_timestamps,
-        t4_rendered_ms: t4,
+        client_processing_ms: clientProcessingMs,
         isTestData: !!report.is_test_data,
         reportSummary,
       };
