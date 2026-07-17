@@ -688,7 +688,13 @@ function buildEventFromJAlert(report) {
 
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
-  const color = JALERT_SEVERITY_COLOR[jalertSeverityKey(report)];
+  // Jアラート(全国瞬時警報システム)はミサイル発射・大規模テロ等、
+  // 元々そのカテゴリ自体が常に緊急性の高い内容しか流れてこない。CAPの
+  // a5_severityは「Moderate」等、必ずしも実態の深刻さを反映しない値が
+  // 入ることがある(黄色に見えて誤解を招く)ため、Jアラートは常に最高度
+  // (濃い赤)の色で表示する(市区町村ごとに深刻度が様々なLアラートとは
+  // 扱いを分ける)
+  const color = JALERT_SEVERITY_COLOR.Extreme;
   // ミサイル発射等、対象地域が「全国」として一括で発表されることがある。
   // prefectures.geojsonには都道府県ごとの地物しか無く「全国」という
   // 地物は存在しないため、そのままではどこにも塗られず「対象地域なのに
@@ -711,7 +717,8 @@ function buildEventFromJAlert(report) {
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
-    badgeClass: 'report-badge ' + jalertSeverityClass(report),
+    // 上のcolorと同じ理由でバッジも常にsev-emergency(濃い赤)固定
+    badgeClass: 'report-badge sev-emergency',
     // 災害種別名(例: ミサイル発射)は、丸角の見出しとして一番目立つ
     // 位置に表示する(気象警報カードと同じ見た目に統一)
     headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
@@ -1717,6 +1724,17 @@ function stopTsunamiBlink() {
 // 「同時に複数箇所が発表されていても、新しく発表された方を優先して
 // ズーム表示する」ため、カメラ移動は呼び出し側(addActiveEvent等)が
 // updateCameraForActiveEvents で個別に指示する形にしている。
+// Map.set()で同じidを2回書き込むと、深刻度に関わらず単に「後から処理
+// された方」の色で上書きされてしまう(例: 緊急地震速報で塗られた東京都に、
+// 後からその都道府県を含むJアラートが来ると、たとえ緊急地震速報の方が
+// 深刻度が高くても、Jアラート側の色に置き換わって見えていた=「色が
+// 重なって(意図しない方が)勝ってしまう」不具合)。既存の値より深刻度が
+// 低い場合は上書きしない、というガード付きのsetを使う
+function setIfMoreSevere(map, key, color, rank) {
+  const existing = map.get(key);
+  if (!existing || rank >= existing.rank) map.set(key, { color, rank });
+}
+
 function syncActiveEventLayers() {
   if (!map || !map.getLayer('prefecture-fill')) return;
 
@@ -1727,9 +1745,12 @@ function syncActiveEventLayers() {
   let tsunamiActive = false;
 
   for (const record of activeEvents.values()) {
-    for (const t of record.geo.tsunami) tsunamiColorByCode.set(t.code, t.color);
-    for (const p of record.geo.prefectures) prefColorById.set(p.id, p.color);
-    if (record.geo.municipality) municipalityColorByCode.set(record.geo.municipality.code, record.geo.municipality.color);
+    const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
+    for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
+    for (const p of record.geo.prefectures) setIfMoreSevere(prefColorById, p.id, p.color, rank);
+    if (record.geo.municipality) {
+      setIfMoreSevere(municipalityColorByCode, record.geo.municipality.code, record.geo.municipality.color, rank);
+    }
     if (record.geo.ellipse) {
       ellipseFeatures.push({
         type: 'Feature',
@@ -1746,7 +1767,7 @@ function syncActiveEventLayers() {
 
   if (tsunamiColorByCode.size) {
     const matchExpr = ['match', ['get', 'code']];
-    for (const [code, color] of tsunamiColorByCode) matchExpr.push(code, color);
+    for (const [code, entry] of tsunamiColorByCode) matchExpr.push(code, entry.color);
     matchExpr.push(TSUNAMI_DEFAULT_COLOR);
     map.setFilter('tsunami-line', ['in', ['get', 'code'], ['literal', [...tsunamiColorByCode.keys()]]]);
     map.setPaintProperty('tsunami-line', 'line-color', matchExpr);
@@ -1758,7 +1779,7 @@ function syncActiveEventLayers() {
 
   if (prefColorById.size) {
     const matchExpr = ['match', ['get', 'id']];
-    for (const [id, color] of prefColorById) matchExpr.push(id, color);
+    for (const [id, entry] of prefColorById) matchExpr.push(id, entry.color);
     matchExpr.push('rgba(0,0,0,0)');
     map.setFilter('prefecture-fill', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
     map.setFilter('prefecture-outline', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
@@ -1791,7 +1812,7 @@ function syncActiveEventLayers() {
     map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', codes]]);
     if (municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
-      for (const [code, color] of municipalityColorByCode) matchExpr.push(code, color);
+      for (const [code, entry] of municipalityColorByCode) matchExpr.push(code, entry.color);
       matchExpr.push('rgba(0,0,0,0)');
       map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
     }
@@ -1993,8 +2014,13 @@ function buildReportCardHtml(record) {
   // 津波警報中は既に全幅の専用バナー(tsunamiBanner)が同じ文言
   // (buildTitleがtsunami_warning_codeをそのまま返すため)を表示して
   // いるため、見出しは重ねて出さない
-  const headlineHtml = (record.headline && !tsunamiBanner)
-    ? `<div class="report-headline ${escapeHtml(cardClass)}">${escapeHtml(record.headline)}</div>`
+  // 統合カード(mergedCardForRecords)ではheadlineが配列(種別ごと)に
+  // なっていることがあるため、両方に対応する。それぞれ同じ色(cardClass=
+  // 統合後の最高深刻度)の丸角四角形として並べ、「地震 + ミサイル発射」の
+  // ような1本の文字列への結合はしない
+  const headlineList = Array.isArray(record.headline) ? record.headline : (record.headline ? [record.headline] : []);
+  const headlineHtml = (headlineList.length && !tsunamiBanner)
+    ? headlineList.map((h) => `<div class="report-headline ${escapeHtml(cardClass)}">${escapeHtml(h)}</div>`).join('')
     : '';
   // メッセージ(指示・案内文): 「河口から離れてください」のような自由文を
   // dt/ddの1行に埋もれさせず、独立したブロックとして目立たせる。吹き出し
@@ -2029,6 +2055,92 @@ const PANEL_PAGE_ROTATE_MS = 10000;
 let panelPageIndex = 0;
 let panelPageTimer = null;
 
+// activeEventsのレコードのバッジ配列を取得する共通ヘルパー(badges配列を
+// 持つものと、badgeText/badgeClassの1件だけのものが混在しているため)
+function recordBadges(record) {
+  return record.badges || [{ text: record.badgeText, class: record.badgeClass }];
+}
+
+function recordSeverityRank(record) {
+  return SEVERITY_RANK[cardSeverityClass(recordBadges(record))] ?? 0;
+}
+
+// 2つのactiveEventsレコードが同じ対象地域(都道府県・市区町村・津波区域の
+// いずれか)を含んでいるかどうか。緊急地震速報とJアラートのように種別が
+// 違っても、同じ地域を対象にしていれば「関連がある」とみなす
+function recordsOverlapGeographically(a, b) {
+  if (a.geo.prefectures.length && b.geo.prefectures.length) {
+    const bIds = new Set(b.geo.prefectures.map((p) => p.id));
+    if (a.geo.prefectures.some((p) => bIds.has(p.id))) return true;
+  }
+  if (a.geo.municipality && b.geo.municipality && a.geo.municipality.code === b.geo.municipality.code) return true;
+  if (a.geo.tsunami.length && b.geo.tsunami.length) {
+    const bCodes = new Set(b.geo.tsunami.map((t) => t.code));
+    if (a.geo.tsunami.some((t) => bCodes.has(t.code))) return true;
+  }
+  return false;
+}
+
+// 同じ地域を対象にした複数の警報(例: 緊急地震速報+Jアラート)は、
+// パネルに別々のカードとして並べるのではなく1枚に統合する。色(カード
+// 左端の帯・見出しの背景)は統合した中で一番深刻なものに揃える(以前は
+// 個々のカードがそれぞれ自分自身の深刻度で表示されるため、同じ地域を
+// 指しているのに片方が控えめな色に見えて紛らわしいという指摘を受けた)
+function mergedCardForRecords(records) {
+  if (records.length === 1) return records[0];
+  const ranked = [...records].sort((a, b) => recordSeverityRank(b) - recordSeverityRank(a));
+  const primary = ranked[0];
+  // 「地震 + ミサイル発射」のように1つの文字列へ結合すると、種別ごとの
+  // 見出しが読みにくくなる(指摘を受けて修正)。代わりに配列のまま持たせ、
+  // buildReportCardHtmlで種別ごとに別々の丸角四角形として並べて表示する
+  const headline = [...new Set(records.map((r) => r.headline || r.title).filter(Boolean))];
+  const message = [...new Set(records.map((r) => r.message).filter(Boolean))].join('\n\n');
+  const rowsMap = new Map();
+  for (const r of ranked) for (const [k, v] of r.rows || []) if (!rowsMap.has(k)) rowsMap.set(k, v);
+  const badges = records.flatMap(recordBadges);
+  return {
+    isTestData: records.some((r) => r.isTestData),
+    satelliteId: primary.satelliteId,
+    satellitePrn: primary.satellitePrn,
+    badges,
+    showBadges: true,
+    headline,
+    title: '',
+    meta: primary.meta,
+    message,
+    rows: [...rowsMap.entries()],
+    updatedAt: Math.max(...records.map((r) => r.updatedAt || 0)),
+  };
+}
+
+// 与えられたレコード群を、地理的に重なっているもの同士でグループ化する
+// (AがBと重なり、BがCと重なるがAとCは直接重ならない、という連鎖も
+// 1つのグループとしてまとめられるよう、重なりが無くなるまで繰り返す)。
+// まだ1枚のカードには統合しない(どのグループに誰が属するかを先に
+// 知りたい場面があるため、統合はmergedCardForRecordsで別途行う)
+function clusterOverlappingRecords(records) {
+  const groups = records.map((r) => [r]);
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (groups[i].some((a) => groups[j].some((b) => recordsOverlapGeographically(a, b)))) {
+          groups[i] = groups[i].concat(groups[j]);
+          groups.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
+function groupOverlappingRecords(records) {
+  return clusterOverlappingRecords(records).map(mergedCardForRecords);
+}
+
 function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
@@ -2058,15 +2170,22 @@ function renderEventsPanel() {
   } else if (focusedTrainingEvent) {
     visibleRecords = [focusedTrainingEvent];
   } else if (focusedRealEvent) {
-    visibleRecords = [focusedRealEvent];
+    // 同じ地域を対象にした複数の情報(例: 緊急地震速報+Jアラート)が
+    // 同時にアクティブな場合、バラバラの複数カードではなく1枚の統合
+    // カードにまとめて見せる(色・見出しは最も深刻な方を採用)
+    const nonTraining = [...activeEvents.values()].filter((r) => !r.isTraining);
+    const clusters = clusterOverlappingRecords(nonTraining);
+    const myCluster = clusters.find((g) => g.includes(focusedRealEvent)) || [focusedRealEvent];
+    visibleRecords = [mergedCardForRecords(myCluster)];
   } else {
     // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
     // アクティブな気象警報・本物のイベント・訓練放送を全てまとめてカード
     // にする。PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版の
     // スクロール/キオスクのページ送りに任せる(何もアクティブでなければ
-    // その他の通報にフォールバック)
+    // その他の通報にフォールバック)。ここでも地理的に重なるイベント同士
+    // は1枚の統合カードにまとめる
     const weatherCards = [...weatherSites.values()].map(weatherSiteCard);
-    const eventCards = [...activeEvents.values()].filter((r) => !r.isTraining);
+    const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
     visibleRecords = weatherCards.length || eventCards.length || trainingCards.length
       ? [...weatherCards, ...eventCards, ...trainingCards]
