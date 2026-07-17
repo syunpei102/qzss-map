@@ -12,19 +12,35 @@
     color: azure;
     font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
   }
-  .wrap { max-width: 720px; margin: 0 auto; padding: 24px 20px 60px; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 20px 60px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   p.sub { color: #9aa0a6; font-size: 13px; margin: 0 0 20px; }
+
+  /* 統計タイル: 5枚とも同じ緑ボーダーで並んでいて意味の無い装飾になって
+     いたのをやめ、ラベル/数値の階層をはっきりさせる。p95・最大だけは
+     「注意が必要な値かどうか」という実際の意味を持たせて、閾値を超えた
+     時だけステータスカラーで縁取る(常時色を付ける装飾ではない) */
   .stats {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 10px; margin-bottom: 24px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 12px; margin-bottom: 28px;
   }
   .stat-card {
-    background: #1e2126; border-radius: 8px; padding: 12px 14px;
-    border-left: 3px solid #2ecc71;
+    background: #1e2126; border-radius: 10px; padding: 16px 18px;
+    border: 1px solid rgba(255,255,255,0.06);
+    display: flex; flex-direction: column; gap: 6px;
   }
-  .stat-card .label { color: #9aa0a6; font-size: 12px; }
-  .stat-card .value { font-size: 20px; font-weight: 600; margin-top: 4px; }
+  .stat-card.is-warning { border-color: rgba(231, 76, 60, 0.55); }
+  .stat-card .label {
+    color: #9aa0a6; font-size: 12px; font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+  .stat-card .value {
+    font-size: 26px; font-weight: 600; line-height: 1.15;
+    color: #f4f6f8; font-variant-numeric: normal;
+  }
+  .stat-card .value .unit { font-size: 15px; font-weight: 500; color: #9aa0a6; margin-left: 2px; }
+  .stat-card .value.is-warning { color: #e74c3c; }
+  .stat-card .sub { color: #6b7178; font-size: 11.5px; }
   canvas { width: 100%; background: #1e2126; border-radius: 8px; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 10px 0 28px; font-size: 12px; color: #9aa0a6; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -64,7 +80,7 @@
 
   <label class="toggle-row">
     <input type="checkbox" id="hide-test-toggle" />
-    テストデータを除外(本番信号のみ表示)
+    本番データのみ表示(手動テストデータ・訓練放送を除外)
   </label>
 
   <div class="stats" id="stats"></div>
@@ -98,25 +114,35 @@ function percentile(sorted, p) {
   return sorted[idx];
 }
 
+// 1秒未満のデコード処理(実測0.1ms未満のこともある)まで扱うため、
+// 表記をsに統一しつつ小数点以下3桁(ミリ秒相当の精度)を保つ
+const ANOMALY_THRESHOLD_MS = 1000;
+function formatSeconds(ms) {
+  return (ms / 1000).toFixed(3);
+}
+
 function renderStats(history) {
   const el = document.getElementById('stats');
   if (!history.length) { el.innerHTML = ''; return; }
-  const testCount = history.filter((h) => h.isTestData).length;
+  const testCount = history.filter((h) => !isProductionEntry(h)).length;
   const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
-  const avg = Math.round(totals.reduce((a, b) => a + b, 0) / totals.length);
+  const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
   const max = totals[totals.length - 1];
-  el.innerHTML = [
-    ['件数', `${history.length}(うちテスト${testCount})`],
-    ['平均', avg + 'ms'],
-    ['p50', p50 + 'ms'],
-    ['p95', p95 + 'ms'],
-    ['最大', max + 'ms'],
-  ].map(([label, value]) => `
-    <div class="stat-card">
-      <div class="label">${label}</div>
-      <div class="value">${value}</div>
+  const countSub = testCount ? `うちテスト・訓練 ${testCount}件` : 'すべて本番データ';
+  const cards = [
+    { label: '件数', value: `${history.length}`, unit: '件', sub: countSub },
+    { label: '平均', value: formatSeconds(avg), unit: 's' },
+    { label: 'p50(中央値)', value: formatSeconds(p50), unit: 's' },
+    { label: 'p95', value: formatSeconds(p95), unit: 's', warning: p95 > ANOMALY_THRESHOLD_MS },
+    { label: '最大', value: formatSeconds(max), unit: 's', warning: max > ANOMALY_THRESHOLD_MS },
+  ];
+  el.innerHTML = cards.map((c) => `
+    <div class="stat-card ${c.warning ? 'is-warning' : ''}">
+      <div class="label">${c.label}</div>
+      <div class="value ${c.warning ? 'is-warning' : ''}">${c.value}<span class="unit">${c.unit}</span></div>
+      ${c.sub ? `<div class="sub">${c.sub}</div>` : ''}
     </div>
   `).join('');
 }
@@ -266,7 +292,6 @@ const LATENCY_SEGMENTS = [
   ['dispatchPrepMs', '#9c7fe0'],
   ['renderMs', '#2ecc71'],
 ];
-const ANOMALY_THRESHOLD_MS = 1000;
 
 function renderHistory(history) {
   const container = document.getElementById('history_container');
@@ -299,9 +324,9 @@ function renderHistory(history) {
         <dl class="report-summary">${rowsHtml}</dl>
         <div class="latency-bar-row">
           <div class="latency-bar">${barHtml}</div>
-          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${h.totalMs}ms${isAnomaly ? ' ⚠️' : ''}</span>
+          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.totalMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
         </div>
-        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}(デコード${h.decodeMs}ms・受信機→サーバー${h.networkMs}ms・配信準備${h.dispatchPrepMs}ms・配信→描画${h.renderMs}ms)</div>
+        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
       </div>
     `;
   }).join('');
@@ -309,9 +334,22 @@ function renderHistory(history) {
 
 const hideTestToggle = document.getElementById('hide-test-toggle');
 
+// 「本番データのみ」= is_test_data(手動投入の検証データ)だけでなく、
+// 衛星から実際に配信される公式の訓練/試験放送(report_classification_no
+// ===7、またはLアラート/JアラートのDCXならa1_message_type==='Test')も
+// 除外する。以前はis_test_dataしか見ておらず、ラベルは「本番信号のみ」を
+// 謳いながら実際には訓練放送(例: 十津川村・境町のend-to-endテスト配信)
+// が素通りしていた
+function isProductionEntry(h) {
+  if (h.isTestData) return false;
+  const r = h.reportSummary;
+  const isOfficialTrainingBroadcast = r && (r.report_classification_no === 7 || r.a1_message_type === 'Test');
+  return !isOfficialTrainingBroadcast;
+}
+
 async function refresh() {
   const all = await fetchHistory();
-  const history = hideTestToggle.checked ? all.filter((h) => !h.isTestData) : all;
+  const history = hideTestToggle.checked ? all.filter(isProductionEntry) : all;
   renderStats(history);
   renderChart(history);
   renderHistory(history);
