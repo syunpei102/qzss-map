@@ -2201,11 +2201,19 @@ function applyTrainingLabel(event, report) {
 
 function renderReport(report) {
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
-  // (月2回程度)。showTrainingBroadcasts=trueなら本物と全く同じ経路で
-  // 表示する(バッジ・タイトルへの「[訓練]」付与はapplyTrainingLabel、
+  // (月2回程度、DCR=気象庁形式)。DCX(LアラートJアラート)には
+  // report_classification_noという概念自体が無く、代わりにa1_message_type
+  // ==='Test'が同じ役割(公式の訓練/試験配信)を果たす。以前はDCR側の
+  // report_classification_no===7しか見ておらず、Lアラート系の訓練放送
+  // (実機で確認: 十津川村・境町等のend-to-endテスト配信)がshowTrainingBroadcasts
+  // をOFFにしても素通りしてずっと表示され続けていた。isTraining判定
+  // (applyTrainingLabel)と同じ条件に揃える。
+  // showTrainingBroadcasts=trueなら本物と全く同じ経路で表示する
+  // (バッジ・タイトルへの「[訓練]」付与はapplyTrainingLabel、
   // severityClassが色をsev-training(紫)にする)。取消が来ない場合でも
   // 各カテゴリの安全策TTLで自動的に消える
-  if (report.report_classification_no === 7 && !showTrainingBroadcasts) return;
+  const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === 'Test';
+  if (isOfficialTrainingBroadcast && !showTrainingBroadcasts) return;
 
   if (report.type === 'DecodeError') {
     addActiveEvent({
