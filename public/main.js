@@ -1755,9 +1755,14 @@ function updateCameraForActiveEvents(preferredRecord) {
   // ここで一緒にunion fitしてしまうと、巡回とカメラを取り合ってしまう。
   // (ここに到達するのは、活動中のイベントが1件もboundsを持たない
   // 稀なケースのみ)
+  // ここでもテストデータ・訓練放送は除外する(実機で確認: 上のフォール
+  // バック選択では除外していたが、この「全イベントのboundsを合成して
+  // ズーム」する経路では除外し忘れており、訓練放送だけが残っている時に
+  // 結局そこへズームしてしまっていた)
   const boundsList = [];
   const idsWithBounds = [];
   for (const record of activeEvents.values()) {
+    if (record.isTestData || record.isTraining) continue;
     if (record.bounds) {
       boundsList.push(record.bounds);
       idsWithBounds.push(record.id);
