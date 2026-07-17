@@ -1025,12 +1025,23 @@ function schedulePatrolNext(delayMs) {
   patrolTimer = setTimeout(patrolStep, delayMs);
 }
 
+// テストデータ・訓練放送は本物の警報と違い、巡回ズームを止めてまで
+// カメラを占有し続ける理由が無い(実機で、有効期限が長い訓練放送1件が
+// 何時間も巡回を止めてしまう不具合が発生した)。「本物の、まだ処理中の
+// 警報が無いか」だけをここで判定する
+function hasRealActiveEvents() {
+  for (const record of activeEvents.values()) {
+    if (!record.isTestData && !record.isTraining) return true;
+  }
+  return false;
+}
+
 function patrolStep() {
-  // activeEvents(地震・津波・Jアラート・Lアラート等)がある間は、
-  // そちらの表示を優先する。新規の気象警報への割り込みズーム
-  // (interruptPatrolForNewRegion)で一時的にカメラを借りていた場合は、
-  // ここで重要イベント側へ返す
-  if (activeEvents.size > 0) {
+  // activeEvents(地震・津波・Jアラート・Lアラート等)のうち、テスト
+  // データ・訓練放送を除いた「本物」がある間は、そちらの表示を優先する。
+  // 新規の気象警報への割り込みズーム(interruptPatrolForNewRegion)で
+  // 一時的にカメラを借りていた場合は、ここで重要イベント側へ返す
+  if (hasRealActiveEvents()) {
     if (currentPatrolCode !== null) {
       currentPatrolCode = null;
       updateFocusOutline();
@@ -1079,7 +1090,7 @@ function patrolStep() {
 // 警報が0件の状態から新しく発表された時は、次の定期チェックを待たず
 // すぐに巡回を始める
 function kickPatrolIfIdle() {
-  if (currentPatrolCode === null && weatherSites.size > 0 && activeEvents.size === 0) {
+  if (currentPatrolCode === null && weatherSites.size > 0 && !hasRealActiveEvents()) {
     schedulePatrolNext(0);
   }
 }
@@ -1414,7 +1425,9 @@ function addActiveEvent(eventData, ttlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    updateCameraForActiveEvents(record);
+    // テストデータ・訓練放送はカメラを占有しない(巡回ズームを妨げない
+    // ようにするため)。塗り・マーカー・パネルカードは通常通り表示する
+    if (!record.isTestData && !record.isTraining) updateCameraForActiveEvents(record);
     renderEventsPanel();
   }, CAMERA_ZOOM_DELAY_MS));
 }
@@ -1475,6 +1488,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   record.satelliteId = eventData.satelliteId;
   record.satellitePrn = eventData.satellitePrn;
   record.isTestData = record.isTestData || eventData.isTestData;
+  record.isTraining = record.isTraining || eventData.isTraining;
   if (typeof report.seismic_epicenter_raw === 'number') record.epicenterRaw = report.seismic_epicenter_raw;
   if (report.occurrence_time_of_earthquake) record.occurrenceTime = report.occurrence_time_of_earthquake;
   record.updatedAt = Date.now();
@@ -1504,7 +1518,9 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    updateCameraForActiveEvents(record);
+    // テストデータ・訓練放送はカメラを占有しない(巡回ズームを妨げない
+    // ようにするため)。塗り・マーカー・パネルカードは通常通り更新する
+    if (!record.isTestData && !record.isTraining) updateCameraForActiveEvents(record);
     renderEventsPanel();
   }, CAMERA_ZOOM_DELAY_MS));
 }
@@ -2010,12 +2026,18 @@ function isRelevantToTargetRegion(eventData) {
   return eventData.geo.prefectures.some((p) => targetIds.has(p.id));
 }
 
-// 訓練/試験放送(report_classification_no===7)の見出しに「[訓練]」を
-// 付与する。色(sev-training)はseverityClass/otherBadgeClassForReport/
+// 訓練/試験放送(DCRはreport_classification_no===7、Jアラート/Lアラートは
+// a1_message_type==='Test')の見出しに「[訓練]」を付与する。色
+// (sev-training)はseverityClass/otherBadgeClassForReport/
 // jalertSeverityClassが既に対応済みなので、ここではテキストのみ扱う。
 // event.title(activeEvents・otherReports)/event.name(weatherSites)の
-// どちらか存在する方に付ける
+// どちらか存在する方に付ける。
+// isTrainingフラグは巡回ズームがブロックされないようにするために使う
+// (訓練放送1件が本番の警報と同列にカメラを占有し続け、何時間も巡回が
+// 始まらなくなる不具合が実機で発生したため)
 function applyTrainingLabel(event, report) {
+  const isTraining = report.report_classification_no === 7 || report.a1_message_type === 'Test';
+  if (isTraining) event.isTraining = true;
   if (report.report_classification_no !== 7) return event;
   if (event.title) event.title = `[訓練] ${event.title}`;
   if (event.name) event.name = `[訓練] ${event.name}`;
