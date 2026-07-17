@@ -2112,6 +2112,7 @@ let idleOverviewMarkers = [];
 let idleOverviewOmittedCount = 0;
 
 function clearIdleOverviewMarkers() {
+  idleMarkerBuildToken++; // 分割生成が進行中なら次のフレームで自然に止まる
   for (const m of idleOverviewMarkers) m.remove();
   idleOverviewMarkers = [];
 }
@@ -2165,8 +2166,22 @@ function representativePointForWeatherSite(site) {
   return [(minX + maxX) / 2, (minY + maxY) / 2];
 }
 
+// マーカー自体は軽いとはいえ、DOM要素の生成+MapLibreへの登録
+// (addTo内部でmove/zoomイベントの購読等が走る)を最大12件まとめて
+// 同じフレームで行うと、それでも非力なラズパイでは1フレームに処理が
+// 集中してしまう。「一斉に画面内へ入り、一気に処理させられる」のが
+// そもそもの原因だったので、マーカーの追加も1フレームあたり数件ずつに
+// 分割し、複数フレームに分けて順番に処理する
+const IDLE_MARKERS_PER_FRAME = 3;
+let idleMarkerBuildToken = 0;
+
 function updateIdleOverviewMarkers() {
   clearIdleOverviewMarkers();
+  // 進行中の分割生成があれば無効化する(同じ描画世代のマーカーだけが
+  // 追加されるようにする。トークンが変われば古いrequestAnimationFrameの
+  // continueは何もしない)
+  const token = ++idleMarkerBuildToken;
+
   const candidates = [];
   for (const site of weatherSites.values()) {
     const point = representativePointForWeatherSite(site);
@@ -2185,13 +2200,24 @@ function updateIdleOverviewMarkers() {
   candidates.sort((a, b) => (b.rank - a.rank) || (b.updatedAt - a.updatedAt));
   const shown = candidates.slice(0, MAX_IDLE_OVERVIEW_MARKERS);
   idleOverviewOmittedCount = Math.max(0, candidates.length - shown.length);
-  for (const c of shown) {
-    const marker = new maplibregl.Marker({ element: createOverviewDotElement(c.color), anchor: 'center' })
-      .setLngLat(c.point)
-      .addTo(map);
-    idleOverviewMarkers.push(marker);
-  }
+  // 件数が確定した時点で通知バナーは即座に出す(マーカー自体は後から
+  // 順に増えていく)
   updateIdleOverviewNotice();
+
+  let i = 0;
+  function addNextBatch() {
+    if (token !== idleMarkerBuildToken) return; // 途中で別の描画世代に切り替わった
+    const end = Math.min(i + IDLE_MARKERS_PER_FRAME, shown.length);
+    for (; i < end; i++) {
+      const c = shown[i];
+      const marker = new maplibregl.Marker({ element: createOverviewDotElement(c.color), anchor: 'center' })
+        .setLngLat(c.point)
+        .addTo(map);
+      idleOverviewMarkers.push(marker);
+    }
+    if (i < shown.length) requestAnimationFrame(addNextBatch);
+  }
+  requestAnimationFrame(addNextBatch);
 }
 
 function updateIdleOverviewNotice() {
