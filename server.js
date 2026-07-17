@@ -106,9 +106,39 @@ app.get("/push/vapid-public-key", (req, res) => {
 // ため通知もしない。
 const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 8, 9, 10, 11]);
 
+// 衛星は同一の通報を配信終了条件を満たすまで数分〜数時間おきに繰り返し
+// 配信する仕様のため、受信機(ラズパイ)側の重複排除は「直近5分以内に
+// 送った同じ内容」しか覚えない(意図的に短い。ずっと続いている警報かの
+// 確認も兼ねる)。このため受信機のプロセスが再起動する(OTA更新・
+// クラッシュ・今回行ったHDMI設定変更に伴う再起動など)と、直前まで
+// 何時間も抑制され続けていた同じ内容の再送を「初めて見た」と誤認し、
+// 何時間も前に発表・解除済みの古い情報をプッシュ通知してしまうバグが
+// 実機で確認された。受信機側の状態(プロセス再起動で消える)に頼らず、
+// サーバー側で「その通報自体が申告している発表時刻」を見て、あまりに
+// 古い(=もう何度も通知済みのはずの)ものは通知しないようにする
+const STALE_NOTIFICATION_THRESHOLD_MS = 30 * 60 * 1000; // 30分
+
+function reportEffectiveTimeMs(report) {
+  const raw = report && report.report_time;
+  if (typeof raw !== "string") return null;
+  // report_time はタイムゾーン指定なしのISO文字列(UTC)で届く。指定が
+  // 無いとJSはブラウザ/サーバーのローカルタイムゾーンとして解釈してしまう
+  // (Cloud Run/ラズパイは基本UTCだが、環境依存にしないよう明示的にZを補う)
+  const iso = /[zZ]|[+-]\d\d:\d\d$/.test(raw) ? raw : `${raw}Z`;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
+}
+
+function isStaleForNotification(report) {
+  const t = reportEffectiveTimeMs(report);
+  if (t === null) return false; // 発表時刻を持たない種別(Jアラート等)は対象外
+  return Date.now() - t > STALE_NOTIFICATION_THRESHOLD_MS;
+}
+
 function shouldNotify(report) {
   if (!PUSH_ENABLED || !report) return false;
   if (report.type === "Heartbeat" || report.type === "DecodeError") return false;
+  if (!report.is_test_data && isStaleForNotification(report)) return false;
   // 訓練放送(DCRはreport_classification_no===7、DCX/LアラートJアラートは
   // a1_message_type==='Test')は、地図側(public/main.jsのrenderReport)
   // がshowTrainingBroadcastsに従って表示するかどうかを決めているのに、
@@ -1399,7 +1429,7 @@ function readFIFO() {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      console.log("📦 FIFO受信:", trimmed);
+      console.log("📦 FIFO受信:", trimmed.slice(0, 400));
       handleIncomingLine(trimmed);
     }
   });

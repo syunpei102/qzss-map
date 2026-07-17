@@ -2971,7 +2971,11 @@ function connectWebSocket() {
     // Date.now()との差分として計算する(サーバー側のタイムスタンプとは
     // 一切比較しない=別々の機器の時計のズレの影響を受けない)
     const clientMessageReceivedAt = Date.now();
-    console.log('ブラウザ受信:', event.data);
+    // キオスクは画面を何週間も再読み込みせずに開きっぱなしにするため、
+    // 受信のたびに生のペイロード全体(raw/description等を含む数百バイト~)
+    // をコンソールに残し続けるのは無駄に大きい。中身の確認用途としては
+    // 先頭だけで十分なので切り詰める
+    console.log('ブラウザ受信:', event.data.slice(0, 300));
 
     let report;
     try {
