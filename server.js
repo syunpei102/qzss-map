@@ -92,7 +92,7 @@ const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 8, 9, 10, 11]);
 function shouldNotify(report) {
   if (!PUSH_ENABLED || !report) return false;
   if (report.type === "Heartbeat" || report.type === "DecodeError") return false;
-  if (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert") return true;
+  if (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return true;
   return PUSH_NOTIFY_CATEGORY_NOS.has(report.disaster_category_no);
 }
 
@@ -150,9 +150,10 @@ function notificationTitleFor(report) {
   let title;
   if (report.type === "QzssDcxJAlert") {
     title = "Jアラート: " + (JALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "緊急情報");
-  } else if (report.type === "QzssDcxLAlert") {
+  } else if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
+    const label = report.type === "QzssDcxMTInfo" ? "自治体情報" : "Lアラート";
     const hazard = LALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type || "災害情報";
-    title = report.a1_message_type === "All Clear" ? `Lアラート解除: ${hazard}` : `Lアラート: ${hazard}`;
+    title = report.a1_message_type === "All Clear" ? `${label}解除: ${hazard}` : `${label}: ${hazard}`;
   } else {
     const titles = {
       1: "緊急地震速報", 2: "震源に関する情報", 3: "震度速報", 5: "津波情報",
@@ -174,7 +175,7 @@ function notificationBodyFor(report) {
     const areas = report.ex9_target_area_list_ja || [];
     return areas.length ? areas.slice(0, 5).join("・") + (areas.length > 5 ? " 他" : "") : "アプリを開いて確認してください。";
   }
-  if (report.type === "QzssDcxLAlert") {
+  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
     if (report.ex1_target_area_ja) return report.ex1_target_area_ja;
     if (typeof report.a14_ellipse_semi_major_axis === "number") {
       return `半径約${Math.round(report.a14_ellipse_semi_major_axis)}km圏内`;
@@ -295,7 +296,10 @@ function isEndSignal(report) {
   if (report.disaster_category_no === 5 && [1, 2].includes(report.tsunami_warning_code_raw)) return true; // 津波警報解除/なし
   // Jアラート/Lアラート(DCX)の解除。DCRの取消(information_type_no)とは
   // 別の仕組みで、a1_message_typeが'All Clear'になる
-  if ((report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert") && report.a1_message_type === "All Clear") return true;
+  if (
+    (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") &&
+    report.a1_message_type === "All Clear"
+  ) return true;
   return false;
 }
 
@@ -310,7 +314,9 @@ function reportGroupKey(report) {
     const areas = [...(report.ex9_target_area_list_ja || [])].sort().join(",");
     return `jalert|${report.a4_hazard_type || ""}|${areas}`;
   }
-  if (report.type === "QzssDcxLAlert") {
+  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
+    // QzssDcxLAlert(消防庁経由)とQzssDcxMTInfo(自治体からの直接配信)は
+    // フィールド構成が同一のため同じキー形式でグルーピングする
     if (typeof report.ex1_target_area_code_raw === "number") {
       return `lalert|${report.a4_hazard_type || ""}|ex1:${report.ex1_target_area_code_raw}`;
     }

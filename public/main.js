@@ -828,7 +828,7 @@ function buildEventFromLAlert(report) {
     lalertKey: lalertMatchKey(report),
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
-    badgeText: 'Lアラート',
+    badgeText: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
     badgeClass: 'report-badge ' + jalertSeverityClass(report),
     title: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
     meta: `受信 ${nowTimeString()}`,
@@ -1709,6 +1709,15 @@ function syncActiveEventLayers() {
       .map((code) => municipalityFeaturesByCode.get(code))
       .filter(Boolean);
     map.getSource('municipality-regions').setData({ type: 'FeatureCollection', features: activeFeatures });
+    // レイヤー作成時のフィルターは(まだ何もアクティブでない)空リストの
+    // ままなので、ここで実際に塗るべきコードに更新しないと永久に何も
+    // 描画されない(weather-fill/weather-outlineのupdateWeatherDisplayと
+    // 同じパターンだが、こちらは元々setFilterの呼び出し自体が無く、
+    // 市区町村単位のLアラートが常に「対象地域は文字では出るのに地図には
+    // 一切塗られない」状態になっていた)
+    const codes = [...municipalityColorByCode.keys()];
+    map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', codes]]);
+    map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', codes]]);
     if (municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
       for (const [code, color] of municipalityColorByCode) matchExpr.push(code, color);
@@ -2193,7 +2202,14 @@ function renderReport(report) {
     return;
   }
 
-  if (report.type === 'QzssDcxLAlert') {
+  // QzssDcxLAlert(a3=1、消防庁経由の標準配信)とQzssDcxMTInfo(a3=4、
+  // 自治体からの直接配信)はazarashi側でもフィールド構成が完全に同一
+  // (どちらもQzssDcXtendedMessageBaseの単純なサブクラス)。デコーダー側
+  // (read_legacy_dual.py)も両方を"lalert"として送ってくるようにしたため、
+  // ここでも同じ経路で扱う。当初LAlertだけしか見ておらず、自治体が直接
+  // テスト配信した通報(奈良県十津川村の実例)が地図に何も描画されない
+  // 不具合になっていた
+  if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
     if (report.a1_message_type === 'All Clear') {
       const key = lalertMatchKey(report);
       for (const [id, record] of activeEvents) {
