@@ -1011,7 +1011,7 @@ function clearActiveTrainingContent() {
 // - パネルには気象警報の全カードを常時表示するので、巡回が動かすのは
 //   あくまで地図のカメラ位置と輪郭の強調表示だけ
 // ==================================================
-const PATROL_DWELL_MS = 20000; // 1つの地域を表示し続ける時間
+const PATROL_DWELL_MS = 40000; // 1つの地域を表示し続ける時間
 const PATROL_CYCLE_PAUSE_MS = 5 * 60 * 1000; // 一周した後の休止時間
 let patrolTimer = null;
 let patrolIndex = 0;
