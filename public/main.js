@@ -2716,8 +2716,17 @@ const mapReady = initMap().catch(err => {
 // タブを開きっぱなしにしても復帰できるようにするため)
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
+// 訓練放送表示をOFF→ONに切り替えた時、既存の接続はOFF中に届いた訓練放送
+// をそもそも知らない(renderReportの入口で弾かれ、activeEvents等に一切
+// 記録されていないため)。サーバー側はTTLの範囲内なら保持し続けている
+// ので、意図的に再接続してactiveReportsの再送を受け直す
+// (reconnectForFreshTrainingReplay参照)。この再接続は「切断された」
+// わけではないので、close側の3秒待ちの自動再接続とは区別する
+let socket = null;
+let intentionalReconnect = false;
+
 function connectWebSocket() {
-  const socket = new WebSocket(`${wsProtocol}//${location.host}`);
+  socket = new WebSocket(`${wsProtocol}//${location.host}`);
 
   socket.addEventListener('open', () => {
     console.log('✅ WebSocket接続できました');
@@ -2730,6 +2739,11 @@ function connectWebSocket() {
   });
 
   socket.addEventListener('close', () => {
+    if (intentionalReconnect) {
+      intentionalReconnect = false;
+      connectWebSocket();
+      return;
+    }
     console.warn('WebSocket切断、3秒後に再接続します');
     updateConnectionStatus('reconnecting');
     setTimeout(connectWebSocket, 3000);
@@ -2758,8 +2772,17 @@ function connectWebSocket() {
     // 今表示中の訓練放送が消えない」ことになる。再取得して、OFFに
     // なっていれば表示中のものも即座にクリアする
     if (report.type === 'TrainingBroadcastSettingChanged') {
+      const wasOff = !showTrainingBroadcasts;
       await loadShowTrainingBroadcastsSetting();
       clearActiveTrainingContent();
+      // OFF→ONに変わった場合: OFF中に届いていた(renderReportの入口で
+      // 弾かれ、画面には一切反映されていなかった)訓練放送を取りこぼした
+      // ままになる。サーバー側はTTLの間activeReportsを保持しているので、
+      // 再接続してその再送を受け直し、今度はONとして正しく表示する
+      if (wasOff && showTrainingBroadcasts) {
+        intentionalReconnect = true;
+        socket.close();
+      }
       return;
     }
 
