@@ -1,4 +1,3 @@
-throw new Error("deliberate-ota-rollback-test: this commit intentionally breaks startup to verify update_check.sh auto-rollback");
 const express = require("express");
 const http = require("http");
 const fs = require("fs");
