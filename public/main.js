@@ -1304,6 +1304,22 @@ function findMatchingGroup(report, eventData) {
     return null;
   }
 
+  // Lアラート/Jアラートは「災害種別+対象地域」のキー(lalertKey/jalertKey)で
+  // 同一アラートかどうかを判定できる。同じ内容が配信終了条件を満たすまで
+  // 数分おきに繰り返し配信される仕様のため、下のRECENT_MS(5分)による
+  // 「直近・近い範囲」フォールバックだけに頼ると、再送の間隔が5分を
+  // 超えた場合に同じアラートなのに別カードとして重複作成されてしまう
+  // (実機で確認: 12時間有効なLアラート訓練放送が数分間隔で再送され、
+  // 一部だけ統合されず複数カード化していた)
+  if (eventData.lalertKey || eventData.jalertKey) {
+    for (const record of activeEvents.values()) {
+      if (record.isTransientNotice) continue;
+      if (eventData.lalertKey && record.lalertKey === eventData.lalertKey) return record;
+      if (eventData.jalertKey && record.jalertKey === eventData.jalertKey) return record;
+    }
+    return null;
+  }
+
   const RECENT_MS = 5 * 60 * 1000;
   const now = Date.now();
   let best = null;
