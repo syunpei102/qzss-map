@@ -987,6 +987,20 @@ function expireWeatherSite(code) {
   renderEventsPanel();
 }
 
+// Discordの/set_training_broadcastsでOFFにした瞬間、その時点で既に
+// 表示中の訓練放送(activeEvents・weatherSitesどちらも)を即座に消す。
+// showTrainingBroadcastsがtrueに戻った場合は何もしない(既に消えたものを
+// 遡って復元する必要は無く、次に届く放送から通常通り表示されるため)
+function clearActiveTrainingContent() {
+  if (showTrainingBroadcasts) return;
+  for (const [id, record] of activeEvents) {
+    if (record.isTraining) removeActiveEvent(id);
+  }
+  for (const [code, site] of weatherSites) {
+    if (site.isTraining) expireWeatherSite(code);
+  }
+}
+
 // ==================================================
 // 気象警報が出ている地域を、1箇所ずつ順番にズームインして巡回する
 // - 地震・津波・Jアラート・Lアラート等(activeEvents)が1件でもアクティブな
@@ -2138,6 +2152,7 @@ function renderReport(report) {
         description: report.description || (existing && existing.description) || '',
         bounds: feature ? geometryBounds(feature.geometry) : (existing && existing.bounds) || null,
         isTestData: !!report.is_test_data,
+        isTraining: report.report_classification_no === 7,
         satelliteId: report.satellite_id,
         satellitePrn: report.satellite_prn,
         updatedAt: Date.now(),
@@ -2538,6 +2553,16 @@ function connectWebSocket() {
       lastHeartbeatTime = Date.now();
       noteSatelliteReceived(report);
       refreshStatusPill();
+      return;
+    }
+
+    // Discordの/set_training_broadcastsで設定が変わった通知。/configは
+    // ページ読み込み時にしか見ていないため、そのままだと「OFFにしたのに
+    // 今表示中の訓練放送が消えない」ことになる。再取得して、OFFに
+    // なっていれば表示中のものも即座にクリアする
+    if (report.type === 'TrainingBroadcastSettingChanged') {
+      await loadShowTrainingBroadcastsSetting();
+      clearActiveTrainingContent();
       return;
     }
 

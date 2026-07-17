@@ -1205,6 +1205,11 @@ function handleCommand(interaction) {
     const enabled = !!options.enabled;
     const targetDevice = deviceId || null; // device未指定なら全体設定を変更する
     setTrainingBroadcastSetting(targetDevice, enabled);
+    // 既に繋がっているブラウザは/configをページ読み込み時にしか見ないため、
+    // このままだと「OFFにしたのに今表示中の訓練放送が消えない」ことに
+    // なる。設定変更をWebSocketで通知し、各クライアント側で即座に
+    // /configを再取得して反映(表示中のものもクリア)させる
+    broadcast(JSON.stringify({ type: "TrainingBroadcastSettingChanged" }));
     return ephemeralReply(
       targetDevice
         ? `✅ ${targetDevice} の訓練放送表示を${enabled ? "ON" : "OFF"}にしました(この拠点だけの設定)`
