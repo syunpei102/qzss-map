@@ -1071,7 +1071,7 @@ function handleVolcanoReport(report) {
       showBadges: false,
       // 丸角の見出しは種別名(火山)固定にし、山の名前はその下に
       // 太字白文字で出す(report-titleの既存スタイル、weatherSiteCardの
-      // 「📍 東京都」と同じ位置づけ)
+      // 地域名と同じ位置づけ)
       headline: '火山',
       title: name || '',
       meta: `受信 ${nowTimeString()}`,
@@ -1181,8 +1181,10 @@ function buildEventFromFloodRiver(report, name, level, levelJa, code10) {
     badgeText: '洪水',
     badgeClass: 'report-badge ' + floodSeverityClass(level),
     showBadges: false,
-    headline: name,
-    title: '',
+    // 火山・Lアラートと同じく、丸角の見出しは種別(河川)固定にし、
+    // 河川名はその下に太字白文字で出す
+    headline: '河川',
+    title: name,
     meta: `受信 ${nowTimeString()}`,
     message: '',
     rows: [
@@ -1253,7 +1255,7 @@ function handleFloodReport(report) {
       badgeText: '洪水',
       badgeClass: otherBadgeClassForReport(report),
       showBadges: false,
-      headline: '洪水(地図非対応の河川)',
+      headline: '河川',
       title: '',
       meta: `受信 ${nowTimeString()}`,
       message: '',
@@ -2301,7 +2303,7 @@ function weatherSiteCard(site) {
     badges: [{ text: worst || '気象', class: weatherSeverityBadgeClass(worst) }],
     showBadges: false,
     headline: worst || '気象',
-    title: `📍 ${site.name}`,
+    title: site.name,
     meta: `更新 ${nowTimeString()}`,
     rows,
     updatedAt: site.updatedAt,
