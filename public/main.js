@@ -2,6 +2,7 @@
 // その場にいない前提(マウス・タッチ操作は一切無い)。通知ボタンの
 // 非表示だけでなく、地図の操作ハンドラ自体を無効化する判定にも使う
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname);
+if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
 
 // ==================================================
 // 時計表示
@@ -1041,11 +1042,12 @@ function schedulePatrolNext(delayMs) {
 
 // テストデータ・訓練放送は本物の警報と違い、巡回ズームを止めてまで
 // カメラを占有し続ける理由が無い(実機で、有効期限が長い訓練放送1件が
-// 何時間も巡回を止めてしまう不具合が発生した)。「本物の、まだ処理中の
-// 警報が無いか」だけをここで判定する
+// 何時間も巡回を止めてしまう不具合が発生した)。テストデータは動作確認
+// のため本番データと同様にズーム・巡回を体験したいという要望のため、
+// 訓練放送(isTraining)だけを除外対象にする
 function hasRealActiveEvents() {
   for (const record of activeEvents.values()) {
-    if (!record.isTestData && !record.isTraining) return true;
+    if (!record.isTraining) return true;
   }
   return false;
 }
@@ -1435,9 +1437,10 @@ function addActiveEvent(eventData, ttlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    // テストデータ・訓練放送はカメラを占有しない(巡回ズームを妨げない
-    // ようにするため)。塗り・マーカー・パネルカードは通常通り表示する
-    if (!record.isTestData && !record.isTraining) updateCameraForActiveEvents(record);
+    // 訓練放送はカメラを占有しない(巡回ズームを妨げないようにするため)。
+    // テストデータは動作確認用に本番と同様ズーム・巡回してほしいという
+    // 要望のため、通常通りカメラを動かす
+    if (!record.isTraining) updateCameraForActiveEvents(record);
     renderEventsPanel();
   }, CAMERA_ZOOM_DELAY_MS));
 }
@@ -1528,9 +1531,9 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    // テストデータ・訓練放送はカメラを占有しない(巡回ズームを妨げない
-    // ようにするため)。塗り・マーカー・パネルカードは通常通り更新する
-    if (!record.isTestData && !record.isTraining) updateCameraForActiveEvents(record);
+    // 訓練放送はカメラを占有しない(巡回ズームを妨げないようにするため)。
+    // テストデータは通常通りカメラを動かす
+    if (!record.isTraining) updateCameraForActiveEvents(record);
     renderEventsPanel();
   }, CAMERA_ZOOM_DELAY_MS));
 }
@@ -1708,15 +1711,16 @@ function updateCameraForActiveEvents(preferredRecord) {
   // 他のイベントと同じく「一番新しいものを優先」の対象にし、それが
   // たまたま津波警報だった場合だけ、沿岸に寄った見せ方をする
   if (!preferredRecord) {
-    // テストデータ・訓練放送はカメラを占有しない方針(addActiveEvent/
-    // mergeIntoActiveEventの呼び出し元では既に除外しているが、
-    // removeActiveEvent等からpreferredRecord無しで呼ばれた時のこの
-    // フォールバック選択でも同様に除外しないと、訓練放送だけが
-    // activeEventsに残っている状況で「一番新しいもの」として選ばれて
-    // しまい、巡回ズームがそちらに奪われ続ける不具合になる(実機で確認)
+    // 訓練放送はカメラを占有しない方針(addActiveEvent/mergeIntoActiveEvent
+    // の呼び出し元では既に除外しているが、removeActiveEvent等から
+    // preferredRecord無しで呼ばれた時のこのフォールバック選択でも同様に
+    // 除外しないと、訓練放送だけがactiveEventsに残っている状況で
+    // 「一番新しいもの」として選ばれてしまい、巡回ズームがそちらに
+    // 奪われ続ける不具合になる(実機で確認)。テストデータは対象外
+    // (本番と同様に選ばれてよい)
     let latest = null;
     for (const record of activeEvents.values()) {
-      if (record.isTestData || record.isTraining) continue;
+      if (record.isTraining) continue;
       if (record.bounds && (!latest || record.updatedAt > latest.updatedAt)) latest = record;
     }
     preferredRecord = latest;
@@ -1769,14 +1773,14 @@ function updateCameraForActiveEvents(preferredRecord) {
   // ここで一緒にunion fitしてしまうと、巡回とカメラを取り合ってしまう。
   // (ここに到達するのは、活動中のイベントが1件もboundsを持たない
   // 稀なケースのみ)
-  // ここでもテストデータ・訓練放送は除外する(実機で確認: 上のフォール
-  // バック選択では除外していたが、この「全イベントのboundsを合成して
-  // ズーム」する経路では除外し忘れており、訓練放送だけが残っている時に
-  // 結局そこへズームしてしまっていた)
+  // ここでも訓練放送は除外する(実機で確認: 上のフォールバック選択では
+  // 除外していたが、この「全イベントのboundsを合成してズーム」する経路
+  // では除外し忘れており、訓練放送だけが残っている時に結局そこへ
+  // ズームしてしまっていた)。テストデータは対象外(本番と同様でよい)
   const boundsList = [];
   const idsWithBounds = [];
   for (const record of activeEvents.values()) {
-    if (record.isTestData || record.isTraining) continue;
+    if (record.isTraining) continue;
     if (record.bounds) {
       boundsList.push(record.bounds);
       idsWithBounds.push(record.id);
@@ -1882,10 +1886,11 @@ function renderEventsPanel() {
   // どちらでも無い(=全体表示に戻っている)時だけ、その他の通報
   // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す。
   //
-  // テストデータ・訓練放送はカメラを奪わない(=focusedEventIdsに入らない)
-  // 方針だが、パネルからも完全に消えてしまうと「今何が届いているか」
-  // 監視できず動作確認しづらいため、巡回中でない時はfocusedEventIds
-  // 有無に関わらず常に追加で表示する
+  // 訓練放送はカメラを奪わない(=focusedEventIdsに入らない)方針だが、
+  // パネルからも完全に消えてしまうと「今何が届いているか」監視できず
+  // 動作確認しづらいため、巡回中でない時はfocusedEventIds有無に関わらず
+  // 常に追加で表示する。テストデータは本番と同様にカメラを動かすため
+  // 通常通りfocusedEventIds経由で表示される(ここでの特別扱いは不要)
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
 
   let visibleRecords;
@@ -1894,7 +1899,7 @@ function renderEventsPanel() {
   } else {
     const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
     const alwaysShownEvents = [...activeEvents.values()].filter(
-      (r) => (r.isTestData || r.isTraining) && !focusedEventIds.has(r.id)
+      (r) => r.isTraining && !focusedEventIds.has(r.id)
     );
     visibleRecords = focusedEvents.length || alwaysShownEvents.length
       ? [...focusedEvents, ...alwaysShownEvents]
@@ -1922,7 +1927,9 @@ function renderEventsPanel() {
     if (panelPageIndex >= pageCount) panelPageIndex = 0;
     const renderPage = () => {
       const start = panelPageIndex * PANEL_MAX_CARDS;
-      container.innerHTML = sorted.slice(start, start + PANEL_MAX_CARDS).map(buildReportCardHtml).join('');
+      const cardsHtml = sorted.slice(start, start + PANEL_MAX_CARDS).map(buildReportCardHtml).join('');
+      const indicatorHtml = `<div class="panel-page-indicator">${panelPageIndex + 1} / ${pageCount}</div>`;
+      container.innerHTML = cardsHtml + indicatorHtml;
     };
     renderPage();
     panelPageTimer = setInterval(() => {

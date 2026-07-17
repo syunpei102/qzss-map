@@ -104,10 +104,20 @@ html, body {
   display: flex;
   flex-direction: column;
   /* カード3件分程度の目安の高さで切り、それを超えた分はスクロールさせる
-     (キオスクは代わりにJS側でページ送りするため実際に溢れることは無いが、
-     Web版ではここでスクロールが効く) */
+     (Web版のみ。キオスクは操作できる人がいないため、代わりにJS側で
+     ページ送りする=is-kioskクラスでスクロール自体を無効化する) */
   max-height: 480px;
   overflow-y: auto;
+}
+body.is-kiosk #events_container {
+  overflow-y: hidden;
+}
+
+.panel-page-indicator {
+  text-align: center;
+  font-size: 11px;
+  color: #9aa0a6;
+  padding: 6px 0 2px;
 }
 
 .report-card {
