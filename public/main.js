@@ -1015,7 +1015,8 @@ const PATROL_DWELL_MS = 20000; // 1つの地域を表示し続ける時間
 const PATROL_CYCLE_PAUSE_MS = 5 * 60 * 1000; // 一周した後の休止時間
 let patrolTimer = null;
 let patrolIndex = 0;
-let currentPatrolCode = null;
+let currentPatrolCode = null; // 気象警報巡回中の地域コード
+let currentPatrolTrainingId = null; // 訓練放送巡回中のactiveEvents id
 
 // 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
 // 寄りすぎると周辺の地理的な文脈(隣接県との位置関係等)が分からなく
@@ -1027,6 +1028,23 @@ function zoomToWeatherCode(code) {
   if (!feature) return;
   // 巡回表示は急いで切り替える必要が無いので瞬時ジャンプにする(軽量化)
   flyToBounds(geometryBounds(feature.geometry), 40, WEATHER_PATROL_MAX_ZOOM, true);
+}
+
+// 訓練放送(位置情報を持つもの)も気象警報と同じ巡回サイクルに含めて
+// 1件ずつ順番に見せる(本物の警報と違いカメラを占有し続けはしないが、
+// 完全に見えなくなるのも不便なため)
+function zoomToTrainingEvent(id) {
+  const record = activeEvents.get(id);
+  if (!record || !record.bounds) return;
+  flyToBounds(record.bounds, 40, null, true); // 気象警報の巡回と同じく瞬時ジャンプ
+}
+
+function trainingPatrolTargetIds() {
+  const ids = [];
+  for (const [id, record] of activeEvents) {
+    if (record.isTraining && record.bounds) ids.push(id);
+  }
+  return ids;
 }
 
 function updateFocusOutline() {
@@ -1053,13 +1071,14 @@ function hasRealActiveEvents() {
 }
 
 function patrolStep() {
-  // activeEvents(地震・津波・Jアラート・Lアラート等)のうち、テスト
-  // データ・訓練放送を除いた「本物」がある間は、そちらの表示を優先する。
-  // 新規の気象警報への割り込みズーム(interruptPatrolForNewRegion)で
-  // 一時的にカメラを借りていた場合は、ここで重要イベント側へ返す
+  // activeEvents(地震・津波・Jアラート・Lアラート等)のうち、訓練放送を
+  // 除いた「本物」がある間は、そちらの表示を優先する。新規の気象警報
+  // への割り込みズーム(interruptPatrolForNewRegion)で一時的にカメラを
+  // 借りていた場合は、ここで重要イベント側へ返す
   if (hasRealActiveEvents()) {
-    if (currentPatrolCode !== null) {
+    if (currentPatrolCode !== null || currentPatrolTrainingId !== null) {
       currentPatrolCode = null;
+      currentPatrolTrainingId = null;
       updateFocusOutline();
       updateCameraForActiveEvents(null);
       renderEventsPanel();
@@ -1068,20 +1087,30 @@ function patrolStep() {
     return;
   }
 
-  const codes = [...weatherSites.keys()];
-  // 気象警報が0件の場合、patrolIndex(0) >= codes.length(0)が常に成り立つ
-  // ため、以前ここに専用の早期returnを置いていたが、それは
+  // 気象警報(weatherSites)+ 位置情報を持つ訓練放送(activeEventsの
+  // isTraining)を1つのリストにまとめて順番に巡回する。訓練放送は
+  // カメラを占有し続けはしないが、巡回の中で他と同様に1回は見せる
+  const weatherCodes = [...weatherSites.keys()];
+  const trainingIds = trainingPatrolTargetIds();
+  const targets = [
+    ...weatherCodes.map((code) => ({ kind: 'weather', key: code })),
+    ...trainingIds.map((id) => ({ kind: 'training', key: id })),
+  ];
+
+  // 巡回対象が0件の場合、patrolIndex(0) >= targets.length(0)が常に
+  // 成り立つため、以前ここに専用の早期returnを置いていたが、それは
   // 「currentPatrolCodeが既にnullなら何もしない」という条件付きで
-  // カメラを日本全体表示に戻していなかった。テスト/訓練放送だけが
+  // カメラを日本全体表示に戻していなかった。訓練放送だけが
   // activeEventsに残っている状況(currentPatrolCodeはそもそも一度も
   // 立たない)だと、カメラがそこに固定されたまま巡回が永久に始まらない
   // 不具合になっていた(実機で確認)。専用分岐を無くし、下の「一通り
   // 巡回し終えた」分岐(0件なら0周目で即座に真になる)に任せることで、
   // 常に無条件でカメラを戻すようにする
-  if (patrolIndex >= codes.length) {
+  if (patrolIndex >= targets.length) {
     // 一通り巡回し終えたので、いったん全体表示に戻して休止する
     patrolIndex = 0;
     currentPatrolCode = null;
+    currentPatrolTrainingId = null;
     const view = getDefaultView();
     map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     updateFocusOutline();
@@ -1090,9 +1119,16 @@ function patrolStep() {
     return;
   }
 
-  const code = codes[patrolIndex];
-  currentPatrolCode = code;
-  zoomToWeatherCode(code);
+  const target = targets[patrolIndex];
+  if (target.kind === 'weather') {
+    currentPatrolCode = target.key;
+    currentPatrolTrainingId = null;
+    zoomToWeatherCode(target.key);
+  } else {
+    currentPatrolCode = null;
+    currentPatrolTrainingId = target.key;
+    zoomToTrainingEvent(target.key);
+  }
   updateFocusOutline();
   renderEventsPanel();
   patrolIndex += 1;
@@ -1417,8 +1453,9 @@ function addActiveEvent(eventData, ttlMs = null) {
   // 地震・津波・Jアラート・Lアラート等が発生した場合、地図はそちらに
   // ズームするため、それまで気象警報の巡回で表示していた地域の
   // カード/輪郭強調は(カメラが実際にはもうそこを見ていないので)消す
-  if (currentPatrolCode !== null) {
+  if (currentPatrolCode !== null || currentPatrolTrainingId !== null) {
     currentPatrolCode = null;
+    currentPatrolTrainingId = null;
     updateFocusOutline();
   }
   // 表示の優先順位: 1.警報対象地域の塗りつぶし(最優先、一目で範囲が
@@ -1521,8 +1558,9 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   }
   // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
   // そちらを優先してズームする(気象警報の巡回フォーカスは解除する)
-  if (currentPatrolCode !== null) {
+  if (currentPatrolCode !== null || currentPatrolTrainingId !== null) {
     currentPatrolCode = null;
+    currentPatrolTrainingId = null;
     updateFocusOutline();
   }
   // updateCameraForActiveEventsはfocusedEventIds(パネルにどれを表示
@@ -1548,9 +1586,10 @@ function removeActiveEvent(id) {
   syncActiveEventLayers();
   // 何を優先すべきか特に無い(消えた側なので)。残っている中で直近の
   // ものを見せるか、何も残っていなければ通常の待機表示に戻す。
-  // ただし気象警報の巡回/割り込み(currentPatrolCode)がカメラを持って
-  // いる間は横取りしない(巡回が終われば patrolStep が復帰させる)
-  if (currentPatrolCode === null) {
+  // ただし気象警報/訓練放送の巡回・割り込み(currentPatrolCode/
+  // currentPatrolTrainingId)がカメラを持っている間は横取りしない
+  // (巡回が終われば patrolStep が復帰させる)
+  if (currentPatrolCode === null && currentPatrolTrainingId === null) {
     updateCameraForActiveEvents(null);
   }
   renderEventsPanel();
@@ -1568,6 +1607,7 @@ function clearAllActiveEvents() {
   weatherSites.clear();
   otherReports.clear();
   currentPatrolCode = null;
+  currentPatrolTrainingId = null;
   patrolIndex = 0;
   updateWeatherDisplay();
   updateFocusOutline();
@@ -1760,7 +1800,7 @@ function updateCameraForActiveEvents(preferredRecord) {
       focusedEventIds = new Set([preferredRecord.id, latest.id]);
     } else {
       focusedEventIds = new Set([preferredRecord.id]);
-      if (currentPatrolCode === null) {
+      if (currentPatrolCode === null && currentPatrolTrainingId === null) {
         const view = getDefaultView();
         map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
       }
@@ -1791,11 +1831,11 @@ function updateCameraForActiveEvents(preferredRecord) {
     // (パディングを詰めて、対象地域によりズームインする)
     flyToBounds(unionBounds(boundsList), 24);
     focusedEventIds = new Set(idsWithBounds);
-  } else if (currentPatrolCode === null) {
-    // 何もアクティブでなく、気象警報の巡回もしていなければ日本全体表示に戻す。
-    // 巡回中(currentPatrolCode有り)は、そちらがカメラを管理しているので
-    // ここでは何もしない(勝手にリセットして巡回とカメラの取り合いに
-    // ならないようにする)
+  } else if (currentPatrolCode === null && currentPatrolTrainingId === null) {
+    // 何もアクティブでなく、気象警報/訓練放送の巡回もしていなければ
+    // 日本全体表示に戻す。巡回中(currentPatrolCode/currentPatrolTrainingId
+    // 有り)は、そちらがカメラを管理しているのでここでは何もしない
+    // (勝手にリセットして巡回とカメラの取り合いにならないようにする)
     const view = getDefaultView();
     map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     focusedEventIds = new Set();
@@ -1879,23 +1919,28 @@ function renderEventsPanel() {
   if (!container) return;
 
   // パネルには「地図が今まさにズームして見せている対象」だけを出す。
-  // currentPatrolCodeが立っている間は巡回(または新規気象警報への
-  // 割り込み)がカメラを持っているので、その地域だけを単独表示する
-  // (テストデータ・訓練放送が同時にあっても混ぜない)。そうでなければ
-  // ズームフォーカス中のactiveEvents(地震・津波・Jアラート・Lアラート等)、
-  // どちらでも無い(=全体表示に戻っている)時だけ、その他の通報
-  // (南海トラフ/火山/降灰/洪水。特定の位置にズームする仕組みが無い)を出す。
+  // currentPatrolCode/currentPatrolTrainingIdが立っている間は巡回
+  // (または新規気象警報への割り込み)がカメラを持っているので、その
+  // 対象地域だけを単独表示する(他のテストデータ・訓練放送が同時に
+  // あっても混ぜない)。そうでなければズームフォーカス中のactiveEvents
+  // (地震・津波・Jアラート・Lアラート等)、どちらでも無い(=全体表示に
+  // 戻っている)時だけ、その他の通報(南海トラフ/火山/降灰/洪水。特定の
+  // 位置にズームする仕組みが無い)を出す。
   //
-  // 訓練放送はカメラを奪わない(=focusedEventIdsに入らない)方針だが、
-  // パネルからも完全に消えてしまうと「今何が届いているか」監視できず
-  // 動作確認しづらいため、巡回中でない時はfocusedEventIds有無に関わらず
-  // 常に追加で表示する。テストデータは本番と同様にカメラを動かすため
-  // 通常通りfocusedEventIds経由で表示される(ここでの特別扱いは不要)
+  // 訓練放送はカメラを常時占有はしない(巡回の中で1回ずつ見せる)方針
+  // だが、パネルからも完全に消えてしまうと「今何が届いているか」監視
+  // できず動作確認しづらいため、巡回中でない時はfocusedEventIds有無に
+  // 関わらず常に追加で表示する。テストデータは本番と同様にカメラを
+  // 動かすため通常通りfocusedEventIds経由で表示される(ここでの特別
+  // 扱いは不要)
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
+  const focusedTrainingEvent = currentPatrolTrainingId !== null ? activeEvents.get(currentPatrolTrainingId) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
     visibleRecords = [weatherSiteCard(focusedWeatherSite)];
+  } else if (focusedTrainingEvent) {
+    visibleRecords = [focusedTrainingEvent];
   } else {
     const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
     const alwaysShownEvents = [...activeEvents.values()].filter(
