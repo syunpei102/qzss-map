@@ -204,6 +204,15 @@ const EEW_REGION_TO_PREFECTURE_IDS = {
   // 80: その他の府県予報区および地方予報区 -> 対応なし
 };
 
+// azarashiのqzss_dcr_jma_flood_warning_level。1(解除)は塗りつぶし不要
+// (警報が続いている河川だけ地図に出す)なので含めない
+const FLOOD_WARNING_LEVEL_COLOR = {
+  2: '#f6c945', // 氾濫警戒情報
+  3: '#e63946', // 氾濫危険情報(.report-headline.sev-keihouと同じ赤に揃える)
+  4: '#b3261e', // 氾濫発生情報
+};
+
+
 // ==================================================
 // 座標計算まわりの小さなユーティリティ
 // (精密なGISライブラリではなく、地図上にざっくり
@@ -355,6 +364,7 @@ let prefectureFeaturesById = new Map();
 let prefectureFeaturesByName = new Map();
 let municipalityFeaturesByCode = new Map();
 let weatherFeaturesByCode = new Map();
+let floodRiverFeaturesByCode10 = new Map(); // 河川コード(10桁)-> 流路のGeoJSON Feature(主要109水系分のみ)
 
 // 左上に情報パネルが常時かぶさっているため、その分だけ
 // 地図を右側に寄せてfitBoundsする(パネルの真下に対象が
@@ -962,16 +972,10 @@ function cleanDescriptionMessage(description) {
   return cleaned.join('\n');
 }
 
+// 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱うため、
+// ここでは南海トラフ地震(4)・火山(8)・降灰(9)だけを対象にする
 function buildEventFromOtherCategory(report) {
   const rows = [];
-  // 洪水(11): 対象河川と警戒レベルをそれぞれの欄で表示する
-  // (以前はdescriptionの1行目だけで、河川名が出ないことがあった)
-  if (Array.isArray(report.flood_forecast_regions) && report.flood_forecast_regions.length) {
-    rows.push(['対象河川', report.flood_forecast_regions.join('、')]);
-  }
-  if (Array.isArray(report.flood_warning_levels) && report.flood_warning_levels.length) {
-    rows.push(['警戒レベル', [...new Set(report.flood_warning_levels)].join('、')]);
-  }
   // 火山(8)・降灰(9): 火山名と警報種別
   if (report.volcano_name) rows.push(['火山', report.volcano_name]);
   if (report.volcanic_warning_code) rows.push(['警報', report.volcanic_warning_code]);
@@ -980,6 +984,7 @@ function buildEventFromOtherCategory(report) {
   }
   const cleanedMessage = cleanDescriptionMessage(report.description);
   if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
+
   return {
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,
@@ -996,8 +1001,129 @@ function buildEventFromOtherCategory(report) {
     // dt/ddの1行に埋もれさせず、独立したメッセージブロックで見せる
     message: cleanedMessage,
     rows,
+    geo: { hypocenter: null, tsunami: [], prefectures: [] },
+    bounds: null,
     updatedAt: Date.now(),
   };
+}
+
+// azarashiのflood_forecast_regions_raw(12桁)から、国土数値情報側の
+// 河川コード(10桁、末尾2桁が細分区間の枝番)を取り出す
+function floodRiverCode10(code) {
+  return String(Math.floor(code / 100));
+}
+
+function floodSeverityClass(level) {
+  if (level === 4) return 'sev-emergency'; // 氾濫発生情報
+  if (level === 3) return 'sev-warning'; // 氾濫危険情報
+  return 'sev-caution'; // 2: 氾濫警戒情報
+}
+
+// 主要河川(floodRiverFeaturesByCode10に流路データがある河川)1本分を、
+// 緊急地震速報等と同じactiveEventsの「実イベント」として構築する。
+// 対象都道府県は塗らず(誤解を招くため)、その河川の実際の流路だけを
+// geo.floodRiversで塗る
+function buildEventFromFloodRiver(report, name, level, levelJa, code10) {
+  const color = FLOOD_WARNING_LEVEL_COLOR[level];
+  const feature = floodRiverFeaturesByCode10.get(code10);
+  const bounds = feature ? geometryBounds(feature.geometry) : null;
+  return {
+    isTestData: !!report.is_test_data,
+    satelliteId: report.satellite_id,
+    satellitePrn: report.satellite_prn,
+    floodRiverKey: code10,
+    badgeText: '洪水',
+    badgeClass: 'report-badge ' + floodSeverityClass(level),
+    showBadges: false,
+    headline: name,
+    title: '',
+    meta: `受信 ${nowTimeString()}`,
+    message: '',
+    rows: [
+      ['警戒レベル', levelJa || String(level)],
+      report.report_time ? ['発表時刻', formatDateTime(report.report_time)] : null,
+    ].filter(Boolean),
+    geo: { hypocenter: null, tsunami: [], prefectures: [], floodRivers: [{ code: code10, color }] },
+    bounds,
+    // 河川の流路は都道府県の塗りより細長く小さいことが多く、県単位の
+    // ズーム上限(EEWのboundsMaxZoom=7.5)だと寄り足りない
+    boundsMaxZoom: 9,
+  };
+}
+
+// 洪水(11)は河川ごとに「主要河川(流路データあり)」と「それ以外」で
+// 扱いを分ける。前者は緊急地震速報・Lアラート等と同じactiveEventsに
+// 載せ、実際の流路を塗って巡回ズームの対象にする。後者は対象都道府県を
+// 丸ごと塗ると「その県全体が危険」であるかのように誤解を招くため地図には
+// 描かず、パネルにテキスト(河川名に元々含まれる都道府県名込み)だけ出す
+function handleFloodReport(report) {
+  const codes = report.flood_forecast_regions_raw || [];
+  const names = report.flood_forecast_regions || [];
+  const levels = report.flood_warning_levels_raw || [];
+  const levelNames = report.flood_warning_levels || [];
+  const uncoveredRows = [];
+
+  codes.forEach((code, i) => {
+    const code10 = floodRiverCode10(code);
+    const level = levels[i];
+    const name = names[i] || String(code);
+    const hasGeometry = floodRiverFeaturesByCode10.has(code10);
+    const isActiveLevel = !!FLOOD_WARNING_LEVEL_COLOR[level]; // 2/3/4のみ塗る対象、1(解除)・未知は対象外
+
+    if (hasGeometry) {
+      if (!isActiveLevel) {
+        // 解除、または未知のレベル: この河川のアクティブイベントがあれば消す
+        for (const [id, record] of activeEvents) {
+          if (record.floodRiverKey === code10) removeActiveEvent(id);
+        }
+        return;
+      }
+      const event = applyTrainingLabel(
+        buildEventFromFloodRiver(report, name, level, levelNames[i], code10),
+        report
+      );
+      if (!isRelevantToTargetRegion(event)) return;
+      const match = findMatchingGroup(report, event);
+      if (match) mergeIntoActiveEvent(match, event, report, TTL_OTHER_CATEGORY_MS);
+      else addActiveEvent(event, TTL_OTHER_CATEGORY_MS);
+    } else if (isActiveLevel) {
+      uncoveredRows.push([name, levelNames[i] || String(level)]);
+    }
+  });
+
+  // 流路データが無い河川は、南海トラフ等と同じ「その他の通報」の枠で
+  // テキストのみ表示する(地図への塗りつぶしは行わない)
+  const existing = otherReports.get(11);
+  if (existing && existing.timer) clearTimeout(existing.timer);
+  if (!uncoveredRows.length) {
+    otherReports.delete(11);
+  } else {
+    const rows = [...uncoveredRows];
+    if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
+    const event = applyTrainingLabel({
+      isTestData: !!report.is_test_data,
+      satelliteId: report.satellite_id,
+      satellitePrn: report.satellite_prn,
+      badgeText: '洪水',
+      badgeClass: otherBadgeClassForReport(report),
+      showBadges: false,
+      headline: '洪水(地図非対応の河川)',
+      title: '',
+      meta: `受信 ${nowTimeString()}`,
+      message: '',
+      rows,
+      geo: { hypocenter: null, tsunami: [], prefectures: [] },
+      bounds: null,
+      updatedAt: Date.now(),
+    }, report);
+    event.timer = setTimeout(() => {
+      otherReports.delete(11);
+      syncActiveEventLayers();
+      renderEventsPanel();
+    }, TTL_OTHER_CATEGORY_MS);
+    otherReports.set(11, event);
+  }
+  syncActiveEventLayers();
 }
 
 function updateWeatherDisplay() {
@@ -1437,11 +1563,12 @@ function findMatchingGroup(report, eventData) {
   // 超えた場合に同じアラートなのに別カードとして重複作成されてしまう
   // (実機で確認: 12時間有効なLアラート訓練放送が数分間隔で再送され、
   // 一部だけ統合されず複数カード化していた)
-  if (eventData.lalertKey || eventData.jalertKey) {
+  if (eventData.lalertKey || eventData.jalertKey || eventData.floodRiverKey) {
     for (const record of activeEvents.values()) {
       if (record.isTransientNotice) continue;
       if (eventData.lalertKey && record.lalertKey === eventData.lalertKey) return record;
       if (eventData.jalertKey && record.jalertKey === eventData.jalertKey) return record;
+      if (eventData.floodRiverKey && record.floodRiverKey === eventData.floodRiverKey) return record;
     }
     return null;
   }
@@ -1579,6 +1706,10 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 
   if (eventData.geo.tsunami.length) {
     record.geo.tsunami = eventData.geo.tsunami;
+  }
+
+  if (eventData.geo.floodRivers && eventData.geo.floodRivers.length) {
+    record.geo.floodRivers = eventData.geo.floodRivers;
   }
 
   if (eventData.tsunamiWarningText) {
@@ -1741,13 +1872,22 @@ function syncActiveEventLayers() {
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
   const municipalityColorByCode = new Map();
+  const floodRiverColorByCode = new Map();
   const ellipseFeatures = [];
   let tsunamiActive = false;
 
-  for (const record of activeEvents.values()) {
+  // otherReports(南海トラフ/火山/降灰/洪水のうち流路データが無い河川)は
+  // activeEventsとは別のMapだが、同じ塗りつぶし処理に混ぜて扱う
+  // (実際には常にgeo.prefectures/tsunami/floodRiversが空なので実害は無い。
+  // 流路データがある洪水の河川はactiveEvents側でfloodRiverKeyを持つ
+  // 「実イベント」として扱われる。handleFloodReport参照)
+  for (const record of [...activeEvents.values(), ...otherReports.values()]) {
     const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
     for (const p of record.geo.prefectures) setIfMoreSevere(prefColorById, p.id, p.color, rank);
+    if (record.geo.floodRivers) {
+      for (const r of record.geo.floodRivers) setIfMoreSevere(floodRiverColorByCode, r.code, r.color, rank);
+    }
     if (record.geo.municipality) {
       setIfMoreSevere(municipalityColorByCode, record.geo.municipality.code, record.geo.municipality.color, rank);
     }
@@ -1759,6 +1899,18 @@ function syncActiveEventLayers() {
       });
     }
     if (record.tsunamiWarningActive) tsunamiActive = true;
+  }
+
+  if (map.getLayer('flood-river-line')) {
+    if (floodRiverColorByCode.size) {
+      const matchExpr = ['match', ['get', 'code10']];
+      for (const [code10, entry] of floodRiverColorByCode) matchExpr.push(code10, entry.color);
+      matchExpr.push(FLOOD_WARNING_LEVEL_COLOR[2]);
+      map.setFilter('flood-river-line', ['in', ['get', 'code10'], ['literal', [...floodRiverColorByCode.keys()]]]);
+      map.setPaintProperty('flood-river-line', 'line-color', matchExpr);
+    } else {
+      map.setFilter('flood-river-line', ['in', ['get', 'code10'], ['literal', []]]);
+    }
   }
 
   if (map.getSource('lalert-ellipses')) {
@@ -2524,8 +2676,28 @@ function renderReport(report) {
   // 台風(12)は表示しない(暴風域を正確に描く手がかりが無く、取消信号も
   // 来ないため、表示し続けると誤解を招く懸念がある)
 
-  // 南海トラフ地震(4)・火山(8)・降灰(9)・洪水(11): カテゴリごとに1枚
-  if ([4, 8, 9, 11].includes(report.disaster_category_no)) {
+  // 洪水(11): 河川ごとに主要河川/それ以外で扱いが分かれるため専用関数へ
+  // (handleFloodReport参照。取消(information_type_no===2)は河川ごとの
+  // レベルでは表現されないので、来た場合は関連するactiveEvents/
+  // otherReportsを丸ごと片付ける)
+  if (report.disaster_category_no === 11) {
+    if (report.information_type_no === 2) {
+      for (const [id, record] of activeEvents) {
+        if (record.floodRiverKey) removeActiveEvent(id);
+      }
+      const existing = otherReports.get(11);
+      if (existing && existing.timer) clearTimeout(existing.timer);
+      otherReports.delete(11);
+      syncActiveEventLayers();
+    } else {
+      handleFloodReport(report);
+    }
+    renderEventsPanel();
+    return;
+  }
+
+  // 南海トラフ地震(4)・火山(8)・降灰(9): カテゴリごとに1枚
+  if ([4, 8, 9].includes(report.disaster_category_no)) {
     const existing = otherReports.get(report.disaster_category_no);
     if (existing && existing.timer) clearTimeout(existing.timer);
     if (report.information_type_no === 2) {
@@ -2653,11 +2825,22 @@ async function initMap() {
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
   // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する
-  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON] = await Promise.all([
+  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON, floodRiversGeoJSON] = await Promise.all([
     fetch('./data/tsunami_regions.geojson').then(res => res.json()),
     fetch('./data/prefectures.geojson').then(res => res.json()),
     fetch('./data/weather_regions.geojson').then(res => res.json()),
+    // 洪水予報河川のうち主要な109の一級水系相当(152河川コード)の実際の
+    // 流路。気象庁は河川そのものの形状は公開していないため、国土交通省
+    // 「国土数値情報 河川データ」(Geoshapeリポジトリ経由でGeoJSON配布)
+    // から該当する河川だけを抜き出し座標を簡略化して同梱した(全449
+    // 河川のうち主要水系のみ。対応していない河川は地図には描かず、
+    // パネルのテキストのみで表示する)
+    fetch('./data/flood_rivers.geojson').then(res => res.json()),
   ]);
+
+  for (const f of floodRiversGeoJSON.features) {
+    floodRiverFeaturesByCode10.set(f.properties.code10, f);
+  }
 
   for (const f of tsunamiGeoJSON.features) tsunamiFeaturesByCode.set(f.properties.code, f);
   for (const f of prefectureGeoJSON.features) {
@@ -2698,6 +2881,19 @@ async function initMap() {
     paint: {
       'line-color': TSUNAMI_DEFAULT_COLOR,
       'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 7, 10],
+    },
+  });
+
+  // 洪水予報河川の流路(主要109水系相当、flood_rivers.geojson参照)
+  map.addSource('flood-rivers', { type: 'geojson', data: floodRiversGeoJSON });
+  map.addLayer({
+    id: 'flood-river-line',
+    type: 'line',
+    source: 'flood-rivers',
+    filter: ['in', ['get', 'code10'], ['literal', []]],
+    paint: {
+      'line-color': FLOOD_WARNING_LEVEL_COLOR[2],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 8],
     },
   });
 
