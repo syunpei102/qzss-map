@@ -1022,7 +1022,7 @@ let currentPatrolEventId = null; // 地震・津波・Jアラート・Lアラー
 // 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
 // 寄りすぎると周辺の地理的な文脈(隣接県との位置関係等)が分からなく
 // なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
-const WEATHER_PATROL_MAX_ZOOM = 7.5;
+const WEATHER_PATROL_MAX_ZOOM = 8.5;
 
 function zoomToWeatherCode(code) {
   const feature = weatherFeaturesByCode.get(code);
@@ -1049,9 +1049,22 @@ function trainingPatrolTargetIds() {
 }
 
 function updateFocusOutline() {
-  if (!map || !map.getLayer('weather-focus-outline')) return;
-  const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode) ? [currentPatrolCode] : [];
-  map.setFilter('weather-focus-outline', ['in', ['get', 'code'], ['literal', codes]]);
+  if (!map) return;
+  if (map.getLayer('weather-focus-outline')) {
+    const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode) ? [currentPatrolCode] : [];
+    map.setFilter('weather-focus-outline', ['in', ['get', 'code'], ['literal', codes]]);
+  }
+  // Lアラート(市区町村単位)で今まさにズームしている対象地域も、
+  // 気象警報と同じく白い輪郭で強調する。municipality-focus-outlineは
+  // loadMunicipalityLayer完了後にしか存在しないため、まだ読み込まれて
+  // いない間は何もしない(読み込み完了時に改めてupdateFocusOutlineが
+  // 呼ばれるコードパスは無いが、その時点ではそもそも巡回対象の市区町村
+  // ポリゴンも無いため実害はない)
+  if (map.getLayer('municipality-focus-outline')) {
+    const focusedEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
+    const muniCode = focusedEvent && focusedEvent.geo.municipality ? focusedEvent.geo.municipality.code : null;
+    map.setFilter('municipality-focus-outline', ['in', ['get', 'code'], ['literal', muniCode ? [muniCode] : []]]);
+  }
 }
 
 function schedulePatrolNext(delayMs) {
@@ -1957,19 +1970,26 @@ function renderEventsPanel() {
   // 扱いは不要)
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
   const focusedTrainingEvent = currentPatrolTrainingId !== null ? activeEvents.get(currentPatrolTrainingId) : null;
+  const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
     visibleRecords = [weatherSiteCard(focusedWeatherSite)];
   } else if (focusedTrainingEvent) {
     visibleRecords = [focusedTrainingEvent];
+  } else if (focusedRealEvent) {
+    visibleRecords = [focusedRealEvent];
   } else {
-    const focusedEvents = [...activeEvents.values()].filter((r) => focusedEventIds.has(r.id));
-    const alwaysShownEvents = [...activeEvents.values()].filter(
-      (r) => r.isTraining && !focusedEventIds.has(r.id)
-    );
-    visibleRecords = focusedEvents.length || alwaysShownEvents.length
-      ? [...focusedEvents, ...alwaysShownEvents]
+    // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
+    // アクティブな気象警報・本物のイベント・訓練放送を全てまとめてカード
+    // にする。PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版の
+    // スクロール/キオスクのページ送りに任せる(何もアクティブでなければ
+    // その他の通報にフォールバック)
+    const weatherCards = [...weatherSites.values()].map(weatherSiteCard);
+    const eventCards = [...activeEvents.values()].filter((r) => !r.isTraining);
+    const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
+    visibleRecords = weatherCards.length || eventCards.length || trainingCards.length
+      ? [...weatherCards, ...eventCards, ...trainingCards]
       : [...otherReports.values()].map(otherReportCard);
   }
 
@@ -2534,6 +2554,40 @@ async function initMap() {
     paint: { 'line-color': '#ffffff', 'line-width': 4 },
   });
 
+  // 塗られている地域(気象警報・市区町村単位のLアラート・都道府県単位の
+  // 地震/津波/Jアラート等)をタップ/クリックすると、巡回ズームが順番に
+  // 見せる時と同じようにその対象へズームしてパネル表示する。ラズパイの
+  // kiosk表示はinteractive:falseで操作する人がいない前提のため対象外
+  // (スマホ・一般公開Webページのみ)
+  if (!IS_LOCAL_KIOSK) {
+    map.on('click', (e) => {
+      const layers = ['weather-fill', 'municipality-fill', 'prefecture-fill'].filter((id) => map.getLayer(id));
+      if (!layers.length) return;
+      const features = map.queryRenderedFeatures(e.point, { layers });
+      if (!features.length) return;
+      const feature = features[0];
+      if (feature.layer.id === 'weather-fill') {
+        if (weatherSites.has(feature.properties.code)) interruptPatrolForNewRegion(feature.properties.code);
+      } else if (feature.layer.id === 'municipality-fill') {
+        const record = [...activeEvents.values()].find(
+          (r) => r.geo.municipality && r.geo.municipality.code === feature.properties.code
+        );
+        if (record) interruptPatrolForNewEvent(record.id);
+      } else if (feature.layer.id === 'prefecture-fill') {
+        const record = [...activeEvents.values()].find(
+          (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
+        );
+        if (record) interruptPatrolForNewEvent(record.id);
+      }
+    });
+    // 塗られている場所の上ではカーソルをポインターにして、タップ/クリック
+    // できることが分かるようにする
+    for (const id of ['weather-fill', 'municipality-fill', 'prefecture-fill']) {
+      map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
+    }
+  }
+
   // ここまでで地図本体(日本の形・警報エリアを塗れる状態)の描画が
   // 完了している。デバイスロック・訓練放送設定は地図の見た目そのもの
   // ではなく付随設定なので、地図が画面に出た後に読み込む(体感の
@@ -2605,6 +2659,18 @@ async function loadMunicipalityLayer() {
         source: 'municipality-regions',
         filter: ['in', ['get', 'code'], ['literal', []]],
         paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 1.5 },
+      });
+      // 巡回でズームインしている対象の市区町村の輪郭を白い太線で強調する
+      // (weather-focus-outlineと同じ考え方)。ただし市区町村は気象警報の
+      // 対象地域より遥かに小さく入り組んだ形(隣接する区同士がすぐ近くに
+      // 並ぶ等)になりやすいため、weather-focus-outline(4px)ほど太くすると
+      // 形が潰れて見えてしまう。市区町村用は控えめな太さに留める
+      map.addLayer({
+        id: 'municipality-focus-outline',
+        type: 'line',
+        source: 'municipality-regions',
+        filter: ['in', ['get', 'code'], ['literal', []]],
+        paint: { 'line-color': '#ffffff', 'line-width': 2.5 },
       });
     }
     municipalityLayerLoaded = true;
