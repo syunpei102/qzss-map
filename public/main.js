@@ -2302,30 +2302,32 @@ function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
 
-  // パネルには「地図が今まさにズームして見せている対象」だけを出す。
+  // パネルの主役は「地図が今まさにズームして見せている対象」。
   // currentPatrolCode/currentPatrolTrainingIdが立っている間は巡回
   // (または新規気象警報への割り込み)がカメラを持っているので、その
-  // 対象地域だけを単独表示する(他のテストデータ・訓練放送が同時に
-  // あっても混ぜない)。そうでなければズームフォーカス中のactiveEvents
-  // (地震・津波・Jアラート・Lアラート等)、どちらでも無い(=全体表示に
-  // 戻っている)時だけ、その他の通報(南海トラフ/火山/降灰/洪水。特定の
-  // 位置にズームする仕組みが無い)を出す。
+  // 対象地域を単独表示する。そうでなければズームフォーカス中の
+  // activeEvents(地震・津波・Jアラート・Lアラート等)、どちらでも無い
+  // (=全体表示に戻っている)時は、アクティブな気象警報・本物のイベント・
+  // 訓練放送を全てまとめて表示する。
   //
-  // 訓練放送はカメラを常時占有はしない(巡回の中で1回ずつ見せる)方針
-  // だが、パネルからも完全に消えてしまうと「今何が届いているか」監視
-  // できず動作確認しづらいため、巡回中でない時はfocusedEventIds有無に
-  // 関わらず常に追加で表示する。テストデータは本番と同様にカメラを
-  // 動かすため通常通りfocusedEventIds経由で表示される(ここでの特別
-  // 扱いは不要)
+  // その他の通報(otherReports: 南海トラフ/火山/降灰/洪水のうち地図に
+  // 描く場所が無いもの)は、特定の位置にズームする仕組みが無いため
+  // どの状態であっても単独では選ばれないが、常に追加で表示する
+  // (訓練放送と同じ考え方)。以前は「他に何も無い時だけ」出していたが、
+  // 実際にはほぼ常にどこかの気象警報が巡回中で「他に何も無い」状態には
+  // ほとんどならず、洪水の警報が届いても地図にもパネルにも一切出ない
+  // (実質握りつぶされる)という不具合が実機で見つかったため
+  const otherCards = [...otherReports.values()].map(otherReportCard);
+
   const focusedWeatherSite = currentPatrolCode !== null ? weatherSites.get(currentPatrolCode) : null;
   const focusedTrainingEvent = currentPatrolTrainingId !== null ? activeEvents.get(currentPatrolTrainingId) : null;
   const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
   if (focusedWeatherSite) {
-    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
+    visibleRecords = [weatherSiteCard(focusedWeatherSite), ...otherCards];
   } else if (focusedTrainingEvent) {
-    visibleRecords = [focusedTrainingEvent];
+    visibleRecords = [focusedTrainingEvent, ...otherCards];
   } else if (focusedRealEvent) {
     // 同じ地域を対象にした複数の情報(例: 緊急地震速報+Jアラート)が
     // 同時にアクティブな場合、バラバラの複数カードではなく1枚の統合
@@ -2333,20 +2335,16 @@ function renderEventsPanel() {
     const nonTraining = [...activeEvents.values()].filter((r) => !r.isTraining);
     const clusters = clusterOverlappingRecords(nonTraining);
     const myCluster = clusters.find((g) => g.includes(focusedRealEvent)) || [focusedRealEvent];
-    visibleRecords = [mergedCardForRecords(myCluster)];
+    visibleRecords = [mergedCardForRecords(myCluster), ...otherCards];
   } else {
     // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
-    // アクティブな気象警報・本物のイベント・訓練放送を全てまとめてカード
-    // にする。PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版の
-    // スクロール/キオスクのページ送りに任せる(何もアクティブでなければ
-    // その他の通報にフォールバック)。ここでも地理的に重なるイベント同士
+    // PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版のスクロール/
+    // キオスクのページ送りに任せる。ここでも地理的に重なるイベント同士
     // は1枚の統合カードにまとめる
     const weatherCards = [...weatherSites.values()].map(weatherSiteCard);
     const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
-    visibleRecords = weatherCards.length || eventCards.length || trainingCards.length
-      ? [...weatherCards, ...eventCards, ...trainingCards]
-      : [...otherReports.values()].map(otherReportCard);
+    visibleRecords = [...weatherCards, ...eventCards, ...trainingCards, ...otherCards];
   }
 
   clearInterval(panelPageTimer);
