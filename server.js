@@ -448,7 +448,24 @@ function handleIncomingLine(line) {
     // key が判定できない場合は何もしない(誤って無関係の通報まで
     // 消してしまうより、消し忘れて残る方が安全なため)
   } else if (isReplayable(report)) {
-    activeReports.push({ report, receivedAt: Date.now() });
+    // 災危通報は同一内容が配信終了条件を満たすまで数秒〜数分おきに
+    // 繰り返し配信される仕様(isDuplicateReportの10秒ウィンドウより
+    // 間隔が空くと重複排除をすり抜ける)。以前はここで無条件にpushして
+    // いたため、同じ警報が長時間続くほどactiveReportsに同一内容の
+    // エントリが積み上がっていた(実機で確認: L-Alert訓練放送が数分
+    // おきに3件重複)。reportGroupKeyが一致する既存エントリがあれば
+    // 置き換える(受信時刻も更新=最新の配信を起点にTTLが延びる)
+    const key = reportGroupKey(report);
+    if (key !== null) {
+      const idx = activeReports.findIndex((entry) => reportGroupKey(entry.report) === key);
+      if (idx >= 0) {
+        activeReports[idx] = { report, receivedAt: Date.now() };
+      } else {
+        activeReports.push({ report, receivedAt: Date.now() });
+      }
+    } else {
+      activeReports.push({ report, receivedAt: Date.now() });
+    }
     pruneStaleActiveReports();
     persistActiveReports();
   }
