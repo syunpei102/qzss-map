@@ -116,7 +116,7 @@ app.get("/push/vapid-public-key", (req, res) => {
 // 既に重要度フィルタ済みなので、届いた時点でカテゴリを絞る必要はほぼ
 // ないが、念のためHeartbeat等を除外する。台風(12)は表示自体をしない
 // ため通知もしない。
-const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 8, 9, 10, 11]);
+const PUSH_NOTIFY_CATEGORY_NOS = new Set([1, 2, 3, 4, 5, 6, 8, 9, 10, 11]);
 
 // 衛星は同一の通報を配信終了条件を満たすまで数分〜数時間おきに繰り返し
 // 配信する仕様のため、受信機(ラズパイ)側の重複排除は「直近5分以内に
@@ -239,7 +239,7 @@ function notificationTitleFor(report) {
   } else {
     const titles = {
       1: "緊急地震速報", 2: "震源に関する情報", 3: "震度速報", 5: "津波情報",
-      4: "南海トラフ地震関連情報", 8: "噴火警報・予報", 9: "降灰予報", 11: "洪水予報",
+      4: "南海トラフ地震関連情報", 6: "津波情報", 8: "噴火警報・予報", 9: "降灰予報", 11: "洪水予報",
     };
     // 津波は警報レベル(大津波警報/津波警報/津波注意報)自体が既に具体的な
     // ので、総称の「津波情報」より優先してそのまま使う
@@ -303,6 +303,19 @@ function notificationBodyDetail(report) {
     const codes = [...new Set(report.ash_fall_warning_codes || [])].join("・");
     if (name && codes) return `${name} ${codes}`;
     return name || codes || "アプリを開いて確認してください。";
+  }
+  if (report.disaster_category_no === 6) {
+    // azarashiはcat6のtsunamigenic_potential/coastal_region/heightを英語
+    // (_en)でしか提供しない(外国沿岸向け情報のため日本語定義が無い)。
+    // public/main.jsのpotJaと同じ対応表(0は解除でここまで来ない)
+    const potJa = {
+      1: "全海域にわたる破壊的な津波が発生する可能性",
+      2: "広い範囲にわたる破壊的な津波が発生する可能性",
+      3: "震源の近傍で破壊的な津波が発生する可能性",
+      4: "震源近傍で局所的な破壊的津波が発生する可能性(非常に小さい)",
+      7: "津波が発生する可能性",
+    };
+    return potJa[report.tsunamigenic_potential_raw] || "アプリを開いて確認してください。";
   }
   const firstLine = (report.description || "")
     .split("\n")
@@ -545,6 +558,13 @@ function isEndSignal(report) {
   if (!report) return false;
   if (report.information_type_no === 2) return true; // キャンセル報(取消)
   if (report.disaster_category_no === 5 && [1, 2].includes(report.tsunami_warning_code_raw)) return true; // 津波警報解除/なし
+  // 北西太平洋津波情報(6)は取消(information_type_no=2)だけでなく、JMAが
+  // 状況を再評価してtsunamigenic_potential=0「津波発生の可能性なし」を
+  // 発表することでも実質的に解除される(azarashiのqzss_dcr_jma_
+  // tsunamigenic_potential定義: 0だけが「なし」)。これが無いと、解除後も
+  // activeReportsに古い「発表中」のエントリが残り続け、新規接続した
+  // ブラウザに再送されてしまう(public/main.js側の同じ判定と揃える)
+  if (report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0) return true;
   // Jアラート/Lアラート(DCX)の解除。DCRの取消(information_type_no)とは
   // 別の仕組みで、a1_message_typeが'All Clear'になる
   if (

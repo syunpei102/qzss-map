@@ -516,12 +516,25 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;');
 }
 
+// report_time等のazarashi由来の日時はタイムゾーン指定なしのISO文字列(UTC)で
+// 届く(server.jsのreportEffectiveTimeMsと同じ理由・同じ前提)。指定が無いと
+// JSは「実行環境のローカルタイムゾーン」として解釈してしまうため、明示的に
+// Zを補ってから読む。これが無いと、日本(JST=UTC+9)での閲覧時に表示される
+// 時刻が実際より9時間早く見える(実機で確認: 通報を受信した直後なのに
+// 「発表時刻」がその日の朝や前日のように見え、"架空の古いデータ"に見える
+// バグになっていた)。
+// さらに、閲覧者のブラウザのタイムゾーン設定に依存させず常に日本標準時
+// (Asia/Tokyo)で表示する(海外からのアクセスでもズレないように)。
 function formatDateTime(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  const withZ = /[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(withZ);
   if (isNaN(d.getTime())) return iso;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const p = Object.fromEntries(fmt.formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));
+  return `${p.month}/${p.day} ${p.hour}:${p.minute}`;
 }
 
 function summarizeList(list) {
@@ -1223,10 +1236,15 @@ function buildEventFromOtherCategory(report) {
   // (tsunamigenic_potential_raw)は日本語にし、他は英語表記へフォールバック。
   // 高さ・沿岸・到達時刻は「不明(Unknown)」でない値がある時だけ行に出す。
   if (report.disaster_category_no === 6) {
+    // azarashiのqzss_dcr_jma_tsunamigenic_potential定義(0〜4,7)と一致させる。
+    // 0「可能性なし」はrenderReport側で解除として扱いこの関数まで来ないため
+    // ここには載せていない(万一来ても不明時と同じフォールバックで表示される)
     const potJa = {
-      1: '津波が発生する可能性は非常に低い',
-      2: '津波が発生する可能性があります',
+      1: '全海域にわたる破壊的な津波が発生する可能性があります',
+      2: '広い範囲にわたる破壊的な津波が発生する可能性があります',
       3: '震源の近傍で破壊的な津波が発生する可能性があります',
+      4: '震源近傍で局所的な破壊的津波が発生する可能性は非常に小さいです',
+      7: '津波が発生する可能性があります',
     };
     const pot = potJa[report.tsunamigenic_potential_raw]
       || report.tsunamigenic_potential || report.tsunamigenic_potential_en;
@@ -3315,7 +3333,13 @@ function renderReport(report) {
   if ([4, 6, 9].includes(report.disaster_category_no)) {
     const existing = otherReports.get(report.disaster_category_no);
     if (existing && existing.timer) clearTimeout(existing.timer);
-    if (report.information_type_no === 2) {
+    // 北西太平洋津波(6)は「取消(情報形態=取消)」による解除だけでなく、
+    // JMAが状況を再評価して tsunamigenic_potential=0「津波発生の可能性なし」
+    // を発表することでも実質的に解除される(azarashiのqzss_dcr_jma_
+    // tsunamigenic_potential定義: 0だけが「なし」、1/2/3/4/7は全て何らかの
+    // 津波発生可能性ありを意味する)。取消と同様にカードを消す
+    const isTsunamiResolved = report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0;
+    if (report.information_type_no === 2 || isTsunamiResolved) {
       otherReports.delete(report.disaster_category_no);
     } else {
       const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);

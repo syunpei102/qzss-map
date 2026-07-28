@@ -227,13 +227,19 @@ function hazardDurationJa(text) {
   return HAZARD_DURATION_JA[text] || text;
 }
 // report_timeが生のISO文字列(例: 2026-07-17T08:35:00)のまま表示されて
-// いたのを、main.js側のformatDateTimeと同じ「M/D HH:MM」表記に揃える
+// いたのを、main.js側のformatDateTimeと同じ「M/D HH:MM」表記に揃える。
+// main.js側と同じ理由でZ補完+Asia/Tokyo固定表示にしている(main.jsの
+// formatDateTimeのコメント参照。ここで乖離させないよう修正時は両方直すこと)
 function formatDateTime(iso) {
   if (!iso) return '';
-  const d = new Date(iso);
+  const withZ = /[zZ]|[+-]\d\d:\d\d$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(withZ);
   if (isNaN(d.getTime())) return iso;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const p = Object.fromEntries(fmt.formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));
+  return `${p.month}/${p.day} ${p.hour}:${p.minute}`;
 }
 
 function reportBadgeText(r) {
@@ -335,7 +341,7 @@ function renderHistory(history) {
           <div class="latency-bar">${barHtml}</div>
           <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.totalMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
         </div>
-        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP')}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
+        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo' })}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
       </div>
     `;
   }).join('');
