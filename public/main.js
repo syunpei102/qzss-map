@@ -925,6 +925,7 @@ let otherReports = new Map(); // key: disaster_category_no(4,8,9,11) -> {...}
 
 const OTHER_CATEGORY_BADGE_CLASS = {
   4: 'sev-warning',  // 南海トラフ地震
+  6: 'sev-warning',  // 北西太平洋津波(津波情報)
   8: 'sev-warning',  // 火山
   9: 'sev-caution',  // 降灰
   11: 'sev-caution', // 洪水
@@ -1216,6 +1217,46 @@ function computeAshFallEllipse(report) {
 function buildEventFromOtherCategory(report) {
   const rows = [];
   let cleanedMessage = '';
+
+  // 北西太平洋津波情報(6): 「津波情報が発表中」であることを分かりやすく見せる。
+  // azarashiは英語フィールド(_en)で返すため、確定している津波発生可能性
+  // (tsunamigenic_potential_raw)は日本語にし、他は英語表記へフォールバック。
+  // 高さ・沿岸・到達時刻は「不明(Unknown)」でない値がある時だけ行に出す。
+  if (report.disaster_category_no === 6) {
+    const potJa = {
+      1: '津波が発生する可能性は非常に低い',
+      2: '津波が発生する可能性があります',
+      3: '震源の近傍で破壊的な津波が発生する可能性があります',
+    };
+    const pot = potJa[report.tsunamigenic_potential_raw]
+      || report.tsunamigenic_potential || report.tsunamigenic_potential_en;
+    cleanedMessage = pot ? `津波情報を発表中です。\n${pot}` : '津波情報を発表中です。';
+    const known = (arr) => (arr || []).filter((v) => v && v !== 'Unknown' && v !== '不明');
+    const heights = known(report.tsunami_heights || report.tsunami_heights_en);
+    if (heights.length) rows.push(['津波の高さ', [...new Set(heights)].join('・')]);
+    const coasts = known(report.coastal_regions || report.coastal_regions_en);
+    if (coasts.length) rows.push(['沿岸', [...new Set(coasts)].join('・')]);
+    const arrivals = (report.expected_tsunami_arrival_times || []).filter(Boolean);
+    if (arrivals.length) rows.push(['到達予想', arrivals.map(formatDateTime).join('・')]);
+    if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
+    return {
+      id: `other:${report.disaster_category_no}`,
+      isTestData: !!report.is_test_data,
+      satelliteId: report.satellite_id,
+      satellitePrn: report.satellite_prn,
+      badgeText: report.disaster_category || '津波情報',
+      badgeClass: otherBadgeClassForReport(report),
+      showBadges: false,
+      headline: `津波情報${report.information_type && report.information_type !== '発表' ? `(${report.information_type})` : '(発表中)'}`,
+      title: '',
+      meta: `受信 ${nowTimeString()}`,
+      message: cleanedMessage,
+      rows,
+      geo: { hypocenter: null, tsunami: [], prefectures: [] },
+      bounds: null,
+      updatedAt: Date.now(),
+    };
+  }
   // 降灰(9): azarashiのdescriptionは市区町村の数だけ「基点時刻からの
   // 時間」「現象」ラベルをそのまま繰り返す生テキスト(local_governments/
   // ash_fall_warning_codes/expected_ash_fall_timesという並行配列を人間
@@ -3270,8 +3311,8 @@ function renderReport(report) {
     return;
   }
 
-  // 南海トラフ地震(4)・降灰(9): カテゴリごとに1枚
-  if ([4, 9].includes(report.disaster_category_no)) {
+  // 南海トラフ地震(4)・北西太平洋津波(6)・降灰(9): カテゴリごとに1枚
+  if ([4, 6, 9].includes(report.disaster_category_no)) {
     const existing = otherReports.get(report.disaster_category_no);
     if (existing && existing.timer) clearTimeout(existing.timer);
     if (report.information_type_no === 2) {
