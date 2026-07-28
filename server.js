@@ -38,6 +38,18 @@ app.use(compression());
 app.use('/data', express.static(path.join(PUBLIC_DIR, 'data'), {
   maxAge: '1d',
 }));
+// info.shum10.com は地図ではなく紹介サイト(public/info.html)を配信する。
+// eq.shum10.com など他のホストは従来通り地図(index.html)を配信する。
+// 下の express.static が / に対して index.html を返してしまう前に、
+// info ホストのときだけルート / を紹介サイトへ差し替える(同じ
+// qzss-map サービスをホスト名で振り分ける)。静的アセット(main.js等)は
+// 紹介サイトは自己完結のため参照しない=そのまま静的配信に流れても無害
+app.get('/', (req, res, next) => {
+  if (req.hostname === 'info.shum10.com') {
+    return res.sendFile(path.join(PUBLIC_DIR, 'info.html'));
+  }
+  next();
+});
 app.use(express.static(PUBLIC_DIR));
 // Discord Interactionsの署名検証には生のリクエストボディが要る。
 // express.jsonのverifyフックでパースする前の生バイト列を控えておく
@@ -299,12 +311,122 @@ function notificationBodyDetail(report) {
   return firstLine || "アプリを開いて確認してください。";
 }
 
-function sendPushNotifications(report) {
-  if (!shouldNotify(report) || pushSubscriptions.size === 0) return;
-  const payload = JSON.stringify({
-    title: notificationTitleFor(report),
-    body: notificationBodyFor(report),
-  });
+// 通知の重複抑制・増分通知のための状態。災危通報は同一内容が発表終了まで
+// 数分〜数時間おきに繰り返し配信される仕様のため、以前は10秒の重複排除
+// (isDuplicateReport)をすり抜けた再送のたびにプッシュ通知を出しており、
+// 同じ降灰予報(桜島)が何度も届く、という指摘を受けた。reportGroupKey
+// (同じ災害・同じ対象のまとまり)ごとに「すでに通知した地域・内容」を
+// 覚えておき、新しく増えた分だけを通知する(増分が無ければ通知しない)。
+// 解除(isEndSignal)は必ず通知し、その系統の記録をリセットする(再発表時に
+// 改めて通知できるように)。プロセス再起動で消えるが、reportEffectiveTime
+// による30分のstaleゲート(isStaleForNotification)と併用するため、
+// 再起動直後に古い通報を一斉に通知してしまう問題は起きない
+const notifiedUnitsByKey = new Map(); // groupKey -> Map(token -> 最終通知時刻ms)
+const NOTIFIED_KEY_LIMIT = 500;
+// 同じ地域・内容を再通知するまでの抑制時間。1つの発表は発表終了まで数分
+// おきに再送されるため、その間(および多少の余裕)は同一トークンを通知
+// しない。一方でこれを無期限にすると、時間をおいて改めて発表された同じ
+// 内容(例: 翌日の同じ市区町村への降灰予報)を永久に握りつぶしてしまう
+// ため、一定時間で「忘れて」再通知できるようにする。通知可否のstaleゲート
+// (isStaleForNotification=30分)より十分長くとる
+const NOTIFY_REMEMBER_MS = 6 * 60 * 60 * 1000; // 6時間
+
+// 通報を「地域(+その地域の情報)」の粒度に分解する。地域単位で管理できる
+// 種別(降灰・気象・洪水・Lアラート・Jアラート)は、地域ごとにトークンを
+// 返し、増分だけを通知できるようにする。地域の概念が無い種別(地震・津波・
+// 火山・南海トラフ・楕円指定のLアラート等)はnullを返し、呼び出し側で
+// タイトル+本文のシグネチャ単位の重複抑制にフォールバックする
+function notificationUnits(report) {
+  if (report.type === "QzssDcxJAlert") {
+    return (report.ex9_target_area_list_ja || []).map((a) => ({ token: "j:" + a, label: a }));
+  }
+  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
+    if (report.ex1_target_area_ja) return [{ token: "l:" + report.ex1_target_area_ja, label: report.ex1_target_area_ja }];
+    return null; // 楕円指定(市区町村名なし)は地域単位に分解できない
+  }
+  if (report.disaster_category_no === 10) {
+    // 地域(weather_forecast_regions)と副種別(weather_related_disaster_sub_categories)
+    // は同じインデックスで対応する並行配列。地域ごとに自分の副種別だけを
+    // トークンにする(別地域の変化で全地域が再通知されるのを防ぐ)
+    const subs = report.weather_related_disaster_sub_categories || [];
+    return (report.weather_forecast_regions || []).map((r, i) => ({ token: `w:${r}|${subs[i] || ""}`, label: `${r} ${subs[i] || ""}`.trim() }));
+  }
+  if (report.disaster_category_no === 11) {
+    // 河川(flood_forecast_regions)と警報レベル(flood_warning_levels)も並行配列
+    const levels = report.flood_warning_levels || [];
+    return (report.flood_forecast_regions || []).map((r, i) => ({ token: `f:${r}|${levels[i] || ""}`, label: `${r} ${levels[i] || ""}`.trim() }));
+  }
+  if (report.disaster_category_no === 9) {
+    const name = report.volcano_name || "";
+    const govs = report.local_governments || [];
+    const codes = report.ash_fall_warning_codes || [];
+    // 同じ市区町村に複数の降灰種別が並ぶことがあるため、地域名+降灰種別で
+    // トークン化する(「鹿児島市 やや多量」と「鹿児島市 少量」は別扱い)
+    return govs.map((g, i) => ({ token: `a:${name}|${g}|${codes[i] || ""}`, label: `${g}${codes[i] ? `(${codes[i]})` : ""}` }));
+  }
+  return null;
+}
+
+// 通知の重複抑制・増分通知に使う「継続中の同じ事象」を表す安定キー。
+// reportGroupKey と違い対象地域の集合を含めないので、地域が増減しても
+// キーが変わらず、地域単位のトークン(notificationUnits)が正しく積み上がる。
+// これにより「新しく発表された地域だけ」を通知できる。
+function notificationGroupKey(report) {
+  if (!report) return null;
+  if (report.type === "QzssDcxJAlert") return `n:jalert|${report.a4_hazard_type || ""}`;
+  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return `n:lalert|${report.a4_hazard_type || ""}`;
+  if (report.disaster_category_no === 5) return "n:tsunami";
+  if (report.disaster_category_no === 10) return "n:weather";
+  if (report.disaster_category_no === 11) return "n:flood";
+  if (report.disaster_category_no === 9) return "n:ashfall";
+  if ([1, 2, 3].includes(report.disaster_category_no)) {
+    // 地震は事象ごと(震央)に分ける(別の地震は別通知にしたいため)
+    if (typeof report.seismic_epicenter_raw === "number") return `n:eq|${report.seismic_epicenter_raw}`;
+    if (report.occurrence_time_of_earthquake) return `n:eq|${report.occurrence_time_of_earthquake}`;
+    return "n:eq";
+  }
+  if (typeof report.disaster_category_no === "number") return `n:cat${report.disaster_category_no}`;
+  return null;
+}
+
+// そのトークンを今通知してよいか(一度も通知していない、または前回通知
+// からNOTIFY_REMEMBER_MS以上経っている)
+function unitFreshlyNotifiable(key, token, now) {
+  if (key === null) return true;
+  const m = notifiedUnitsByKey.get(key);
+  const last = m && m.get(token);
+  return last === undefined || now - last >= NOTIFY_REMEMBER_MS;
+}
+
+function rememberNotifiedUnit(key, token, now) {
+  if (key === null) return;
+  let m = notifiedUnitsByKey.get(key);
+  if (!m) {
+    m = new Map();
+    notifiedUnitsByKey.set(key, m);
+  } else {
+    // LRU的に最近使ったキーを末尾へ寄せる
+    notifiedUnitsByKey.delete(key);
+    notifiedUnitsByKey.set(key, m);
+  }
+  m.set(token, now);
+  // 期限切れトークンを掃除(メモリ肥大防止)
+  for (const [t, ts] of m) if (now - ts >= NOTIFY_REMEMBER_MS) m.delete(t);
+  if (m.size === 0) notifiedUnitsByKey.delete(key);
+  while (notifiedUnitsByKey.size > NOTIFIED_KEY_LIMIT) {
+    notifiedUnitsByKey.delete(notifiedUnitsByKey.keys().next().value);
+  }
+}
+
+// 増分通知の本文を組み立てる。降灰は火山名を頭に添える
+function deltaBodyFor(report, labels) {
+  const body = labels.join("・");
+  if (report.disaster_category_no === 9 && report.volcano_name) return `${report.volcano_name}: ${body}`;
+  return body;
+}
+
+function dispatchPush(report, body) {
+  const payload = JSON.stringify({ title: notificationTitleFor(report), body });
   for (const [endpoint, sub] of pushSubscriptions) {
     webpush.sendNotification(sub, payload).catch((err) => {
       if (err.statusCode === 410 || err.statusCode === 404) {
@@ -315,6 +437,47 @@ function sendPushNotifications(report) {
       }
     });
   }
+}
+
+function sendPushNotifications(report) {
+  if (!shouldNotify(report) || pushSubscriptions.size === 0) return;
+  // 通知の重複抑制には reportGroupKey ではなく notificationGroupKey を使う。
+  // reportGroupKey(気象)は対象地域コードの集合をキーに含むため、発表地域が
+  // 1つでも増減するとキーが変わり、覚えていた「通知済み地域」がリセットされ、
+  // 結果として毎回すべての地域が新規扱いで通知されてしまっていた。
+  // notificationGroupKey は地域集合を含まない安定キーなので、地域単位の
+  // トークンが積み上がり「新しく発表された地域だけ」を通知できる。
+  const key = notificationGroupKey(report);
+  const now = Date.now();
+
+  // 解除・取消は必ず通知し、その系統の「通知済み」記録をリセットする
+  // (同じ対象が後で再び発表されたら、また新規として通知できるように)
+  if (isEndSignal(report)) {
+    if (key !== null) notifiedUnitsByKey.delete(key);
+    dispatchPush(report, notificationBodyFor(report));
+    return;
+  }
+
+  const units = notificationUnits(report);
+  if (units && key !== null) {
+    // 地域単位で管理できる種別: 前回通知から間もない地域を除いた「新規分」だけ通知
+    const fresh = units.filter((u) => unitFreshlyNotifiable(key, u.token, now));
+    if (units.length && fresh.length === 0) return; // 全て通知済み(=単なる再送) → 通知しない
+    for (const u of fresh) rememberNotifiedUnit(key, u.token, now);
+    const body = fresh.length ? deltaBodyFor(report, fresh.map((u) => u.label)) : notificationBodyFor(report);
+    dispatchPush(report, body);
+    return;
+  }
+
+  // 地域の概念が無い種別: タイトル+本文のシグネチャ単位で重複を抑制する
+  // (同一内容の再送では通知せず、内容が変わったときだけ通知する)
+  const body = notificationBodyFor(report);
+  const sig = "sig:" + notificationTitleFor(report) + "\n" + body;
+  if (key !== null) {
+    if (!unitFreshlyNotifiable(key, sig, now)) return;
+    rememberNotifiedUnit(key, sig, now);
+  }
+  dispatchPush(report, body);
 }
 
 // 現在「表示中」とみなせる重要な通報を覚えておき、ブラウザが
@@ -1059,6 +1222,27 @@ async function loadActiveReports() {
     activeReports = restored;
     pruneStaleActiveReports(); // 長期間落ちていた場合、復元直後に古いものを除く
     console.log(`♻️  アクティブな通報を復元しました(${activeReports.length}件)`);
+    seedNotifiedFromActiveReports();
+  }
+}
+
+// 再起動/再デプロイで notifiedUnitsByKey(メモリ上)が消えると、復元した
+// アクティブ通報の全地域が「新規」とみなされ、次の再送で一斉に再通知されて
+// しまう。復元した通報の通知トークンを「通知済み」として先に登録しておき、
+// 再起動後は本当に新しく増えた地域だけが通知されるようにする。
+function seedNotifiedFromActiveReports() {
+  const now = Date.now();
+  for (const entry of activeReports) {
+    const report = entry && entry.report;
+    const key = notificationGroupKey(report);
+    if (key === null) continue;
+    const units = notificationUnits(report);
+    if (units) {
+      for (const u of units) rememberNotifiedUnit(key, u.token, now);
+    } else {
+      const sig = "sig:" + notificationTitleFor(report) + "\n" + notificationBodyFor(report);
+      rememberNotifiedUnit(key, sig, now);
+    }
   }
 }
 

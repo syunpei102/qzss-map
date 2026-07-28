@@ -39,6 +39,25 @@
     html, body { margin:0; padding:0; height:100%; height:100dvh; }
     #map { position: relative; width:100%; height:100%; height:100dvh; }
     body.cursor-hidden, body.cursor-hidden * { cursor: none !important; }
+
+    /* 初回アクセス時のみ表示する免責ポップアップ(キオスク実機では出さない) */
+    #disclaimer-scrim{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(5,7,10,.74);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);font-family:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",Meiryo,sans-serif}
+    #disclaimer-scrim.show{display:flex}
+    #disclaimer-modal{max-width:460px;width:100%;background:#12161d;color:#e6ebf1;border:1px solid rgba(140,160,185,.25);border-radius:16px;padding:22px 22px 18px;box-shadow:0 30px 80px -30px rgba(0,0,0,.85)}
+    #disclaimer-modal h2{margin:0 0 8px;font-size:19px;letter-spacing:-.01em}
+    #disclaimer-modal .lead{margin:0 0 14px;font-size:14px;line-height:1.7;color:#aab4c0}
+    #disclaimer-modal .warn{border:1px solid #ff5964;background:rgba(255,89,100,.10);border-radius:10px;padding:12px 14px}
+    #disclaimer-modal .warn .t{font-weight:700;font-size:13px;margin-bottom:7px}
+    #disclaimer-modal ul{margin:0;padding-left:18px;font-size:13px;line-height:1.6}
+    #disclaimer-modal li{margin:3px 0}
+    #disclaimer-modal strong{color:#fff}
+    #disclaimer-modal .act{display:flex;justify-content:flex-end;margin-top:18px}
+    #disclaimer-modal button{font:inherit;font-weight:650;font-size:14px;padding:9px 22px;border-radius:10px;border:0;background:#35d3c2;color:#04110f;cursor:pointer}
+    #disclaimer-modal button:hover{filter:brightness(1.06)}
+
+    /* 紹介サイト(info.shum10.com)へのリンク。Web版のみ表示(キオスクでは非表示) */
+    #info_link{position:fixed;left:12px;bottom:12px;z-index:30;font-size:12px;line-height:1;color:#aab4c0;background:rgba(18,22,29,.72);border:1px solid rgba(140,160,185,.28);border-radius:8px;padding:7px 11px;text-decoration:none;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+    #info_link:hover{color:#fff;border-color:rgba(140,160,185,.55)}
   </style>
   <link rel="stylesheet" href="./style.css">
   <script src="main.js" defer></script>
@@ -65,6 +84,52 @@
 
   <div id="map"></div>
   <div id="patrol_transition_mask"></div>
+
+  <!-- 紹介サイトへのリンク。Web版のみ表示(キオスク実機では下のスクリプトで非表示のまま) -->
+  <a id="info_link" href="https://info.shum10.com" target="_blank" rel="noopener" hidden>ⓘ このマップについて</a>
+
+  <!-- 初回アクセス時のみ表示する免責ポップアップ。localStorageで一度きり。
+       キオスク実機(localhost / ?device=付き)には出さない(無人表示のため) -->
+  <div id="disclaimer-scrim" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+    <div id="disclaimer-modal">
+      <h2 id="disclaimer-title">QZSS 災危通報マップへようこそ</h2>
+      <p class="lead">「みちびき」衛星が放送する災害・危機管理通報を受信し、日本地図にリアルタイムで表示しています。地震・津波・噴火・降灰・洪水・気象警報・J/Lアラートに対応しています。</p>
+      <div class="warn">
+        <div class="t">⚠ データの正確性についてのご注意</div>
+        <ul>
+          <li>個人による<strong>非公式・研究/趣味のプロジェクト</strong>です(公式サービスではありません)。</li>
+          <li>受信状況により、情報の<strong>遅延・欠落・誤り</strong>が生じることがあります。</li>
+          <li>解除済み・古い情報が残って見える場合があります。</li>
+          <li>避難など<strong>命に関わる判断には使わず</strong>、必ず気象庁・自治体の公式発表をご確認ください。</li>
+        </ul>
+      </div>
+      <div class="act"><button id="disclaimer-ok" type="button">理解しました</button></div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      try{
+        // キオスク実機(オフラインlocalhost / 拠点署名URL ?device=)には出さない
+        var isKiosk = ['localhost','127.0.0.1'].indexOf(location.hostname) >= 0
+          || new URLSearchParams(location.search).has('device');
+        // 紹介サイトへのリンクはWeb版のみ表示(キオスク実機では隠したまま)
+        var infoLink = document.getElementById('info_link');
+        if (infoLink && !isKiosk) infoLink.hidden = false;
+        if (isKiosk) return;
+        var KEY = 'qzss-map-disclaimer-v1';
+        var seen = null;
+        try { seen = localStorage.getItem(KEY); } catch (e) {}
+        if (seen) return; // 2回目以降は出さない
+        var scrim = document.getElementById('disclaimer-scrim');
+        scrim.classList.add('show');
+        function close(){ scrim.classList.remove('show'); try { localStorage.setItem(KEY, '1'); } catch (e) {} }
+        document.getElementById('disclaimer-ok').addEventListener('click', close);
+        scrim.addEventListener('click', function(e){ if (e.target === scrim) close(); });
+        document.addEventListener('keydown', function(e){ if (e.key === 'Escape') close(); });
+      } catch (e) {}
+    })();
+  </script>
+
   <script src="./vendor/maplibre-gl.js"></script>
   <script src="./vendor/pmtiles.js"></script>
 </body>

@@ -372,7 +372,10 @@ body.is-kiosk #events_container {
   font-size: 12px;
   font-weight: bold;
   pointer-events: none;
-  transition: transform 0.15s ease-out;
+  /* transition: transform は付けない。ズーム中に applyIntensityBadgeScale が
+     毎フレーム scale() を更新するため、transform にトランジションがあると
+     その追従が0.15秒遅れ、バッジが伸縮ラグで「ズレて見える」。ズームイベント
+     ごとに更新するので、トランジション無しでも滑らかに追従する。 */
 }
 
 .epicenter-label {

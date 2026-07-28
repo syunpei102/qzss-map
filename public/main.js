@@ -453,10 +453,22 @@ function flyToBounds(bounds, pad = 24, maxZoomOverride = null, instant = false) 
   );
 }
 
-function createCrossMarkerElement() {
-  const el = document.createElement('div');
-  el.className = 'cross-marker';
-  return el;
+// 震源(✕)アイコンをCanvasで生成する。以前はDOMマーカー(maplibregl.Marker)で
+// 描いていたが、ズーム中に地図キャンバスとは別レイヤーで合成されるため、特に
+// 複数の震源があると「泳ぐ/ズレる」ように見えた。GLシンボルレイヤー
+// (キャンバス内描画)にすることで、地図と完全に同じ描画になりズームでズレない。
+function makeEpicenterCrossImage() {
+  const s = 56;
+  const c = document.createElement('canvas');
+  c.width = c.height = s;
+  const ctx = c.getContext('2d');
+  ctx.lineCap = 'round';
+  const a = 12, b = s - 12;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 12;
+  ctx.beginPath(); ctx.moveTo(a, a); ctx.lineTo(b, b); ctx.moveTo(b, a); ctx.lineTo(a, b); ctx.stroke();
+  ctx.strokeStyle = '#ff2800'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(a, a); ctx.lineTo(b, b); ctx.moveTo(b, a); ctx.lineTo(a, b); ctx.stroke();
+  return ctx.getImageData(0, 0, s, s);
 }
 
 // マーカー本体(wrapper)にはMapLibreが位置決め用のtransformを
@@ -923,6 +935,14 @@ function otherBadgeClassForReport(report) {
   return OTHER_CATEGORY_BADGE_CLASS[report.disaster_category_no] || 'sev-info';
 }
 
+// 降灰(9)の降灰種別(ash_fall_warning_codes_raw)ごとの重大度と塗り色。
+// azarashi定義: 1=少量の降灰 / 2=やや多量の降灰 / 3=多量の降灰 /
+// 4=小さな噴石の落下 / 7=その他。気象警報の色(WEATHER_SEVERITY_COLORS)と
+// 同系統にして地図全体の配色に統一感を持たせる。4(小さな噴石の落下)は
+// 少量の降灰より危険度が高いため多量と同格の最上位に置く
+const ASH_FALL_SEVERITY = { 1: 1, 2: 2, 3: 3, 4: 3, 7: 1 };
+const ASH_FALL_COLORS = { 1: '#d0b400', 2: '#e63946', 3: '#8e24aa' };
+
 // 気象(Dc=10)で配信されうる災害副種別は次の11種類のみ
 // (IS-QZSS-DCR仕様 Table35 / azarashi の
 //  qzss_dcr_jma_weather_related_disaster_sub_category に一致)。
@@ -1131,20 +1151,123 @@ function handleVolcanoReport(report) {
   syncActiveEventLayers();
 }
 
+// 降灰(9)の対象地域の中で最も重い降灰種別の塗り色を返す
+function ashFallWorstColor(report) {
+  let rank = 1;
+  for (const raw of report.ash_fall_warning_codes_raw || []) {
+    rank = Math.max(rank, ASH_FALL_SEVERITY[raw] ?? 1);
+  }
+  return ASH_FALL_COLORS[rank] || ASH_FALL_COLORS[1];
+}
+
+// 降灰(9)を地図に「楕円」で表示するためのジオメトリを計算する(Web版のみ)。
+// 降灰通報には楕円の緯度経度・半径そのものは含まれないため、火山の位置と
+// 対象市区町村の位置をすべて囲む楕円を自前で求める。対象市区町村の位置は
+// 国土数値情報の市区町村ポリゴン(municipalityFeaturesByCode、オンデマンド
+// 読み込み)から取るため、まだ読み込まれていなければ pending を立てて
+// loadMunicipalityLayer 完了後に再計算する(reconcile)。
+function computeAshFallEllipse(report) {
+  const centers = [];
+  const vc = report.volcano_name ? volcanoesByName.get(report.volcano_name) : null;
+  if (vc) centers.push([vc.lon, vc.lat]);
+
+  const codes = [];
+  for (const raw of report.local_governments_raw || []) {
+    const code = String(raw).padStart(7, '0').slice(0, 5);
+    if (!codes.includes(code)) codes.push(code);
+  }
+  let missing = false;
+  for (const code of codes) {
+    const f = municipalityFeaturesByCode.get(code);
+    if (f) {
+      const c = geometryCentroid(f.geometry);
+      if (c) centers.push(c);
+    } else {
+      missing = true;
+    }
+  }
+  if (!centers.length) return { ellipse: null, bounds: null, pending: true };
+
+  let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+  for (const [lo, la] of centers) {
+    minLon = Math.min(minLon, lo); maxLon = Math.max(maxLon, lo);
+    minLat = Math.min(minLat, la); maxLat = Math.max(maxLat, la);
+  }
+  const cLon = (minLon + maxLon) / 2;
+  const cLat = (minLat + maxLat) / 2;
+  const kmPerDegLat = 110.574;
+  const kmPerDegLon = 111.320 * Math.cos((cLat * Math.PI) / 180);
+  // 中心から各地点までの広がり(km)に余白を足して半径にする。1地点しか
+  // 無い場合でも豆粒にならないよう最低半径を設ける
+  const PAD = 1.4, FLOOR_KM = 12;
+  let halfW = Math.max(((maxLon - minLon) / 2) * kmPerDegLon * PAD, FLOOR_KM);
+  let halfH = Math.max(((maxLat - minLat) / 2) * kmPerDegLat * PAD, FLOOR_KM);
+  // 長軸を広がりの大きい向きに合わせる(縦長なら南北=方位0、横長なら東西=方位90)
+  const semiMajor = Math.max(halfW, halfH);
+  const semiMinor = Math.min(halfW, halfH);
+  const azimuth = halfH >= halfW ? 0 : 90;
+  const polygon = ellipsePolygon([cLon, cLat], semiMajor, semiMinor, azimuth);
+  return { ellipse: { polygon, color: ashFallWorstColor(report) }, bounds: geometryBounds(polygon), pending: missing };
+}
+
 // 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱う。
 // 火山(8)も専用のhandleVolcanoReportで扱うため、ここでは
 // 南海トラフ地震(4)・降灰(9)だけを対象にする
 function buildEventFromOtherCategory(report) {
   const rows = [];
-  // 降灰(9): 火山名と降灰予報
+  let cleanedMessage = '';
+  // 降灰(9): azarashiのdescriptionは市区町村の数だけ「基点時刻からの
+  // 時間」「現象」ラベルをそのまま繰り返す生テキスト(local_governments/
+  // ash_fall_warning_codes/expected_ash_fall_timesという並行配列を人間
+  // 向けに直訳しただけ)なので、そのまま出すと同じラベルが何度も並んで
+  // 読みにくい。同じ「現象+時間」の地域は「・」でまとめ、1行1件に
+  // 整理してから見せる
   if (report.volcano_name) rows.push(['火山', report.volcano_name]);
-  if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
+  if (report.activity_time) rows.push(['発生時刻', formatDateTime(report.activity_time)]);
+  if (Array.isArray(report.local_governments) && report.local_governments.length) {
+    const groups = new Map(); // key: `時間|現象` -> 地域名の配列
+    report.local_governments.forEach((gov, i) => {
+      const hours = report.expected_ash_fall_times ? report.expected_ash_fall_times[i] : null;
+      const code = report.ash_fall_warning_codes ? report.ash_fall_warning_codes[i] : '';
+      const key = `${hours}|${code}`;
+      if (!groups.has(key)) groups.set(key, { hours, code, governments: [] });
+      groups.get(key).governments.push(gov);
+    });
+    for (const { hours, code, governments } of groups.values()) {
+      rows.push([code || '降灰', `${governments.join('・')}${hours ? `(基点時刻から${hours}時間後)` : ''}`]);
+    }
+  } else if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
     rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
+  } else {
+    // 降灰以外(南海トラフ等)は従来通り、整形済みの生テキストをそのまま見せる
+    cleanedMessage = cleanDescriptionMessage(report.description);
   }
-  const cleanedMessage = cleanDescriptionMessage(report.description);
   if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
 
+  // 降灰(9)を地図に「楕円」で表示する。ただしこれはWeb版(通常のブラウザ)
+  // 限定。非力なラズパイ実機(kiosk)は従来通りパネルのテキストのみとし、
+  // 地図への追加描画はしない(降灰はもともと巡回ズームの対象外=idleのまま
+  // 表示されるため、kioskで描くと日本全体表示に重いポリゴンが増え、
+  // クラッシュ対策の趣旨に反する)。楕円はLアラート/火山と同じ
+  // lalert-ellipsesレイヤーに載るので、タップでパネル表示する仕組みも共通
+  // (map.on('click')のlalert-ellipse-fill分岐 / focusOtherReport参照)
+  let ellipse = null;
+  let ellipseBounds = null;
+  let pendingAshEllipse = false;
+  if (!isKioskDisplay() && report.disaster_category_no === 9 && Array.isArray(report.local_governments_raw) && report.local_governments_raw.length) {
+    const res = computeAshFallEllipse(report);
+    ellipse = res.ellipse;
+    ellipseBounds = res.bounds;
+    // 市区町村ポリゴンがまだ読み込まれていない場合は、読み込み完了後に
+    // より正確な楕円へ再計算する(loadMunicipalityLayerのreconcile)
+    if (res.pending) {
+      pendingAshEllipse = true;
+      loadMunicipalityLayer();
+    }
+  }
+
   return {
+    id: `other:${report.disaster_category_no}`,
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
@@ -1160,8 +1283,10 @@ function buildEventFromOtherCategory(report) {
     // dt/ddの1行に埋もれさせず、独立したメッセージブロックで見せる
     message: cleanedMessage,
     rows,
-    geo: { hypocenter: null, tsunami: [], prefectures: [] },
-    bounds: null,
+    geo: { hypocenter: null, tsunami: [], prefectures: [], ellipse },
+    bounds: ellipseBounds,
+    // 市区町村ポリゴン読み込み後の楕円再計算に使う(pendingAshEllipse時のみ)
+    ashReport: pendingAshEllipse ? report : null,
     updatedAt: Date.now(),
   };
 }
@@ -1293,10 +1418,10 @@ function handleFloodReport(report) {
 
 function updateWeatherDisplay() {
   if (!map || !map.getLayer('weather-fill')) return;
-  // 日本全体表示(idle)の間は重いポリゴン塗りをやめ、
-  // updateIdleOverviewMarkersの軽量マーカーに任せる
-  // (syncActiveEventLayersのidle対応と同じ考え方)
-  const codes = isPatrolIdle() ? [] : [...weatherSites.keys()];
+  // 日本全体表示(idle)の間、ラズパイ実機(kiosk)なら重いポリゴン塗りを
+  // やめてupdateIdleOverviewMarkersの軽量マーカーに任せる。Web版は
+  // ポリゴンのまま(syncActiveEventLayersのidle対応と同じ考え方)
+  const codes = shouldUseLightweightIdleView() ? [] : [...weatherSites.keys()];
   if (!codes.length) {
     map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
     map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
@@ -1578,6 +1703,42 @@ function interruptPatrolForNewEvent(id) {
   schedulePatrolNext(PATROL_DWELL_MS);
 }
 
+// otherReports(降灰など)の楕円をタップしたとき用。これらは巡回/フォーカスの
+// 枠組み(activeEvents・focusedEventIds)の外にあるため、巡回フォーカスを
+// 解除して全体パネル(otherReportsを含む)に戻したうえで、その通報の範囲へ
+// ズームし、対応するパネルのカードを一瞬強調して「どれをタップしたか」を示す
+function focusOtherReport(record) {
+  currentPatrolCode = null;
+  currentPatrolTrainingId = null;
+  currentPatrolEventId = null;
+  patrolIndex = 0;
+  syncActiveEventLayers();
+  updateWeatherDisplay();
+  updateFocusOutline();
+  renderEventsPanel();
+  if (record.bounds) flyToBounds(record.bounds);
+  highlightPanelCard(record.id);
+  schedulePatrolNext(PATROL_DWELL_MS);
+}
+
+// パネル内の特定カードをスクロールで見える位置へ運び、一瞬だけ白い輪郭で
+// 強調する(タップに対する視覚的なフィードバック)。CSSに依存しないよう
+// Web Animations APIで完結させる
+function highlightPanelCard(cardKey) {
+  if (!cardKey) return;
+  requestAnimationFrame(() => {
+    const el = document.querySelector(`[data-card-key="${(window.CSS && CSS.escape) ? CSS.escape(cardKey) : cardKey}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    if (matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+    el.animate([
+      { boxShadow: '0 0 0 0 rgba(255,255,255,0)' },
+      { boxShadow: '0 0 0 3px rgba(255,255,255,0.85)' },
+      { boxShadow: '0 0 0 0 rgba(255,255,255,0)' },
+    ], { duration: 1200, easing: 'ease-out' });
+  });
+}
+
 // 震源座標そのものが日本近辺(JAPAN_VICINITY_BOUNDS)から外れているかどうかで
 // 海外/遠方の地震を判定する。震源の点だけにズームすると、単なる海上の1点
 // しか映らず状況が分かりにくいので、タイトルにも「(海外)」を付けて区別する。
@@ -1819,15 +1980,23 @@ function findMatchingGroup(report, eventData) {
   return best;
 }
 
-function createHypocenterMarkers(hypocenter) {
-  // 震央の地名はパネルの「震央」欄に表示しているため、地図上の✕マークに
-  // 地名ラベルは付けない(沖合の震源で海上に地名が浮かぶのは煩わしいため)
-  const markers = { hypocenter: null, hypocenterLabel: null };
-  const { lon, lat } = hypocenter;
-  markers.hypocenter = new maplibregl.Marker({ element: createCrossMarkerElement(), anchor: 'center' })
-    .setLngLat([lon, lat])
-    .addTo(map);
-  return markers;
+// アクティブな全イベントの震源(✕)を、GLシンボルレイヤー(epicenters)へ反映する。
+// icon-allow-overlap / icon-ignore-placement を付けているため、複数の震源が
+// 重なっても間引かず全部描画され、かつGL描画なのでズームでズレない。
+function updateEpicenterLayer() {
+  if (!map || !map.getSource('epicenters')) return;
+  const features = [];
+  for (const record of activeEvents.values()) {
+    const h = record.geo && record.geo.hypocenter;
+    if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
+      features.push({
+        type: 'Feature',
+        properties: { recordId: record.id },
+        geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+      });
+    }
+  }
+  map.getSource('epicenters').setData({ type: 'FeatureCollection', features });
 }
 
 function createIntensityBadgeMarkers(prefectures) {
@@ -1882,8 +2051,7 @@ function addActiveEvent(eventData, ttlMs = null) {
   // 分かる) 2.震源(✕)・震度バッジのマーカー 3.カメラズーム(最後、
   // 遅延させて色を見せてから動かす)。マーカー生成(DOM要素の作成・
   // マップへの追加)は塗りより後にすることで、色が先に画面へ反映される
-  syncActiveEventLayers();
-  if (record.geo.hypocenter) Object.assign(record.markers, createHypocenterMarkers(record.geo.hypocenter));
+  syncActiveEventLayers(); // この中で updateEpicenterLayer() が震源✕を描画する
   record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
   // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
   // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
@@ -1973,14 +2141,8 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   record.updatedAt = Date.now();
 
   record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
-  syncActiveEventLayers();
-  // 塗りつぶしを反映した後で、変化があった分だけマーカーのDOM要素を
-  // 作り直す(優先順位2番目)
-  if (hypocenterChanged) {
-    if (record.markers.hypocenter) record.markers.hypocenter.remove();
-    if (record.markers.hypocenterLabel) record.markers.hypocenterLabel.remove();
-    Object.assign(record.markers, createHypocenterMarkers(record.geo.hypocenter));
-  }
+  syncActiveEventLayers(); // 震源✕はこの中の updateEpicenterLayer() で最新化される
+  // 塗りつぶしを反映した後で、変化があった分だけ震度バッジ(DOM)を作り直す
   if (prefecturesChanged) {
     for (const marker of record.markers.intensityBadges) marker.remove();
     record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
@@ -2008,11 +2170,9 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 function removeActiveEvent(id) {
   const record = activeEvents.get(id);
   if (!record) return;
-  if (record.markers.hypocenter) record.markers.hypocenter.remove();
-  if (record.markers.hypocenterLabel) record.markers.hypocenterLabel.remove();
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
-  syncActiveEventLayers();
+  syncActiveEventLayers(); // 削除後に updateEpicenterLayer() が震源✕からも取り除く
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
   // 考え方)
@@ -2100,6 +2260,23 @@ function setIfMoreSevere(map, key, color, rank) {
 // 実害は無い(画面外は実質レンダリングされない)
 function isPatrolIdle() {
   return currentPatrolCode === null && currentPatrolTrainingId === null && currentPatrolEventId === null;
+}
+
+// 非力なラズパイ実機での表示かどうか。ローカルオフラインkiosk
+// (IS_LOCAL_KIOSK)に加えて、Cloud Run経由でも拠点キオスクは
+// ?device=<拠点ID>付きURLでアクセスする(LOCKED_DEVICE_ID参照)ため、
+// どちらか一方でもラズパイ実機とみなす。それ以外(?deviceの付かない
+// eq.shum10.comへの通常のブラウザアクセス=Web版)はPCやスマホなので、
+// 軽量マーカーへの切り替えは行わずポリゴン表示を維持してよい
+function isKioskDisplay() {
+  return IS_LOCAL_KIOSK || !!LOCKED_DEVICE_ID;
+}
+
+// 日本全体表示(idle)中に重いポリゴン塗りを軽量マーカーへ切り替えるのは
+// ラズパイ実機(kiosk)限定。Web版(通常のブラウザ)は非力なハードウェアの
+// 制約が無いため、idle中でもポリゴンをそのまま出し続ける
+function shouldUseLightweightIdleView() {
+  return isKioskDisplay() && isPatrolIdle();
 }
 
 // 日本全体表示(idle)の間は、都道府県・市区町村・河川等の重いポリゴン
@@ -2223,7 +2400,7 @@ function updateIdleOverviewMarkers() {
 function updateIdleOverviewNotice() {
   const el = document.getElementById('idle_overview_notice');
   if (!el) return;
-  if (isPatrolIdle() && idleOverviewOmittedCount > 0) {
+  if (shouldUseLightweightIdleView() && idleOverviewOmittedCount > 0) {
     el.textContent = `⚠️ 同時に多数の警報が発生しているため、地図には深刻度の高い${MAX_IDLE_OVERVIEW_MARKERS}件のみ表示しています(他${idleOverviewOmittedCount}件はパネルの一覧のみ)`;
     el.hidden = false;
   } else {
@@ -2234,11 +2411,13 @@ function updateIdleOverviewNotice() {
 function syncActiveEventLayers() {
   if (!map || !map.getLayer('prefecture-fill')) return;
 
-  // 日本全体表示(idle)の間は、重いポリゴン塗り(都道府県・市区町村・
-  // 河川・楕円)を全部やめて軽量マーカー(updateIdleOverviewMarkers)に
-  // 任せる。津波(tsunami-line)だけは対象数が元々少なく命に関わる重要度が
-  // 高いため、idleでも通常通り描画する(意図的に対象外)
-  const idle = isPatrolIdle();
+  // 日本全体表示(idle)の間、ラズパイ実機(kiosk)なら重いポリゴン塗り
+  // (都道府県・市区町村・河川・楕円)を全部やめて軽量マーカー
+  // (updateIdleOverviewMarkers)に任せる。Web版(通常のブラウザ)は
+  // 非力なハードウェアの制約が無いためポリゴンのまま出し続ける。
+  // 津波(tsunami-line)だけは対象数が元々少なく命に関わる重要度が
+  // 高いため、kiosk/idleでも通常通り描画する(意図的に対象外)
+  const idle = shouldUseLightweightIdleView();
 
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
@@ -2340,6 +2519,9 @@ function syncActiveEventLayers() {
       map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
     }
   }
+
+  // 震源(✕)のGLシンボルレイヤーを最新のアクティブイベントに合わせて更新する
+  updateEpicenterLayer();
 
   if (idle) updateIdleOverviewMarkers();
   else { clearIdleOverviewMarkers(); updateIdleOverviewNotice(); }
@@ -2477,10 +2659,15 @@ function updateCameraForActiveEvents(preferredRecord) {
 // パネルにも表示する(地図はどこか別の場所を見ているのに、パネルには
 // 無関係な地域の情報が並んでいる、という食い違いを防ぐため)
 function weatherSiteCard(site) {
-  const worst = worstSubCategory(site.subCategories);
-  const others = site.subCategories.filter((s) => s !== worst);
+  // 同じ地域に複数の災害副種別(例: 記録的短時間大雨情報 + 土砂災害警戒情報)が
+  // 同時に出ることがある。以前は最も重い1件だけを見出し(丸角四角形)にし、
+  // 残りを「その他の種別」の1行にまとめていたが、2件目以降が目立たず
+  // 分かりにくいという指摘を受け、副種別ごとに丸角四角形の見出しを深刻度の
+  // 高い順に並べる(統合カードmergedCardForRecordsが見出しを配列で複数
+  // 表示できる仕組みをそのまま流用する)
+  const subs = [...new Set(site.subCategories)].sort((a, b) => weatherSeverityRank(b) - weatherSeverityRank(a));
+  const worst = subs[0];
   const rows = [];
-  if (others.length) rows.push(['その他の種別', others.join('・')]);
   if (site.reportTime) rows.push(['発表時刻', formatDateTime(site.reportTime)]);
   return {
     isTestData: site.isTestData,
@@ -2491,7 +2678,7 @@ function weatherSiteCard(site) {
     // (badgesは深刻度クラス計算のためだけに残す)
     badges: [{ text: worst || '気象', class: weatherSeverityBadgeClass(worst) }],
     showBadges: false,
-    headline: worst || '気象',
+    headline: subs.length ? subs : ['気象'],
     title: site.name,
     meta: `更新 ${nowTimeString()}`,
     rows,
@@ -2501,6 +2688,7 @@ function weatherSiteCard(site) {
 
 function otherReportCard(rec) {
   return {
+    cardKey: rec.id,
     isTestData: rec.isTestData,
     satelliteId: rec.satelliteId,
     satellitePrn: rec.satellitePrn,
@@ -2556,8 +2744,9 @@ function buildReportCardHtml(record) {
     ? `<div class="report-message">${escapeHtml(record.message)}</div>`
     : '';
   const titleHtml = record.title ? `<div class="report-title">${escapeHtml(record.title)}</div>` : '';
+  const cardKeyAttr = record.cardKey ? ` data-card-key="${escapeHtml(record.cardKey)}"` : '';
   return `
-    <div class="report-card ${escapeHtml(cardClass)}">
+    <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}>
       ${testBanner}
       ${tsunamiBanner}
       ${headlineHtml}
@@ -3092,10 +3281,14 @@ function renderReport(report) {
       // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
       event.timer = setTimeout(() => {
         otherReports.delete(report.disaster_category_no);
+        syncActiveEventLayers();
         renderEventsPanel();
       }, TTL_OTHER_CATEGORY_MS);
       otherReports.set(report.disaster_category_no, event);
     }
+    // 降灰(9)はWeb版で対象市区町村を地図に塗る(buildEventFromOtherCategory参照)
+    // ため、パネルだけでなくレイヤーも更新する。取消時も塗りを消すため呼ぶ
+    syncActiveEventLayers();
     renderEventsPanel();
     return;
   }
@@ -3349,6 +3542,26 @@ async function initMap() {
     paint: { 'line-color': '#ffffff', 'line-width': 4 },
   });
 
+  // 震源(✕)。DOMマーカーはズーム中に泳いで見えた(特に複数の震源が同時に
+  // ある時)ため、GLシンボルレイヤーで描く。塗りより前面に出したいので気象
+  // レイヤーの後(最前面)に追加する。allow-overlap/ignore-placementで、
+  // 複数の震源が重なっても間引かず全部描画する
+  if (!map.hasImage('epicenter-cross')) {
+    map.addImage('epicenter-cross', makeEpicenterCrossImage(), { pixelRatio: 2 });
+  }
+  map.addSource('epicenters', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'epicenter-layer',
+    type: 'symbol',
+    source: 'epicenters',
+    layout: {
+      'icon-image': 'epicenter-cross',
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'icon-size': 1,
+    },
+  });
+
   // 塗られている地域(気象警報・市区町村単位のLアラート・都道府県単位の
   // 地震/津波/Jアラート等)をタップ/クリックすると、巡回ズームが順番に
   // 見せる時と同じようにその対象へズームしてパネル表示する。ラズパイの
@@ -3356,6 +3569,17 @@ async function initMap() {
   // (スマホ・一般公開Webページのみ)
   if (!IS_LOCAL_KIOSK) {
     map.on('click', (e) => {
+      // 震源(✕)を最優先で拾う。アイコンは小さいので、クリック点を中心にした
+      // 小さな矩形(±13px)で当たり判定し、その地震の情報をパネルに表示する
+      if (map.getLayer('epicenter-layer')) {
+        const r = 13;
+        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+        const epis = map.queryRenderedFeatures(box, { layers: ['epicenter-layer'] });
+        if (epis.length) {
+          const rid = epis[0].properties.recordId;
+          if (activeEvents.has(rid)) { interruptPatrolForNewEvent(rid); return; }
+        }
+      }
       // lalert-ellipse-fill: Lアラートの円形指定に加え、火山の警報円
       // (handleVolcanoReport)も同じレイヤーを使って描画しているため、
       // ここに追加するだけで両方タップ/クリック対応になる
@@ -3378,7 +3602,15 @@ async function initMap() {
             );
             if (record) interruptPatrolForNewEvent(record.id);
           } else if (feature.layer.id === 'lalert-ellipse-fill') {
-            if (activeEvents.has(feature.properties.recordId)) interruptPatrolForNewEvent(feature.properties.recordId);
+            const rid = feature.properties.recordId;
+            if (activeEvents.has(rid)) {
+              interruptPatrolForNewEvent(rid);
+            } else {
+              // 降灰(9)など otherReports の楕円。activeEventsの巡回フォーカス
+              // 機構には載らないので専用のズーム+パネル強調で対応する
+              const other = [...otherReports.values()].find((r) => r.id === rid);
+              if (other) focusOtherReport(other);
+            }
           }
           return;
         }
@@ -3400,7 +3632,7 @@ async function initMap() {
     });
     // 塗られている場所の上ではカーソルをポインターにして、タップ/クリック
     // できることが分かるようにする
-    for (const id of ['weather-fill', 'municipality-fill', 'prefecture-fill', 'tsunami-line']) {
+    for (const id of ['epicenter-layer', 'weather-fill', 'municipality-fill', 'prefecture-fill', 'lalert-ellipse-fill', 'tsunami-line']) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
@@ -3504,6 +3736,18 @@ async function loadMunicipalityLayer() {
       record.bounds = record.bounds ? unionBounds([record.bounds, featureBounds]) : featureBounds;
       record.pendingMunicipalityCode = null;
     }
+    // 降灰(9)の楕円は火山+対象市区町村を囲んで計算するため、市区町村
+    // ポリゴンが未読込のうちは火山や一部の位置だけで暫定的に描いていた。
+    // 読み込みが完了したここで、全対象地点を使ったより正確な楕円へ更新する
+    for (const record of otherReports.values()) {
+      if (!record.ashReport) continue;
+      const res = computeAshFallEllipse(record.ashReport);
+      if (res.ellipse) {
+        record.geo.ellipse = res.ellipse;
+        record.bounds = res.bounds;
+      }
+      if (!res.pending) record.ashReport = null;
+    }
     syncActiveEventLayers();
     updateCameraForActiveEvents(null);
   } catch (err) {
@@ -3535,11 +3779,45 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 let socket = null;
 let intentionalReconnect = false;
 
+// 再接続の待ち時間。完全ローカル版(IS_LOCAL_KIOSK)は従来どおり固定3秒の
+// ままにして挙動を一切変えない。Web/PWA版だけ、初回は素早く(200ms)・失敗が
+// 続いたら徐々に間隔を伸ばす指数バックオフにする。加えてPWAがフォアグラウンド
+// に戻った瞬間(visibilitychange/focus/online)に即再接続することで、アプリを
+// 開いてから接続できるまでの待ち時間を最小化する(iOS等ではバックグラウンド中に
+// WebSocketが切断され、復帰時に旧来の3秒待ちが体感の遅さになっていた)。
+const WS_RECONNECT_MIN_MS = 200;
+const WS_RECONNECT_MAX_MS = 5000;
+let reconnectTimer = null;
+let reconnectDelay = WS_RECONNECT_MIN_MS;
+
+function scheduleReconnect() {
+  if (IS_LOCAL_KIOSK) {
+    console.warn('WebSocket切断、3秒後に再接続します');
+    setTimeout(connectWebSocket, 3000);
+    return;
+  }
+  clearTimeout(reconnectTimer);
+  console.warn(`WebSocket切断、${reconnectDelay}ms後に再接続します`);
+  reconnectTimer = setTimeout(connectWebSocket, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 2, WS_RECONNECT_MAX_MS);
+}
+
+// フォアグラウンド復帰・ネットワーク復帰時に、切れていれば即再接続する。
+// 既に接続中/接続済みなら何もしない。完全ローカル版は対象外。
+function reconnectNow() {
+  if (IS_LOCAL_KIOSK) return;
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(reconnectTimer);
+  reconnectDelay = WS_RECONNECT_MIN_MS;
+  connectWebSocket();
+}
+
 function connectWebSocket() {
   socket = new WebSocket(`${wsProtocol}//${location.host}`);
 
   socket.addEventListener('open', () => {
     console.log('✅ WebSocket接続できました');
+    reconnectDelay = WS_RECONNECT_MIN_MS; // 次回切断時にまた素早く再接続できるよう戻す
     updateConnectionStatus('online');
     clearAllActiveEvents();
   });
@@ -3554,9 +3832,8 @@ function connectWebSocket() {
       connectWebSocket();
       return;
     }
-    console.warn('WebSocket切断、3秒後に再接続します');
     updateConnectionStatus('reconnecting');
-    setTimeout(connectWebSocket, 3000);
+    scheduleReconnect();
   });
 
   socket.addEventListener('message', async (event) => {
@@ -3644,6 +3921,19 @@ function connectWebSocket() {
 }
 
 connectWebSocket();
+
+// PWA/Web版のみ: フォアグラウンド復帰・ネットワーク復帰の瞬間に、切れていれば
+// 即再接続する(バックオフ待ちをスキップ)。これで「アプリを開いた直後に接続
+// できるまで待たされる」体感を無くす。完全ローカル版(常時表示のkiosk)は
+// バックグラウンド復帰という概念が無いため対象外(reconnectNow内でも弾く)。
+if (!IS_LOCAL_KIOSK) {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') reconnectNow();
+  });
+  window.addEventListener('focus', reconnectNow);
+  window.addEventListener('online', reconnectNow);
+  window.addEventListener('pageshow', reconnectNow); // iOS: bfキャッシュからの復帰
+}
 
 // ==================================================
 // PWA: Service Worker登録(ホーム画面追加・オフラインでの見た目表示用)
