@@ -521,7 +521,7 @@ const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // クライアント側のTTLはそのブラウザの表示だけを消し、activeReportsには
 // 反映されないため、何時間経っても新規接続に再送され続けていた)を
 // サーバー側にも適用し、判定できる場合はより短いTTLで安全策を効かせる
-const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 15分
+const TTL_HYPOCENTER_INTENSITY_MS = 20 * 60 * 1000; // 震源・震度速報: 20分(public/main.jsのクライアント側TTLと揃える)
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間(解除信号が主、これは保険)
 const TTL_TSUNAMI_INFO_MS = 3 * 60 * 60 * 1000; // 北西太平洋津波情報(6): 3時間(public/main.jsと同じ理由)
 const TTL_TEST_DATA_MS = 60 * 1000; // テストデータ: 1分

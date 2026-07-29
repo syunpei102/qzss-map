@@ -502,9 +502,6 @@ function updateAllIntensityBadgeScales() {
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) applyIntensityBadgeScale(marker, scale);
   }
-  // ズームでバッジの大きさ・ピクセル間隔が変わるため、重なり回避も
-  // 同じタイミングで計算し直す(基準位置からやり直すので累積ズレは無い)
-  resolveMarkerOverlaps();
 }
 
 // ==================================================
@@ -1544,6 +1541,33 @@ let currentPatrolCode = null; // 気象警報巡回中の地域コード
 let currentPatrolTrainingId = null; // 訓練放送巡回中のactiveEvents id
 let currentPatrolEventId = null; // 地震・津波・Jアラート・Lアラート等、本物のイベント巡回中のactiveEvents id
 
+// ==================================================
+// 緊急地震速報(EEW)のズーム固定
+//
+// 従来はEEWも他のイベントと同様、PATROL_DWELL_MS(40秒)経過すると
+// patrolStepが次の巡回対象(無関係な気象警報等)へカメラを動かしていた。
+// EEWは特に緊急性が高く、余震の続報を追ううえでも同じ場所を見続けたい
+// という要望のため、EEWが表示された場合だけは「他の地域で新しい情報が
+// 発表されない限り」EEW_ZOOM_LOCK_MS(20分)はそこにズームを固定する。
+//
+// 余震対策: 同じ地震グループ・近い地域のEEW続報は、呼び出し元
+// (handleReport内)で古いイベントを一旦removeActiveEventしてから
+// addActiveEventし直す実装になっており、結果としてinterruptPatrolFor
+// NewEventが新しいidで呼ばれる。下のinterruptPatrolForNewEventの実装で
+// 「EEWが新しく表示されるたびにロックを立て直す(idも更新)」ようにして
+// あるので、余震が来るたびにロックが自動延長される(=途中で解除されない)。
+// 逆に、EEWと無関係な新しい地域の情報(他の気象警報・別の地震等)が
+// interruptPatrolForNewEvent/interruptPatrolForNewRegionで割り込むと、
+// ロックはそこで解除される(=ユーザーの「他の地域で発表されたら」の通り)
+const EEW_ZOOM_LOCK_MS = 20 * 60 * 1000;
+let eewZoomLockEventId = null;
+let eewZoomLockUntil = 0;
+
+function clearEewZoomLock() {
+  eewZoomLockEventId = null;
+  eewZoomLockUntil = 0;
+}
+
 // 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
 // 寄りすぎると周辺の地理的な文脈(隣接県との位置関係等)が分からなく
 // なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
@@ -1645,6 +1669,18 @@ function returnToWholeJapanSafely() {
 }
 
 function patrolStep() {
+  // EEWズーム固定中は、ロック対象のイベントがまだ生きていて期限内なら
+  // 巡回リストを一切進めず、そのまま同じ場所を見せ続ける(=何もしない)。
+  // イベント自体が既に消えている(TTL切れ・取消)場合や期限が過ぎた場合は
+  // ロックを解除して、通常の巡回に戻す
+  if (eewZoomLockEventId !== null) {
+    if (Date.now() < eewZoomLockUntil && activeEvents.has(eewZoomLockEventId)) {
+      schedulePatrolNext(PATROL_DWELL_MS);
+      return;
+    }
+    clearEewZoomLock();
+  }
+
   // 気象警報(weatherSites)・位置情報を持つ訓練放送・そして地震/津波/
   // Jアラート/Lアラート等の「本物」のイベント(isTraining以外でbounds
   // を持つactiveEvents)を1つの巡回リストにまとめて順番に見せる。
@@ -1733,6 +1769,9 @@ function interruptPatrolForNewRegion(code) {
   currentPatrolCode = code;
   currentPatrolEventId = null;
   patrolIndex = idx + 1;
+  // 新しい気象警報の地域が発表された = 「他の地域で新しい情報が発表された」
+  // ことになるので、EEWのズーム固定が有効なら解除する
+  clearEewZoomLock();
   zoomToWeatherCode(code);
   // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
   // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
@@ -1753,7 +1792,19 @@ function interruptPatrolForNewEvent(id) {
   currentPatrolTrainingId = null;
   currentPatrolEventId = id;
   patrolIndex = 0;
-  updateCameraForActiveEvents(activeEvents.get(id));
+  const record = activeEvents.get(id);
+  // EEW(緊急地震速報)が新しく表示される(=余震の続報も含む。呼び出し元で
+  // 同じ地震グループ/近い地域の古いイベントは一旦removeActiveEventされて
+  // からこの関数が新しいidで呼ばれるため、続報のたびにここを通る)たびに
+  // ロックを立て直す(=延長される)。EEW以外の新しいイベントで割り込まれた
+  // 場合は「他の地域で新しい情報が発表された」ことになるのでロックを解除する
+  if (record && record.disasterCategoryNo === 1) {
+    eewZoomLockEventId = id;
+    eewZoomLockUntil = Date.now() + EEW_ZOOM_LOCK_MS;
+  } else {
+    clearEewZoomLock();
+  }
+  updateCameraForActiveEvents(record);
   // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
   // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
   syncActiveEventLayers();
@@ -2332,6 +2383,11 @@ function removeActiveEvent(id) {
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
   // 考え方)
+  // ロック中のEEWが取消・TTL切れ等で消えた場合、ロックだけ残っていると
+  // 「もう無いイベント」を指したまま最大PATROL_DWELL_MS(40秒)気づかずに
+  // 過ごしてしまう(patrolStep側のガードはactiveEvents.has()を見て
+  // いつか気づくが、それより早く確実に解除する)
+  if (id === eewZoomLockEventId) clearEewZoomLock();
   if (currentPatrolEventId === id) {
     currentPatrolEventId = null;
     schedulePatrolNext(0);
@@ -2360,6 +2416,7 @@ function clearAllActiveEvents() {
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
   patrolIndex = 0;
+  clearEewZoomLock();
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
@@ -2943,7 +3000,24 @@ function recordSeverityRank(record) {
 // 2つのactiveEventsレコードが同じ対象地域(都道府県・市区町村・津波区域の
 // いずれか)を含んでいるかどうか。緊急地震速報とJアラートのように種別が
 // 違っても、同じ地域を対象にしていれば「関連がある」とみなす
+//
+// 例外: 地震(緊急地震速報・震源・震度速報、disaster_category_no 1/2/3)
+// どうしは、同じ地震(同じ震央 or 同じ発生時刻)でない限り、対象県が
+// たまたま1つでも重なっていても統合しない。群発地震・余震で短時間に
+// 別々の地震が続けて発生し、対象県が一部重なるケース(実機で確認: 熊本県
+// 天草・芦北地方の地震と熊本県熊本地方の別の地震が両方「熊本県」を含んで
+// いたため1枚のカードに混ざり、震源・最大震度等の内容が一方の地震の
+// 値のまま、バッジだけもう一方の分も混在するという紛らわしい表示になった)
+// への対策
 function recordsOverlapGeographically(a, b) {
+  const aIsEarthquake = [1, 2, 3].includes(a.disasterCategoryNo);
+  const bIsEarthquake = [1, 2, 3].includes(b.disasterCategoryNo);
+  if (aIsEarthquake && bIsEarthquake) {
+    const sameEarthquake =
+      (a.epicenterRaw != null && a.epicenterRaw === b.epicenterRaw) ||
+      (a.occurrenceTime && a.occurrenceTime === b.occurrenceTime);
+    if (!sameEarthquake) return false;
+  }
   if (a.geo.prefectures.length && b.geo.prefectures.length) {
     const bIds = new Set(b.geo.prefectures.map((p) => p.id));
     if (a.geo.prefectures.some((p) => bIds.has(p.id))) return true;
@@ -3112,8 +3186,11 @@ function renderEventsPanel() {
 // 緊急地震速報は本質的に速報性の高い情報のため短め、震源・震度速報は
 // 事実情報でそもそも取消の仕組みが無いため「最後の更新から」の猶予、
 // 津波・警報系は安全側に倒して長めに設定している。
-const TTL_EEW_MS = 10 * 60 * 1000; // 緊急地震速報: 10分
-const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 最後の更新から15分
+// EEW_ZOOM_LOCK_MS(20分のズーム固定)とTTLがずれていると、ズームは
+// まだ固定されているのに肝心のEEW自体は先に画面から消えてしまう(または
+// その逆)という食い違いになるため、地震関連のTTLは同じ20分に揃える
+const TTL_EEW_MS = 20 * 60 * 1000; // 緊急地震速報: 20分
+const TTL_HYPOCENTER_INTENSITY_MS = 20 * 60 * 1000; // 震源・震度速報: 最後の更新から20分
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間
 const TTL_JALERT_MS = 24 * 60 * 60 * 1000; // Jアラート: 24時間
 // 気象警報・注意報・Lアラート(継続時間不明の場合)の安全策TTL。
@@ -3575,8 +3652,18 @@ async function initMap() {
     new ResizeObserver(() => map.resize()).observe(mapContainer);
   }
 
-  // ズーム操作/オートズームに合わせて震度バッジの大きさを追従させる
+  // ズーム操作/オートズームに合わせて震度バッジの大きさを追従させる。
+  // これは'zoom'(ズーム中は連続して発火)で毎フレーム追従させないと
+  // 大きさがガクガクして見える
   map.on('zoom', updateAllIntensityBadgeScales);
+  // 震源✕・震度バッジの重なり回避(resolveMarkerOverlaps)は、上と違い
+  // 'zoomend'(ズームが止まった時に1回だけ発火)でのみ計算し直す。
+  // 'zoom'(連続発火)のたびにDOMマーカーの位置をsetLngLatで再計算すると、
+  // ズーム中のアニメーション(flyTo等)の最中は毎ティック押しのけ量が
+  // 微妙に変わり続け、バッジがガクガクと不規則に揺れて見えてしまう
+  // (実機で確認: 巡回ズームで別の震源へ切り替わる最中に震度バッジが
+  // 泳ぐように見えた)。ズームが落ち着いてから1回だけ揃える方が安定する
+  map.on('zoomend', resolveMarkerOverlaps);
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
   // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する
