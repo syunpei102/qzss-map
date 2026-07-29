@@ -433,8 +433,18 @@ function flyToBounds(bounds, pad = 24, maxZoomOverride = null, instant = false) 
   const container = map.getContainer();
   const maxHorizontal = container.clientWidth * 0.35;
   const maxVertical = container.clientHeight * 0.35;
+  // スマホの上方向だけは特別扱いする: getMobileTopPadding()は津波警報
+  // バナー等でパネルの中身が多い時、実際に画面の35%を超える高さになる
+  // ことがある。上と同じ0.35でクランプすると、パネルが実際に隠している
+  // 分より少ないパディングしかfitBoundsに渡らず、対象範囲の一部が
+  // パネルの下に隠れて「表示されていないように見える」問題があった
+  // (指摘を受けて修正)。上限を0.6まで緩め、パネルがどれだけ伸びても
+  // 対象範囲がその下に隠れないようにする(その代わり地図は「少し引いた」
+  // 見た目になるが、それは意図した挙動)。ただし地図が完全に潰れて
+  // 見えなくなるのを防ぐため、地図に最低4割は残す上限は維持する
+  const maxTopMobile = container.clientHeight * 0.6;
   const padding = {
-    top: Math.min(rawPadding.top, maxVertical),
+    top: Math.min(rawPadding.top, isMobileLayout() ? maxTopMobile : maxVertical),
     bottom: Math.min(rawPadding.bottom, maxVertical),
     left: Math.min(rawPadding.left, maxHorizontal),
     right: Math.min(rawPadding.right, maxHorizontal),
