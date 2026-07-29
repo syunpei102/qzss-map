@@ -502,6 +502,9 @@ function updateAllIntensityBadgeScales() {
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) applyIntensityBadgeScale(marker, scale);
   }
+  // ズームでバッジの大きさ・ピクセル間隔が変わるため、重なり回避も
+  // 同じタイミングで計算し直す(基準位置からやり直すので累積ズレは無い)
+  resolveMarkerOverlaps();
 }
 
 // ==================================================
@@ -2069,9 +2072,102 @@ function createIntensityBadgeMarkers(prefectures) {
       .setLngLat(centroid)
       .addTo(map);
     applyIntensityBadgeScale(marker, scale);
+    // 都道府県の重心そのもの(基準位置)を別途覚えておく。
+    // resolveMarkerOverlapsが重なり回避のためsetLngLatで動かした後も、
+    // 次に呼ばれた時にこの「本来の位置」から毎回計算し直す(でないと
+    // 押しのけた位置がそのまま基準になり、呼ぶたびにどんどんズレていく)
+    marker.__basePos = centroid;
     markers.push(marker);
   }
   return markers;
+}
+
+// ==================================================
+// 震源(✕)・震度バッジが地図上で重なって見づらくなるのを防ぐ、
+// 画面座標(ピクセル)ベースの簡易衝突回避。
+//
+// 震源(✕)は正確な位置がそのまま情報(震央そのもの)なので動かさず、
+// 震度バッジ側だけを押しのけて避ける。震度バッジの重心が震源と近い
+// (震源のある都道府県が同時に震度バッジの対象でもある、というのは
+// 地震では常に起きる)ケースと、隣接県どうしのバッジが近距離になる
+// ケースの両方をこれで解消する。
+//
+// ズームでピクセル間の距離が変わる(近づいたり離れたりする)ため、
+// マーカーの追加・削除・ズーム変更のたびに、都道府県重心という
+// 「本来の位置」から毎回計算し直す(累積ズレを防ぐため)。
+// ==================================================
+const EPICENTER_CROSS_RADIUS_PX = 16; // ✕アイコンの見た目の半径相当
+const INTENSITY_BADGE_BASE_RADIUS_PX = 17; // 震度バッジの半径。CSSのwidth:30px(半径15)+border 2pxぶんの見た目を含む。ズーム倍率は呼び出し側で掛ける
+const MARKER_OVERLAP_GAP_PX = 4; // これ以上離れていれば「重なっていない」とみなす隙間
+
+function pushMarkerApart(moving, fixedOrOther, otherIsFixed) {
+  const dx = moving.point.x - fixedOrOther.point.x;
+  const dy = moving.point.y - fixedOrOther.point.y;
+  const dist = Math.hypot(dx, dy);
+  const minDist = moving.radius + fixedOrOther.radius + MARKER_OVERLAP_GAP_PX;
+  if (dist >= minDist) return;
+  // 完全に同じ座標(dist=0)だと押しのける向きが決まらないため、適当な向きに逃がす
+  const ux = dist > 0.01 ? dx / dist : 1;
+  const uy = dist > 0.01 ? dy / dist : 0;
+  const overlap = minDist - dist;
+  if (otherIsFixed) {
+    moving.point.x += ux * overlap;
+    moving.point.y += uy * overlap;
+  } else {
+    moving.point.x += (ux * overlap) / 2;
+    moving.point.y += (uy * overlap) / 2;
+    fixedOrOther.point.x -= (ux * overlap) / 2;
+    fixedOrOther.point.y -= (uy * overlap) / 2;
+  }
+}
+
+function resolveMarkerOverlaps() {
+  if (!map) return;
+  const scale = intensityBadgeScaleForZoom(map.getZoom());
+  const badgeRadius = INTENSITY_BADGE_BASE_RADIUS_PX * scale;
+
+  // 固定点(押しのけられない側): 全アクティブイベントの震源✕
+  const anchors = [];
+  for (const record of activeEvents.values()) {
+    const h = record.geo && record.geo.hypocenter;
+    if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
+      anchors.push({ point: map.project([h.lon, h.lat]), radius: EPICENTER_CROSS_RADIUS_PX });
+    }
+  }
+
+  // 可動点(押しのけられる側): 全アクティブイベントの震度バッジ。
+  // __basePos(都道府県重心、本来の位置)から毎回計算し直す
+  const movable = [];
+  for (const record of activeEvents.values()) {
+    for (const marker of record.markers.intensityBadges) {
+      if (!marker.__basePos) continue;
+      movable.push({ marker, point: map.project(marker.__basePos), radius: badgeRadius });
+    }
+  }
+  if (!movable.length) return;
+
+  // 反復して緩和する(1回だけだと3つ以上が絡む重なりが残ることがあるため)。
+  // 表示件数はどんなに多くても数十件程度なので、この程度の反復回数でも
+  // 重くならない
+  for (let pass = 0; pass < 8; pass++) {
+    for (const m of movable) {
+      for (const a of anchors) pushMarkerApart(m, a, true);
+    }
+    for (let i = 0; i < movable.length; i++) {
+      for (let j = i + 1; j < movable.length; j++) pushMarkerApart(movable[i], movable[j], false);
+    }
+  }
+  // 最後にバッジ同士の押し合い(上のループの最終ステップ)で震源✕との間隔が
+  // わずかに崩れることがあるため、震源(動かない側)との間隔だけ最後に
+  // もう一度必ず立て直す。震源は最優先(正確な位置が情報そのもの)なので
+  // これを一番最後にすることで確実に守る
+  for (const m of movable) {
+    for (const a of anchors) pushMarkerApart(m, a, true);
+  }
+
+  for (const m of movable) {
+    m.marker.setLngLat(map.unproject([m.point.x, m.point.y]));
+  }
 }
 
 // 警報対象地域の塗りつぶしを先に見せてから、少し遅れてカメラをズーム
@@ -2110,6 +2206,7 @@ function addActiveEvent(eventData, ttlMs = null) {
   // マップへの追加)は塗りより後にすることで、色が先に画面へ反映される
   syncActiveEventLayers(); // この中で updateEpicenterLayer() が震源✕を描画する
   record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
+  resolveMarkerOverlaps(); // 震源✕・震度バッジ・他イベントのバッジと重ならないよう調整
   // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
   // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
   // しまうため、一度そのままの画面で色を見せてから少し遅れてズームする
@@ -2204,6 +2301,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     for (const marker of record.markers.intensityBadges) marker.remove();
     record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
   }
+  resolveMarkerOverlaps(); // 震源✕の位置が更新された場合も含め、重なりを再調整
   // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
   // そちらを優先してズームする(気象警報の巡回フォーカスは解除する)
   if (currentPatrolCode !== null || currentPatrolTrainingId !== null) {
@@ -2230,6 +2328,7 @@ function removeActiveEvent(id) {
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
   syncActiveEventLayers(); // 削除後に updateEpicenterLayer() が震源✕からも取り除く
+  resolveMarkerOverlaps(); // 消えたことで残りの震度バッジの重なり回避が緩む場合がある
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
   // 考え方)
