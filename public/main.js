@@ -3020,6 +3020,15 @@ const TTL_JALERT_MS = 24 * 60 * 60 * 1000; // Jアラート: 24時間
 const TTL_WEATHER_MS = 3 * 60 * 60 * 1000; // 気象警報・注意報: 最後の更新から3時間
 const TTL_LALERT_UNKNOWN_MS = 3 * 60 * 60 * 1000; // Lアラート(継続時間不明): 最後の更新から3時間
 const TTL_OTHER_CATEGORY_MS = 24 * 60 * 60 * 1000; // 南海トラフ/降灰/洪水(地図非対応分): 最後の更新から24時間
+// 北西太平洋津波情報(6)は他の「その他カテゴリ」と違い、解除(取消/
+// 可能性なし)を示す最後の1通を受信し損ねたまま衛星からの再送そのものが
+// 静かに止まるケースが実機で確認された(熊本地震: 最後の受信から
+// 24時間TTLの期限までまだ13時間以上残っているのに、既に10時間以上
+// 新規受信が無く「もう発表されていないはずなのに表示され続けている」
+// と指摘された)。気象警報・Lアラート(継続時間不明)と同じ3時間に
+// 短縮し、「最後の更新から3時間新しい受信が無ければ自動的に消す」
+// 安全策にする(解除信号が届けばそれより前に即座に消えるのは変わらない)
+const TTL_TSUNAMI_INFO_MS = 3 * 60 * 60 * 1000; // 北西太平洋津波情報: 最後の更新から3時間
 
 // Lアラートはa8_hazard_duration(CAP標準の継続時間、azarashi定義で
 // 4値のみ)を持っていればそれを上限として使う。HAZARD_DURATION_JA
@@ -3344,11 +3353,12 @@ function renderReport(report) {
     } else {
       const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);
       // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
+      const ttl = report.disaster_category_no === 6 ? TTL_TSUNAMI_INFO_MS : TTL_OTHER_CATEGORY_MS;
       event.timer = setTimeout(() => {
         otherReports.delete(report.disaster_category_no);
         syncActiveEventLayers();
         renderEventsPanel();
-      }, TTL_OTHER_CATEGORY_MS);
+      }, ttl);
       otherReports.set(report.disaster_category_no, event);
     }
     // 降灰(9)はWeb版で対象市区町村を地図に塗る(buildEventFromOtherCategory参照)

@@ -523,6 +523,7 @@ const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // サーバー側にも適用し、判定できる場合はより短いTTLで安全策を効かせる
 const TTL_HYPOCENTER_INTENSITY_MS = 15 * 60 * 1000; // 震源・震度速報: 15分
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間(解除信号が主、これは保険)
+const TTL_TSUNAMI_INFO_MS = 3 * 60 * 60 * 1000; // 北西太平洋津波情報(6): 3時間(public/main.jsと同じ理由)
 const TTL_TEST_DATA_MS = 60 * 1000; // テストデータ: 1分
 // 気象警報・注意報とLアラートは、public/main.js側のTTL_WEATHER_MS/
 // TTL_LALERT_UNKNOWN_MSと同じ3時間に揃える(以前は24時間の安全策
@@ -533,6 +534,13 @@ function ttlMsForReport(report) {
   if (report.is_test_data) return TTL_TEST_DATA_MS;
   if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
   if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
+  // 北西太平洋津波情報(6)は解除(取消/可能性なし)の最後の1通を受信し
+  // 損ねたまま衛星からの再送自体が静かに止まるケースが実機で確認された
+  // (public/main.jsのTTL_TSUNAMI_INFO_MSと同じ理由・同じ値。ここが
+  // デフォルトのACTIVE_REPORT_MAX_AGE_MS=24hのままだと、クライアント側の
+  // 3hタイマーで一旦消えても、再接続時にサーバーの古い永続状態から
+  // 復活してしまう)
+  if (report.disaster_category_no === 6) return TTL_TSUNAMI_INFO_MS;
   if (report.disaster_category_no === 10) return TTL_WEATHER_LALERT_MS;
   if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return TTL_WEATHER_LALERT_MS;
   return null; // 判定できないものは従来通りACTIVE_REPORT_MAX_AGE_MSの安全策に任せる
