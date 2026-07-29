@@ -1303,17 +1303,15 @@ function buildEventFromOtherCategory(report) {
   }
   if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
 
-  // 降灰(9)を地図に「楕円」で表示する。ただしこれはWeb版(通常のブラウザ)
-  // 限定。非力なラズパイ実機(kiosk)は従来通りパネルのテキストのみとし、
-  // 地図への追加描画はしない(降灰はもともと巡回ズームの対象外=idleのまま
-  // 表示されるため、kioskで描くと日本全体表示に重いポリゴンが増え、
-  // クラッシュ対策の趣旨に反する)。楕円はLアラート/火山と同じ
-  // lalert-ellipsesレイヤーに載るので、タップでパネル表示する仕組みも共通
-  // (map.on('click')のlalert-ellipse-fill分岐 / focusOtherReport参照)
+  // 降灰(9)を地図に「楕円」で表示する。以前はWeb版限定(kioskはクラッシュ
+  // 対策のためパネルのテキストのみ)だったが、ユーザーの指示によりkioskも
+  // Web版と統一した(shouldUseLightweightIdleViewと同じ経緯)。楕円は
+  // Lアラート/火山と同じlalert-ellipsesレイヤーに載るので、タップでの
+  // パネル表示自体はkioskでは元々マウス操作前提のため効かない(意図通り)
   let ellipse = null;
   let ellipseBounds = null;
   let pendingAshEllipse = false;
-  if (!isKioskDisplay() && report.disaster_category_no === 9 && Array.isArray(report.local_governments_raw) && report.local_governments_raw.length) {
+  if (report.disaster_category_no === 9 && Array.isArray(report.local_governments_raw) && report.local_governments_raw.length) {
     const res = computeAshFallEllipse(report);
     ellipse = res.ellipse;
     ellipseBounds = res.bounds;
@@ -2331,11 +2329,16 @@ function isKioskDisplay() {
   return IS_LOCAL_KIOSK || !!LOCKED_DEVICE_ID;
 }
 
-// 日本全体表示(idle)中に重いポリゴン塗りを軽量マーカーへ切り替えるのは
-// ラズパイ実機(kiosk)限定。Web版(通常のブラウザ)は非力なハードウェアの
-// 制約が無いため、idle中でもポリゴンをそのまま出し続ける
+// 以前は日本全体表示(idle)中、ラズパイ実機(kiosk)だけ重いポリゴン塗りを
+// 軽量マーカーへ切り替えていた(非力なハードウェアのクラッシュ対策)。
+// ユーザーの明示的な指示により、キオスクもWeb版と完全に同じポリゴン
+// 常時表示に統一した(クラッシュ対策はスワップ増設等の別対策で対応する
+// 判断がされたため)。マウス操作(ドラッグ/クリック/スクロール)前提の
+// 機能はこれまで通りkiosk限定のままだが、これは描画内容そのものなので
+// 統一の対象にした。isKioskDisplay()は他の判定(通知ボタン非表示等、
+// 操作前提の機能)にまだ使うため、関数自体は残す
 function shouldUseLightweightIdleView() {
-  return isKioskDisplay() && isPatrolIdle();
+  return false;
 }
 
 // 日本全体表示(idle)の間は、都道府県・市区町村・河川等の重いポリゴン
@@ -3854,23 +3857,18 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 let socket = null;
 let intentionalReconnect = false;
 
-// 再接続の待ち時間。完全ローカル版(IS_LOCAL_KIOSK)は従来どおり固定3秒の
-// ままにして挙動を一切変えない。Web/PWA版だけ、初回は素早く(200ms)・失敗が
-// 続いたら徐々に間隔を伸ばす指数バックオフにする。加えてPWAがフォアグラウンド
-// に戻った瞬間(visibilitychange/focus/online)に即再接続することで、アプリを
-// 開いてから接続できるまでの待ち時間を最小化する(iOS等ではバックグラウンド中に
-// WebSocketが切断され、復帰時に旧来の3秒待ちが体感の遅さになっていた)。
+// 再接続の待ち時間。初回は素早く(200ms)・失敗が続いたら徐々に間隔を
+// 伸ばす指数バックオフにする。以前は完全ローカル版(IS_LOCAL_KIOSK)だけ
+// 固定3秒のままにしていたが、ユーザーの指示によりkioskもWeb版と統一した
+// (マウス操作に無関係な通信ロジックのため)。フォアグラウンド復帰時
+// (visibilitychange/focus/online)の即再接続も同様にkioskへ適用する
+// (常時表示のkioskではまず発火しないが、動かしても実害は無い)。
 const WS_RECONNECT_MIN_MS = 200;
 const WS_RECONNECT_MAX_MS = 5000;
 let reconnectTimer = null;
 let reconnectDelay = WS_RECONNECT_MIN_MS;
 
 function scheduleReconnect() {
-  if (IS_LOCAL_KIOSK) {
-    console.warn('WebSocket切断、3秒後に再接続します');
-    setTimeout(connectWebSocket, 3000);
-    return;
-  }
   clearTimeout(reconnectTimer);
   console.warn(`WebSocket切断、${reconnectDelay}ms後に再接続します`);
   reconnectTimer = setTimeout(connectWebSocket, reconnectDelay);
@@ -3878,9 +3876,8 @@ function scheduleReconnect() {
 }
 
 // フォアグラウンド復帰・ネットワーク復帰時に、切れていれば即再接続する。
-// 既に接続中/接続済みなら何もしない。完全ローカル版は対象外。
+// 既に接続中/接続済みなら何もしない。
 function reconnectNow() {
-  if (IS_LOCAL_KIOSK) return;
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
   clearTimeout(reconnectTimer);
   reconnectDelay = WS_RECONNECT_MIN_MS;
@@ -3997,18 +3994,15 @@ function connectWebSocket() {
 
 connectWebSocket();
 
-// PWA/Web版のみ: フォアグラウンド復帰・ネットワーク復帰の瞬間に、切れていれば
-// 即再接続する(バックオフ待ちをスキップ)。これで「アプリを開いた直後に接続
-// できるまで待たされる」体感を無くす。完全ローカル版(常時表示のkiosk)は
-// バックグラウンド復帰という概念が無いため対象外(reconnectNow内でも弾く)。
-if (!IS_LOCAL_KIOSK) {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') reconnectNow();
-  });
-  window.addEventListener('focus', reconnectNow);
-  window.addEventListener('online', reconnectNow);
-  window.addEventListener('pageshow', reconnectNow); // iOS: bfキャッシュからの復帰
-}
+// フォアグラウンド復帰・ネットワーク復帰の瞬間に、切れていれば即再接続する
+// (バックオフ待ちをスキップ)。以前はWeb版限定だったが、kioskにも統一した
+// (常時表示のkioskではまず発火しないだけで、登録しても実害は無い)。
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') reconnectNow();
+});
+window.addEventListener('focus', reconnectNow);
+window.addEventListener('online', reconnectNow);
+window.addEventListener('pageshow', reconnectNow); // iOS: bfキャッシュからの復帰
 
 // ==================================================
 // PWA: Service Worker登録(ホーム画面追加・オフラインでの見た目表示用)
