@@ -924,56 +924,25 @@ setInterval(() => {
 // サービス稼働状況の判定基準。個々のチェックが1つでもng(ok:false)なら
 // 全体をhealthy:falseにする。公開ページ(認証無し)のため、拠点名・
 // ホスト名等の個体を特定できる情報は含めず、件数だけを返す
-// deviceStatus(拠点=ラズパイからの1時間おきの状態報告)から、現在の
-// ラズパイ稼働時間を見積もる。報告自体は最大1時間古い可能性があるため、
-// 報告に含まれるuptime_sec(報告した瞬間の値)に「報告からの経過時間」を
-// 足して、"今この瞬間"の稼働時間に近づける
-function estimatePiUptimeMs(device) {
-  if (!device || typeof device.uptime_sec !== "number") return null;
-  const elapsedSinceReport = Date.now() - device.receivedAt;
-  return device.uptime_sec * 1000 + elapsedSinceReport;
-}
-
-// 複数拠点がある場合は、最も新しく報告してきた(=最新の状態が分かる)
-// ものを代表として使う
-function mostRecentDevice() {
-  const devices = [...deviceStatus.values()];
-  if (!devices.length) return null;
-  return devices.reduce((a, b) => (a.receivedAt > b.receivedAt ? a : b));
-}
-
 function computeSystemStatusChecks() {
   const now = Date.now();
   const devices = [...deviceStatus.values()];
-  const onlineDevices = devices.filter((d) => now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS);
+  const onlineDeviceCount = devices.filter((d) => now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS).length;
   const lastMinuteCount = currentReceiveCountLastMinute();
-  const decoderActiveCount = onlineDevices.filter((d) => d.qzss_decoder_active === true).length;
-  const decoderReportedCount = onlineDevices.filter((d) => typeof d.qzss_decoder_active === "boolean").length;
   return [
     {
-      name: "ラズパイ本体",
+      name: "受信機からのデータ受信",
+      ok: lastMinuteCount > 0,
+      detail: `直近1分間の受信: ${lastMinuteCount}件`,
+    },
+    {
+      name: "拠点(受信機)の接続",
       // deviceStatusは1時間おきの状態報告でしか埋まらないため、稼働開始
-      // 直後(まだ1回も状態報告が来ていない)はonlineDevices=0でも
+      // 直後(まだ1回も状態報告が来ていない)はonlineDeviceCount=0でも
       // 異常とは限らない。総数自体が0の場合は「まだ判定できない」扱いにし、
       // 誤って赤表示にしないようokをtrueにする
-      ok: devices.length === 0 || onlineDevices.length > 0,
-      detail: devices.length ? `オンライン: ${onlineDevices.length}/${devices.length}拠点` : "状態報告待ち",
-    },
-    {
-      name: "解析(デコード)処理",
-      // qzss_decoder_active(systemctlの起動状態)は古いバージョンの
-      // report_status.shを動かしている拠点だと送られてこない(undefined)。
-      // その場合は「まだ判定できない」扱いでokをtrueにし、誤って赤表示に
-      // しない(1件も報告が無い場合と同じ考え方)
-      ok: decoderReportedCount === 0 || decoderActiveCount > 0,
-      detail: decoderReportedCount
-        ? `稼働中: ${decoderActiveCount}/${decoderReportedCount}拠点`
-        : "状態報告待ち",
-    },
-    {
-      name: "送信サーバー(クラウドへの送信)",
-      ok: lastMinuteCount > 0,
-      detail: `直近1分間にクラウドが受信: ${lastMinuteCount}件(Heartbeat含む)`,
+      ok: devices.length === 0 || onlineDeviceCount > 0,
+      detail: devices.length ? `オンライン: ${onlineDeviceCount}/${devices.length}拠点` : "状態報告待ち",
     },
     {
       name: "プッシュ通知",
@@ -986,29 +955,15 @@ function computeSystemStatusChecks() {
 app.get("/api/system-status", (req, res) => {
   const now = Date.now();
   const checks = computeSystemStatusChecks();
-  const device = mostRecentDevice();
-  // デコードエラー件数(read_legacy_dual.pyがプロセス起動からの累計を
-  // report_status.sh経由で送ってくる)。誤検知で赤表示を乱発しないよう、
-  // 割合が高い場合だけ注意扱いにする(閾値20%は経験則の目安であり、
-  // 電波状況次第である程度のデコード失敗は正常運用でも起こりうるため)
-  const decodeTotal = device && typeof device.decode_total === "number" ? device.decode_total : null;
-  const decodeErrors = device && typeof device.decode_errors === "number" ? device.decode_errors : null;
-  const decodeErrorRate = decodeTotal ? decodeErrors / decodeTotal : null;
   res.json({
     now,
-    // 稼働時間はラズパイ(受信機)本体の稼働時間。Cloud Run自体は
-    // デプロイ・スケールのたびに再起動されるため、その稼働時間は
-    // 「システムが正常に動き続けているか」の指標としてはあまり意味が無い
-    piUptimeMs: estimatePiUptimeMs(device),
-    piDeviceId: device ? device.deviceId : null,
+    serverStartTime: SERVER_START_TIME,
+    uptimeMs: now - SERVER_START_TIME,
     lastMinuteReceiveCount: currentReceiveCountLastMinute(),
     receiveCountHistory,
     websocketClients: wss.clients.size,
-    decodeTotal,
-    decodeErrors,
-    decodeErrorRate,
     // プッシュ通知は必須の生存確認ではない(VAPID未設定でも地図自体は
-    // 動く)ため、healthy判定には含めない
+    // 動く)ため、healthy判定には含めない。受信・拠点接続の2つだけを見る
     healthy: checks.filter((c) => c.name !== "プッシュ通知").every((c) => c.ok),
     checks,
   });

@@ -73,7 +73,7 @@
 <body>
 <div class="wrap">
   <h1>📡 稼働状況</h1>
-  <p class="sub">5分おきに自動更新します。ラズパイ本体・解析(デコード)処理・クラウドへの送信の3つをチェックしています。</p>
+  <p class="sub">5分おきに自動更新します。受信機からのデータ受信・拠点の接続状況をチェックしています。</p>
 
   <div class="overall" id="overall">
     <div class="dot"></div>
@@ -88,10 +88,7 @@
   <h2 class="section-title">チェック項目</h2>
   <div class="checks" id="checks"></div>
 
-  <h2 class="section-title">クラウドへの受信件数の推移(5分おきに直近1分間をサンプリング)</h2>
-  <p class="sub" style="margin:-4px 0 12px">
-    ※これは「アンテナが衛星から電波を受信した件数」ではなく、ラズパイからクラウドに届いたHTTPリクエストの件数です(30秒おきのHeartbeat含む)。実際の衛星受信・デコード状況は上の「デコードエラー」の件数や、下の「解析(デコード)処理」のチェックをご覧ください。
-  </p>
+  <h2 class="section-title">受信件数の推移(5分おきに直近1分間をサンプリング)</h2>
   <canvas id="chart" height="160"></canvas>
   <div class="chart-caption" id="chart_caption"></div>
   <div class="empty" id="empty-msg" style="display:none">まだ記録がありません。サーバー起動から5分ほどお待ちください。</div>
@@ -143,27 +140,17 @@ function renderOverall(data) {
   }
   el.className = 'overall ' + (data.healthy ? 'is-ok' : 'is-ng');
   title.textContent = data.healthy ? '正常に稼働しています' : '異常の可能性があります';
-  sub.textContent = data.piUptimeMs != null
-    ? `ラズパイ稼働時間: ${formatDuration(data.piUptimeMs)}`
-    : 'ラズパイの状態報告待ち';
+  sub.textContent = `稼働時間: ${formatDuration(data.uptimeMs)}`;
 }
 
 function renderStats(data) {
   const el = document.getElementById('stats');
   if (!data) { el.innerHTML = ''; return; }
   const cards = [
-    { label: 'ラズパイ稼働時間', value: data.piUptimeMs != null ? formatDuration(data.piUptimeMs) : '不明', unit: '' },
-    { label: '直近1分間の受信(cloud)', value: `${data.lastMinuteReceiveCount}`, unit: '件' },
+    { label: '稼働時間', value: formatDuration(data.uptimeMs), unit: '' },
+    { label: '直近1分間の受信', value: `${data.lastMinuteReceiveCount}`, unit: '件' },
     { label: 'WebSocket接続中', value: `${data.websocketClients}`, unit: '件' },
   ];
-  if (data.decodeTotal != null) {
-    const rate = data.decodeErrorRate != null ? (data.decodeErrorRate * 100).toFixed(1) : '0.0';
-    cards.push({
-      label: 'デコードエラー(起動からの累計)',
-      value: `${data.decodeErrors ?? 0}`,
-      unit: `件 / ${data.decodeTotal}件中(${rate}%)`,
-    });
-  }
   el.innerHTML = cards.map((c) => `
     <div class="stat-card">
       <div class="label">${c.label}</div>
