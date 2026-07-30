@@ -55,16 +55,9 @@
     #disclaimer-modal button{font:inherit;font-weight:650;font-size:14px;padding:9px 22px;border-radius:10px;border:0;background:#35d3c2;color:#04110f;cursor:pointer}
     #disclaimer-modal button:hover{filter:brightness(1.06)}
 
-    /* ハンバーガーメニュー(稼働状況・レイテンシー・このマップについて)。
-       Web版のみ表示(キオスクではマウス操作が無いため非表示) */
-    #menu_button{position:fixed;left:12px;bottom:12px;z-index:30;width:34px;height:34px;display:flex;align-items:center;justify-content:center;color:#aab4c0;background:rgba(18,22,29,.72);border:1px solid rgba(140,160,185,.28);border-radius:9px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);cursor:pointer;padding:0}
-    #menu_button:hover{color:#fff;border-color:rgba(140,160,185,.55)}
-    #menu_button svg{width:17px;height:17px;display:block}
-    #menu_popup{position:fixed;left:12px;bottom:54px;z-index:30;min-width:200px;background:#12161d;color:#e6ebf1;border:1px solid rgba(140,160,185,.28);border-radius:12px;padding:6px;box-shadow:0 20px 50px -20px rgba(0,0,0,.85);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:none;flex-direction:column;gap:2px}
-    #menu_popup.show{display:flex}
-    #menu_popup a{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:8px;color:#e6ebf1;text-decoration:none;font-size:13.5px;line-height:1.3}
-    #menu_popup a:hover{background:rgba(140,160,185,.14)}
-    #menu_popup .ic{font-size:15px;flex-shrink:0}
+    /* 紹介サイト(info.shum10.com)へのリンク。Web版のみ表示(キオスクでは非表示) */
+    #info_link{position:fixed;left:12px;bottom:12px;z-index:30;font-size:12px;line-height:1;color:#aab4c0;background:rgba(18,22,29,.72);border:1px solid rgba(140,160,185,.28);border-radius:8px;padding:7px 11px;text-decoration:none;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+    #info_link:hover{color:#fff;border-color:rgba(140,160,185,.55)}
   </style>
   <link rel="stylesheet" href="./style.css">
   <script src="main.js" defer></script>
@@ -92,16 +85,8 @@
   <div id="map"></div>
   <div id="patrol_transition_mask"></div>
 
-  <!-- ハンバーガーメニュー(稼働状況・レイテンシー・このマップについて)。
-       Web版のみ表示(キオスク実機では下のスクリプトで非表示のまま) -->
-  <button id="menu_button" type="button" aria-label="メニュー" aria-haspopup="true" aria-expanded="false" hidden>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
-  </button>
-  <div id="menu_popup" role="menu">
-    <a href="./status.html" role="menuitem"><span class="ic">📡</span>稼働状況</a>
-    <a href="./latency.html" role="menuitem"><span class="ic">⏱️</span>レイテンシー</a>
-    <a href="https://info.shum10.com" target="_blank" rel="noopener" role="menuitem"><span class="ic">ℹ️</span>このマップについて</a>
-  </div>
+  <!-- 紹介サイトへのリンク。Web版のみ表示(キオスク実機では下のスクリプトで非表示のまま) -->
+  <a id="info_link" href="https://info.shum10.com" target="_blank" rel="noopener" hidden>ⓘ このマップについて</a>
 
   <!-- 初回アクセス時のみ表示する免責ポップアップ。localStorageで一度きり。
        キオスク実機(localhost / ?device=付き)には出さない(無人表示のため) -->
@@ -127,30 +112,9 @@
         // キオスク実機(オフラインlocalhost / 拠点署名URL ?device=)には出さない
         var isKiosk = ['localhost','127.0.0.1'].indexOf(location.hostname) >= 0
           || new URLSearchParams(location.search).has('device');
-        // メニューはWeb版のみ表示(キオスク実機は無人・マウス操作が無いため隠したまま)
-        var menuButton = document.getElementById('menu_button');
-        var menuPopup = document.getElementById('menu_popup');
-        if (menuButton && !isKiosk) {
-          menuButton.hidden = false;
-          menuButton.addEventListener('click', function (e) {
-            e.stopPropagation();
-            var willShow = !menuPopup.classList.contains('show');
-            menuPopup.classList.toggle('show', willShow);
-            menuButton.setAttribute('aria-expanded', String(willShow));
-          });
-          document.addEventListener('click', function (e) {
-            if (!menuPopup.classList.contains('show')) return;
-            if (menuPopup.contains(e.target) || menuButton.contains(e.target)) return;
-            menuPopup.classList.remove('show');
-            menuButton.setAttribute('aria-expanded', 'false');
-          });
-          document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && menuPopup.classList.contains('show')) {
-              menuPopup.classList.remove('show');
-              menuButton.setAttribute('aria-expanded', 'false');
-            }
-          });
-        }
+        // 紹介サイトへのリンクはWeb版のみ表示(キオスク実機では隠したまま)
+        var infoLink = document.getElementById('info_link');
+        if (infoLink && !isKiosk) infoLink.hidden = false;
         if (isKiosk) return;
         var KEY = 'qzss-map-disclaimer-v1';
         var seen = null;
