@@ -18,6 +18,11 @@ const INGEST_TOKEN = (process.env.INGEST_TOKEN || "").trim();
 const FIFO_PATH = path.resolve(__dirname, "qzss_pipe");
 const PUBLIC_DIR = path.resolve(__dirname, "public");
 
+// 稼働状況ダッシュボード(public/status.html)用: プロセスがいつ起動したか。
+// Cloud Runは再起動(コールドスタート・新デプロイ)のたびにこれが更新される
+// ため、「稼働時間」はそのまま「直近の再起動からの経過時間」の目安になる
+const SERVER_START_TIME = Date.now();
+
 const app = express();
 // 市区町村境界データ(municipalities.geojson、数MB)を素で返すと
 // 特にモバイル回線で初回読み込みが遅くなるため、gzip圧縮する
@@ -765,6 +770,7 @@ function handleIncomingLine(line) {
 app.post("/ingest", (req, res) => {
   const auth = requireDeviceToken(req, res);
   if (!auth.ok) return;
+  recordIngestReceived(); // 稼働状況ダッシュボード用(Heartbeat含め全件をカウントする)
   // レイテンシ計測(T0受信→T1デコード→T2サーバー受信→T3配信→T4描画完了)。
   // 受信機側が埋めたT0/T1がある場合のみ、ここでT2を追記する
   if (req.body && req.body.client_timestamps) {
@@ -858,6 +864,109 @@ app.post("/client-timing", (req, res) => {
 // ダッシュボード(public/latency.html)用に直近の計測履歴を返す
 app.get("/api/latency-history", (req, res) => {
   res.json(latencyHistory);
+});
+
+// ==================================================
+// 稼働状況ダッシュボード(public/status.html)
+//
+// 「/ingestに何かが届いているか」を生存確認の主指標にする。災害が無い
+// 時間帯でもラズパイは30秒おきにHeartbeatを送り続けているため、通常運用中は
+// 直近1分間のカウントがほぼ常に1件以上になる(0件が続く=受信機からの
+// 通信が止まっている、またはラズパイ側が落ちている、を意味する)。
+// 5分おきに「直近1分間の受信件数」をサンプリングし、latencyHistoryと
+// 同じパターンでGCS/ローカルファイルに永続化して履歴を残す
+// ==================================================
+const RECEIVE_WINDOW_MS = 60 * 1000; // 「直近1分間」の窓
+let recentIngestTimestamps = [];
+
+function recordIngestReceived() {
+  const now = Date.now();
+  recentIngestTimestamps.push(now);
+  const cutoff = now - RECEIVE_WINDOW_MS;
+  while (recentIngestTimestamps.length && recentIngestTimestamps[0] < cutoff) {
+    recentIngestTimestamps.shift();
+  }
+}
+
+function currentReceiveCountLastMinute() {
+  const cutoff = Date.now() - RECEIVE_WINDOW_MS;
+  let count = 0;
+  for (let i = recentIngestTimestamps.length - 1; i >= 0; i--) {
+    if (recentIngestTimestamps[i] < cutoff) break; // 古い順に並んでいるので先頭側で打ち切れる
+    count++;
+  }
+  return count;
+}
+
+const RECEIVE_COUNT_SAMPLE_INTERVAL_MS = 5 * 60 * 1000;
+const RECEIVE_COUNT_HISTORY_MAX_SIZE = 24 * (60 / 5); // 5分間隔で24時間分
+const RECEIVE_COUNT_HISTORY_STATE_FILE = "receive_count_history.json";
+const receiveCountHistory = [];
+
+async function loadReceiveCountHistory() {
+  const restored = await loadPersistedJson(RECEIVE_COUNT_HISTORY_STATE_FILE);
+  if (Array.isArray(restored)) {
+    receiveCountHistory.push(...restored);
+    console.log(`♻️  受信件数履歴を復元しました(${receiveCountHistory.length}件)`);
+  }
+}
+
+function persistReceiveCountHistory() {
+  persistJson(RECEIVE_COUNT_HISTORY_STATE_FILE, receiveCountHistory);
+}
+
+setInterval(() => {
+  receiveCountHistory.push({ time: Date.now(), count: currentReceiveCountLastMinute() });
+  if (receiveCountHistory.length > RECEIVE_COUNT_HISTORY_MAX_SIZE) receiveCountHistory.shift();
+  persistReceiveCountHistory();
+}, RECEIVE_COUNT_SAMPLE_INTERVAL_MS);
+
+// サービス稼働状況の判定基準。個々のチェックが1つでもng(ok:false)なら
+// 全体をhealthy:falseにする。公開ページ(認証無し)のため、拠点名・
+// ホスト名等の個体を特定できる情報は含めず、件数だけを返す
+function computeSystemStatusChecks() {
+  const now = Date.now();
+  const devices = [...deviceStatus.values()];
+  const onlineDeviceCount = devices.filter((d) => now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS).length;
+  const lastMinuteCount = currentReceiveCountLastMinute();
+  return [
+    {
+      name: "受信機からのデータ受信",
+      ok: lastMinuteCount > 0,
+      detail: `直近1分間の受信: ${lastMinuteCount}件`,
+    },
+    {
+      name: "拠点(受信機)の接続",
+      // deviceStatusは1時間おきの状態報告でしか埋まらないため、稼働開始
+      // 直後(まだ1回も状態報告が来ていない)はonlineDeviceCount=0でも
+      // 異常とは限らない。総数自体が0の場合は「まだ判定できない」扱いにし、
+      // 誤って赤表示にしないようokをtrueにする
+      ok: devices.length === 0 || onlineDeviceCount > 0,
+      detail: devices.length ? `オンライン: ${onlineDeviceCount}/${devices.length}拠点` : "状態報告待ち",
+    },
+    {
+      name: "プッシュ通知",
+      ok: PUSH_ENABLED,
+      detail: PUSH_ENABLED ? "有効" : "VAPIDキー未設定のため無効",
+    },
+  ];
+}
+
+app.get("/api/system-status", (req, res) => {
+  const now = Date.now();
+  const checks = computeSystemStatusChecks();
+  res.json({
+    now,
+    serverStartTime: SERVER_START_TIME,
+    uptimeMs: now - SERVER_START_TIME,
+    lastMinuteReceiveCount: currentReceiveCountLastMinute(),
+    receiveCountHistory,
+    websocketClients: wss.clients.size,
+    // プッシュ通知は必須の生存確認ではない(VAPID未設定でも地図自体は
+    // 動く)ため、healthy判定には含めない。受信・拠点接続の2つだけを見る
+    healthy: checks.filter((c) => c.name !== "プッシュ通知").every((c) => c.ok),
+    checks,
+  });
 });
 
 // ==================================================
@@ -1602,6 +1711,7 @@ Promise.all([
   loadActiveReports(),
   loadLatencyHistory(),
   loadPushSubscriptions(),
+  loadReceiveCountHistory(),
 ]).finally(() => {
   server.listen(PORT, () => {
     console.log(`✅ サーバー起動: http://localhost:${PORT}`);
