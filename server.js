@@ -1099,7 +1099,7 @@ if (ENABLE_WEB_ADMIN) {
 //
 // 管理画面で人が稀に変更するだけの設定値なので、Cloud Run再起動で
 // 消えると実害が大きい(毎回設定し直しになる)ため、変更の度にGCSへ
-// 保存する(map_caution/server.jsのactiveReports永続化と同じパターン)。
+// 保存する(activeReports永続化と同じパターン)。
 // ==================================================
 const REGION_GROUPS = JSON.parse(fs.readFileSync(path.join(__dirname, "region_groups.json"), "utf8")).groups;
 const prefectureIdToGroup = new Map();

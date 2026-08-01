@@ -6,3 +6,11 @@ qzss_pipe
 .DS_Store
 *.log
 .local_state/
+
+# Desktop整理でmap/直下にまとめた、別管理のプロジェクト群。
+# qzss_pi_packageは独立したGitリポジトリ(qzss-pi-package)なので
+# ネストしたgitリポジトリとしてそのまま残す(mapのgit管理には含めない)。
+# qzss_indonesia_map・qzss_intl_dcx_pocはmapとは無関係の別プロジェクト
+qzss_pi_package/
+qzss_indonesia_map/
+qzss_intl_dcx_poc/
