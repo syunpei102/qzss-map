@@ -1551,31 +1551,66 @@ let currentPatrolCode = null; // 気象警報巡回中の地域コード
 let currentPatrolTrainingId = null; // 訓練放送巡回中のactiveEvents id
 let currentPatrolEventId = null; // 地震・津波・Jアラート・Lアラート等、本物のイベント巡回中のactiveEvents id
 
-// ==================================================
-// 緊急地震速報(EEW)のズーム固定
-//
-// 従来はEEWも他のイベントと同様、PATROL_DWELL_MS(40秒)経過すると
-// patrolStepが次の巡回対象(無関係な気象警報等)へカメラを動かしていた。
-// EEWは特に緊急性が高く、余震の続報を追ううえでも同じ場所を見続けたい
-// という要望のため、EEWが表示された場合だけは「他の地域で新しい情報が
-// 発表されない限り」EEW_ZOOM_LOCK_MS(20分)はそこにズームを固定する。
-//
-// 余震対策: 同じ地震グループ・近い地域のEEW続報は、呼び出し元
-// (handleReport内)で古いイベントを一旦removeActiveEventしてから
-// addActiveEventし直す実装になっており、結果としてinterruptPatrolFor
-// NewEventが新しいidで呼ばれる。下のinterruptPatrolForNewEventの実装で
-// 「EEWが新しく表示されるたびにロックを立て直す(idも更新)」ようにして
-// あるので、余震が来るたびにロックが自動延長される(=途中で解除されない)。
-// 逆に、EEWと無関係な新しい地域の情報(他の気象警報・別の地震等)が
-// interruptPatrolForNewEvent/interruptPatrolForNewRegionで割り込むと、
-// ロックはそこで解除される(=ユーザーの「他の地域で発表されたら」の通り)
-const EEW_ZOOM_LOCK_MS = 20 * 60 * 1000;
-let eewZoomLockEventId = null;
-let eewZoomLockUntil = 0;
+// ページを開いて最初にWebSocketが繋がった直後、サーバーから既存の
+// アクティブな通報がまとめて再送されてくる。この「初回だけ」は、
+// 地震・津波(QUAKE_LOCK_CATEGORY_NOS)以外の情報でカメラをどこかへ
+// ズームさせず、日本全体表示のまま始める(ユーザー要望: 初回は
+// 日本全体、地震関連がある時だけ最初からその地点にズーム)。
+// INITIAL_LOAD_SETTLE_MS経過したら通常通りに戻す(以降の再接続では
+// この抑制はしない=trueに戻さない)
+const INITIAL_LOAD_SETTLE_MS = 2500;
+let isInitialLoad = true;
 
-function clearEewZoomLock() {
-  eewZoomLockEventId = null;
-  eewZoomLockUntil = 0;
+// ==================================================
+// 地震・津波情報の優先ロック
+//
+// 緊急地震速報(1)・震源(2)・震度速報(3)・津波警報(5)・北西太平洋津波
+// 情報(6)のいずれかが1件でもアクティブな間は、気象警報等の通常巡回を
+// 一切進めず、地震・津波の情報だけを表示し続ける(固定時間ではなく、
+// 該当イベントが無くなるまでずっと)。複数同時にアクティブな場合は、
+// 全部が1画面に収まるようにズームをまとめる(津波の複数地域を
+// unionBoundsでまとめている既存の考え方と同じ)。
+//
+// タイマーで状態を持たず、「今アクティブな地震・津波イベントがあるか」を
+// 毎回activeEventsから直接判定する(古い状態が残って不整合になる心配が無い)
+const QUAKE_LOCK_CATEGORY_NOS = new Set([1, 2, 3, 5, 6]);
+// ロック中に地震・津波以外の新しい情報(気象警報など)が割り込んだ場合、
+// 通常のPATROL_DWELL_MS(40秒)ではなく、これだけ見せたら地震・津波の
+// 表示に戻す
+const QUAKE_LOCK_INTERRUPT_PEEK_MS = 15 * 1000;
+
+function quakeLockRecords() {
+  const records = [];
+  for (const record of activeEvents.values()) {
+    if (record.isTraining) continue;
+    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo)) continue;
+    if (!record.bounds) continue;
+    records.push(record);
+  }
+  return records;
+}
+
+function isQuakeLockActive() {
+  return quakeLockRecords().length > 0;
+}
+
+// 地震・津波の合成ビュー(複数アクティブなら全部が入るズーム)を表示する。
+// 巡回状態は全て解除し、パネルは「アクティブなイベントを並べる」通常の
+// idle表示と同じ扱いにする(groupOverlappingRecordsが地震どうし・
+// 無関係などうしを適切に分けて別カードにしてくれる)
+function showQuakeLockView() {
+  const records = quakeLockRecords();
+  if (!records.length) return false;
+  currentPatrolCode = null;
+  currentPatrolTrainingId = null;
+  currentPatrolEventId = null;
+  flyToBounds(unionBounds(records.map((r) => r.bounds)), 24);
+  focusedEventIds = new Set(records.map((r) => r.id));
+  syncActiveEventLayers();
+  updateWeatherDisplay();
+  updateFocusOutline();
+  renderEventsPanel();
+  return true;
 }
 
 // 気象警報の巡回は、Lアラートの市区町村単位表示ほどの精密さは不要な上、
@@ -1679,16 +1714,20 @@ function returnToWholeJapanSafely() {
 }
 
 function patrolStep() {
-  // EEWズーム固定中は、ロック対象のイベントがまだ生きていて期限内なら
-  // 巡回リストを一切進めず、そのまま同じ場所を見せ続ける(=何もしない)。
-  // イベント自体が既に消えている(TTL切れ・取消)場合や期限が過ぎた場合は
-  // ロックを解除して、通常の巡回に戻す
-  if (eewZoomLockEventId !== null) {
-    if (Date.now() < eewZoomLockUntil && activeEvents.has(eewZoomLockEventId)) {
-      schedulePatrolNext(PATROL_DWELL_MS);
-      return;
-    }
-    clearEewZoomLock();
+  // 地震・津波ロック中は、通常の巡回リストを一切進めず、合成ビューを
+  // (念のため)立て直したうえでそのまま見せ続ける。該当イベントが
+  // 1件も無くなっていれば自動的に下の通常巡回へ抜ける
+  if (isQuakeLockActive()) {
+    showQuakeLockView();
+    schedulePatrolNext(PATROL_DWELL_MS);
+    return;
+  }
+  // 初回読み込み中(WebSocket接続直後、既存のアクティブな通報が
+  // まとめて再送されてくる間)は巡回そのものを始めない。isInitialLoadが
+  // 解除された瞬間にconnectWebSocketのopenハンドラがschedulePatrolNext(0)
+  // で改めて呼び直す
+  if (isInitialLoad) {
+    return;
   }
 
   // 気象警報(weatherSites)・位置情報を持つ訓練放送・そして地震/津波/
@@ -1768,20 +1807,34 @@ function patrolStep() {
 // 順番を待たず、その新しい地域をすぐズームインして見せる。
 // 見せ終わったら通常の巡回に戻る(codes配列内での位置を追跡し直し、
 // 他の地域を飛ばしたり、同じ地域をすぐ繰り返したりしないようにする)
-function interruptPatrolForNewRegion(code) {
+function interruptPatrolForNewRegion(code, manual = false) {
+  // 初回読み込み直後(サーバーから既存のアクティブな通報がまとめて
+  // 再送されてくる間)は、地震・津波以外の情報でカメラを動かさず、
+  // 日本全体表示のまま始める。パネルは通常通り更新するので情報自体は
+  // 見える(ユーザー要望: 初回は日本全体、地震関連がある時だけ地点ズーム)
+  if (!manual && isInitialLoad) {
+    syncActiveEventLayers();
+    updateWeatherDisplay();
+    updateFocusOutline();
+    renderEventsPanel();
+    return;
+  }
   // 津波警報などの重要イベントが表示中でも、新しく発表された気象警報は
-  // 一度割り込んでズーム表示する(PATROL_DWELL_MS経過後、patrolStepが
-  // 重要イベント側へカメラを返す)。「新しく発表された情報を必ず見せる」
-  // という方針をイベント種別によらず一貫させるため
+  // 一度割り込んでズーム表示する。「新しく発表された情報を必ず見せる」
+  // という方針をイベント種別によらず一貫させるため。
+  // ただし地震・津波ロックが有効な状態で自動的に割り込んだ場合だけは、
+  // 通常のPATROL_DWELL_MS(40秒)ではなくQUAKE_LOCK_INTERRUPT_PEEK_MS
+  // (15秒)だけ見せて地震・津波の表示に戻す(次のpatrolStepが
+  // isQuakeLockActive()を見て自動的に戻す)。ユーザーが自分でタップして
+  // 見ている場合(manual=true)は、選んだ情報を勝手に短時間で切り上げない
+  // よう対象外にする
+  const wasQuakeLocked = !manual && isQuakeLockActive();
   const codes = [...weatherSites.keys()];
   const idx = codes.indexOf(code);
   if (idx === -1) return;
   currentPatrolCode = code;
   currentPatrolEventId = null;
   patrolIndex = idx + 1;
-  // 新しい気象警報の地域が発表された = 「他の地域で新しい情報が発表された」
-  // ことになるので、EEWのズーム固定が有効なら解除する
-  clearEewZoomLock();
   zoomToWeatherCode(code);
   // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
   // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
@@ -1789,7 +1842,7 @@ function interruptPatrolForNewRegion(code) {
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
-  schedulePatrolNext(PATROL_DWELL_MS);
+  schedulePatrolNext(wasQuakeLocked ? QUAKE_LOCK_INTERRUPT_PEEK_MS : PATROL_DWELL_MS);
 }
 
 // 巡回中(または休止中)に新しい/更新された本物のイベントが届いた場合、
@@ -1797,23 +1850,36 @@ function interruptPatrolForNewRegion(code) {
 // 巡回の順番を待たずすぐにズームして見せる。見せ終わったら通常の巡回
 // (次はまた頭から: patrolIndexを厳密に追跡する複雑さより、多少同じ
 // ものを再度見せることになっても安全側に倒す)に戻る
-function interruptPatrolForNewEvent(id) {
+function interruptPatrolForNewEvent(id, manual = false) {
+  const record = activeEvents.get(id);
+  const isQuakeCategory = !!record && QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo);
+  // 地震・津波ロック対象のイベントが自動的に割り込んだ場合(余震の続報等)
+  // は、この1件だけでなく現在アクティブな地震・津波を全部まとめた合成
+  // ビューを見せる。ユーザーが地図上の特定の震源✕等を自分でタップした
+  // 場合(manual=true)は、選んだその1件をそのまま単独表示する(合成
+  // ビューに引き戻すと「その1件だけ見たい」というタップの意図に反するため)
+  if (!manual && isQuakeCategory && showQuakeLockView()) {
+    schedulePatrolNext(PATROL_DWELL_MS);
+    return;
+  }
+  // 初回読み込み直後は、地震・津波以外の情報でカメラを動かさず、日本
+  // 全体表示のまま始める(interruptPatrolForNewRegionと同じ考え方)
+  if (!manual && isInitialLoad && !isQuakeCategory) {
+    syncActiveEventLayers();
+    updateWeatherDisplay();
+    updateFocusOutline();
+    renderEventsPanel();
+    return;
+  }
+  // 地震・津波ロックが有効な状態で、それ以外の新しいイベント(Lアラート・
+  // 洪水・火山等)が自動的に割り込んだ場合は、15秒だけ見せて地震・津波の
+  // 表示に戻す。ユーザーが自分でタップして見ている場合(manual=true)は、
+  // 選んだ情報を勝手に短時間で切り上げないよう対象外にする
+  const wasQuakeLocked = !manual && isQuakeLockActive();
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = id;
   patrolIndex = 0;
-  const record = activeEvents.get(id);
-  // EEW(緊急地震速報)が新しく表示される(=余震の続報も含む。呼び出し元で
-  // 同じ地震グループ/近い地域の古いイベントは一旦removeActiveEventされて
-  // からこの関数が新しいidで呼ばれるため、続報のたびにここを通る)たびに
-  // ロックを立て直す(=延長される)。EEW以外の新しいイベントで割り込まれた
-  // 場合は「他の地域で新しい情報が発表された」ことになるのでロックを解除する
-  if (record && record.disasterCategoryNo === 1) {
-    eewZoomLockEventId = id;
-    eewZoomLockUntil = Date.now() + EEW_ZOOM_LOCK_MS;
-  } else {
-    clearEewZoomLock();
-  }
   updateCameraForActiveEvents(record);
   // idleから抜けるタイミングになりうるので、止めていた重いポリゴン塗りを
   // 元に戻す(既にidleでなければisPatrolIdle()がfalseを返すだけで無害)
@@ -1821,7 +1887,7 @@ function interruptPatrolForNewEvent(id) {
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
-  schedulePatrolNext(PATROL_DWELL_MS);
+  schedulePatrolNext(wasQuakeLocked ? QUAKE_LOCK_INTERRUPT_PEEK_MS : PATROL_DWELL_MS);
 }
 
 // otherReports(降灰など)の楕円をタップしたとき用。これらは巡回/フォーカスの
@@ -2392,13 +2458,20 @@ function removeActiveEvent(id) {
   resolveMarkerOverlaps(); // 消えたことで残りの震度バッジの重なり回避が緩む場合がある
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
-  // 考え方)
-  // ロック中のEEWが取消・TTL切れ等で消えた場合、ロックだけ残っていると
-  // 「もう無いイベント」を指したまま最大PATROL_DWELL_MS(40秒)気づかずに
-  // 過ごしてしまう(patrolStep側のガードはactiveEvents.has()を見て
-  // いつか気づくが、それより早く確実に解除する)
-  if (id === eewZoomLockEventId) clearEewZoomLock();
-  if (currentPatrolEventId === id) {
+  // 考え方)。
+  // 地震・津波ロック対象のイベントが消えた場合は専用の後処理をする:
+  // 他にも該当イベントが残っていれば合成ビューを更新し直し、これが
+  // 最後の1件だった場合はロックが解けるので、次の巡回の順番を待たず
+  // すぐ通常の巡回に戻す(patrolStep側のisQuakeLockActive()ガードだけに
+  // 任せると、最大PATROL_DWELL_MS(40秒)気づかないまま止まって見える)
+  if (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo)) {
+    if (isQuakeLockActive()) {
+      showQuakeLockView();
+    } else {
+      currentPatrolEventId = null;
+      schedulePatrolNext(0);
+    }
+  } else if (currentPatrolEventId === id) {
     currentPatrolEventId = null;
     schedulePatrolNext(0);
   } else if (currentPatrolCode === null && currentPatrolTrainingId === null && currentPatrolEventId === null) {
@@ -2426,7 +2499,6 @@ function clearAllActiveEvents() {
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
   patrolIndex = 0;
-  clearEewZoomLock();
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
@@ -3196,9 +3268,6 @@ function renderEventsPanel() {
 // 緊急地震速報は本質的に速報性の高い情報のため短め、震源・震度速報は
 // 事実情報でそもそも取消の仕組みが無いため「最後の更新から」の猶予、
 // 津波・警報系は安全側に倒して長めに設定している。
-// EEW_ZOOM_LOCK_MS(20分のズーム固定)とTTLがずれていると、ズームは
-// まだ固定されているのに肝心のEEW自体は先に画面から消えてしまう(または
-// その逆)という食い違いになるため、地震関連のTTLは同じ20分に揃える
 const TTL_EEW_MS = 20 * 60 * 1000; // 緊急地震速報: 20分
 const TTL_HYPOCENTER_INTENSITY_MS = 20 * 60 * 1000; // 震源・震度速報: 最後の更新から20分
 const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間
@@ -3743,18 +3812,12 @@ async function initMap() {
     },
   });
 
-  // 洪水予報河川の流路(主要109水系相当、flood_rivers.geojson参照)
+  // 洪水予報河川の流路データ(主要109水系相当、flood_rivers.geojson参照)は
+  // ここでソースだけ登録する。レイヤー自体は他の面塗り(都道府県・気象警報・
+  // Lアラート)より上に描画したいため、それらを追加した後(weather-focus-
+  // outlineの直後)でmap.addLayerする(下記参照)。塗りに隠れて見えなく
+  // なる指摘を受けての対応
   map.addSource('flood-rivers', { type: 'geojson', data: floodRiversGeoJSON });
-  map.addLayer({
-    id: 'flood-river-line',
-    type: 'line',
-    source: 'flood-rivers',
-    filter: ['in', ['get', 'code10'], ['literal', []]],
-    paint: {
-      'line-color': FLOOD_WARNING_LEVEL_COLOR[2],
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 8],
-    },
-  });
 
   map.addSource('prefecture-regions', { type: 'geojson', data: prefectureGeoJSON });
   map.addLayer({
@@ -3816,6 +3879,21 @@ async function initMap() {
     paint: { 'line-color': '#ffffff', 'line-width': 4 },
   });
 
+  // 洪水予報河川の流路。都道府県・気象警報・Lアラートの塗りより上に
+  // 描画することで、対象地域の塗りに重なっても河川の線が隠れないように
+  // する(震源✕より下にはしておく。✕は個々の地震そのものを指す最重要
+  // マーカーのため、常に最前面を保つ)
+  map.addLayer({
+    id: 'flood-river-line',
+    type: 'line',
+    source: 'flood-rivers',
+    filter: ['in', ['get', 'code10'], ['literal', []]],
+    paint: {
+      'line-color': FLOOD_WARNING_LEVEL_COLOR[2],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 3, 10, 8],
+    },
+  });
+
   // 震源(✕)。DOMマーカーはズーム中に泳いで見えた(特に複数の震源が同時に
   // ある時)ため、GLシンボルレイヤーで描く。塗りより前面に出したいので気象
   // レイヤーの後(最前面)に追加する。allow-overlap/ignore-placementで、
@@ -3851,7 +3929,7 @@ async function initMap() {
         const epis = map.queryRenderedFeatures(box, { layers: ['epicenter-layer'] });
         if (epis.length) {
           const rid = epis[0].properties.recordId;
-          if (activeEvents.has(rid)) { interruptPatrolForNewEvent(rid); return; }
+          if (activeEvents.has(rid)) { interruptPatrolForNewEvent(rid, true); return; }
         }
       }
       // lalert-ellipse-fill: Lアラートの円形指定に加え、火山の警報円
@@ -3864,21 +3942,21 @@ async function initMap() {
         if (features.length) {
           const feature = features[0];
           if (feature.layer.id === 'weather-fill') {
-            if (weatherSites.has(feature.properties.code)) interruptPatrolForNewRegion(feature.properties.code);
+            if (weatherSites.has(feature.properties.code)) interruptPatrolForNewRegion(feature.properties.code, true);
           } else if (feature.layer.id === 'municipality-fill') {
             const record = [...activeEvents.values()].find(
               (r) => r.geo.municipality && r.geo.municipality.code === feature.properties.code
             );
-            if (record) interruptPatrolForNewEvent(record.id);
+            if (record) interruptPatrolForNewEvent(record.id, true);
           } else if (feature.layer.id === 'prefecture-fill') {
             const record = [...activeEvents.values()].find(
               (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
             );
-            if (record) interruptPatrolForNewEvent(record.id);
+            if (record) interruptPatrolForNewEvent(record.id, true);
           } else if (feature.layer.id === 'lalert-ellipse-fill') {
             const rid = feature.properties.recordId;
             if (activeEvents.has(rid)) {
-              interruptPatrolForNewEvent(rid);
+              interruptPatrolForNewEvent(rid, true);
             } else {
               // 降灰(9)など otherReports の楕円。activeEventsの巡回フォーカス
               // 機構には載らないので専用のズーム+パネル強調で対応する
@@ -3900,13 +3978,25 @@ async function initMap() {
         if (tsunamiFeatures.length) {
           const code = tsunamiFeatures[0].properties.code;
           const record = [...activeEvents.values()].find((rec) => rec.geo.tsunami.some((t) => t.code === code));
-          if (record) interruptPatrolForNewEvent(record.id);
+          if (record) { interruptPatrolForNewEvent(record.id, true); return; }
+        }
+      }
+      // 洪水予報河川も津波ラインと同じく面ではなく線なので、同じ考え方
+      // (タップ位置の周囲±6pxで判定)で拾う
+      if (map.getLayer('flood-river-line')) {
+        const r = 6;
+        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+        const floodFeatures = map.queryRenderedFeatures(box, { layers: ['flood-river-line'] });
+        if (floodFeatures.length) {
+          const code10 = floodFeatures[0].properties.code10;
+          const record = [...activeEvents.values()].find((rec) => rec.floodRiverKey === code10);
+          if (record) interruptPatrolForNewEvent(record.id, true);
         }
       }
     });
     // 塗られている場所の上ではカーソルをポインターにして、タップ/クリック
     // できることが分かるようにする
-    for (const id of ['epicenter-layer', 'weather-fill', 'municipality-fill', 'prefecture-fill', 'lalert-ellipse-fill', 'tsunami-line']) {
+    for (const id of ['epicenter-layer', 'weather-fill', 'municipality-fill', 'prefecture-fill', 'lalert-ellipse-fill', 'tsunami-line', 'flood-river-line']) {
       map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
     }
@@ -4088,6 +4178,16 @@ function connectWebSocket() {
     reconnectDelay = WS_RECONNECT_MIN_MS; // 次回切断時にまた素早く再接続できるよう戻す
     updateConnectionStatus('online');
     clearAllActiveEvents();
+    // ページを開いて最初の接続の時だけ、既存のアクティブな通報が
+    // まとめて再送されてくる間、地震・津波以外でカメラを動かさない
+    // 抑制をかける(isInitialLoad宣言部のコメント参照)。再接続時は
+    // 既にfalseになっているので何もしない
+    if (isInitialLoad) {
+      setTimeout(() => {
+        isInitialLoad = false;
+        schedulePatrolNext(0); // 抑制していた分、通常の巡回をすぐ始める
+      }, INITIAL_LOAD_SETTLE_MS);
+    }
   });
 
   socket.addEventListener('error', (err) => {
