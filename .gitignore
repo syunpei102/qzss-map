@@ -14,3 +14,8 @@ qzss_pipe
 qzss_pi_package/
 qzss_indonesia_map/
 qzss_intl_dcx_poc/
+
+# build_docs_index.jsの生成物・個人用メモ。アプリのコードではないので
+# コミット対象にしない
+QZSS_docs_index.html
+QZSS_project_summary.txt
