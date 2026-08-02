@@ -4135,6 +4135,32 @@ async function initMap() {
           return;
         }
       }
+      // 津波の沿岸ライン・洪水予報河川も、震源✕・楕円と同じ理由(細い線や
+      // 小さい図形は、下にある気象警報等の面塗りにタップを吸われやすい)
+      // で、広い面塗り(weather-fill等)より先に優先して拾う。面ではなく
+      // 線なので、点そのものではなくクリック位置を中心にした小さな
+      // 矩形(±6px)で探すことで、線の近くをタップ/クリックすれば拾える
+      // ようにする
+      if (map.getLayer('tsunami-line')) {
+        const r = 6;
+        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+        const tsunamiFeatures = map.queryRenderedFeatures(box, { layers: ['tsunami-line'] });
+        if (tsunamiFeatures.length) {
+          const code = tsunamiFeatures[0].properties.code;
+          const record = [...activeEvents.values()].find((rec) => rec.geo.tsunami.some((t) => t.code === code));
+          if (record) { interruptPatrolForNewEvent(record.id, true); return; }
+        }
+      }
+      if (map.getLayer('flood-river-line')) {
+        const r = 6;
+        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
+        const floodFeatures = map.queryRenderedFeatures(box, { layers: ['flood-river-line'] });
+        if (floodFeatures.length) {
+          const code10 = floodFeatures[0].properties.code10;
+          const record = [...activeEvents.values()].find((rec) => rec.floodRiverKey === code10);
+          if (record) { interruptPatrolForNewEvent(record.id, true); return; }
+        }
+      }
       const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill']
         .filter((id) => map.getLayer(id));
       if (fillLayers.length) {
@@ -4155,32 +4181,6 @@ async function initMap() {
             if (record) interruptPatrolForNewEvent(record.id, true);
           }
           return;
-        }
-      }
-      // 津波警報の沿岸ライン(点滅表示)は面ではなく線なので、点そのものの
-      // クリックだとほぼ当たらない。クリック位置を中心にした小さな
-      // 矩形(±6px)で探すことで、線の近くをタップ/クリックすれば拾える
-      // ようにする
-      if (map.getLayer('tsunami-line')) {
-        const r = 6;
-        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
-        const tsunamiFeatures = map.queryRenderedFeatures(box, { layers: ['tsunami-line'] });
-        if (tsunamiFeatures.length) {
-          const code = tsunamiFeatures[0].properties.code;
-          const record = [...activeEvents.values()].find((rec) => rec.geo.tsunami.some((t) => t.code === code));
-          if (record) { interruptPatrolForNewEvent(record.id, true); return; }
-        }
-      }
-      // 洪水予報河川も津波ラインと同じく面ではなく線なので、同じ考え方
-      // (タップ位置の周囲±6pxで判定)で拾う
-      if (map.getLayer('flood-river-line')) {
-        const r = 6;
-        const box = [[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]];
-        const floodFeatures = map.queryRenderedFeatures(box, { layers: ['flood-river-line'] });
-        if (floodFeatures.length) {
-          const code10 = floodFeatures[0].properties.code10;
-          const record = [...activeEvents.values()].find((rec) => rec.floodRiverKey === code10);
-          if (record) interruptPatrolForNewEvent(record.id, true);
         }
       }
     });
