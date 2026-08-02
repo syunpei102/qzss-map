@@ -2474,11 +2474,12 @@ function removeActiveEvent(id) {
   } else if (currentPatrolEventId === id) {
     currentPatrolEventId = null;
     schedulePatrolNext(0);
-  } else if (currentPatrolCode === null && currentPatrolTrainingId === null && currentPatrolEventId === null) {
+  } else if (!isInitialLoad && currentPatrolCode === null && currentPatrolTrainingId === null && currentPatrolEventId === null) {
     // 何を優先すべきか特に無い(消えた側なので)。残っている中で直近の
     // ものを見せるか、何も残っていなければ通常の待機表示に戻す。
     // ただし気象警報/訓練放送/本物のイベントの巡回・割り込みがカメラを
-    // 持っている間は横取りしない(巡回が終われば patrolStep が復帰させる)
+    // 持っている間は横取りしない(巡回が終われば patrolStep が復帰させる)。
+    // 初回読み込み中は、地震・津波以外でカメラを動かさない抑制と揃える
     updateCameraForActiveEvents(null);
   }
   renderEventsPanel();
@@ -3932,10 +3933,29 @@ async function initMap() {
           if (activeEvents.has(rid)) { interruptPatrolForNewEvent(rid, true); return; }
         }
       }
-      // lalert-ellipse-fill: Lアラートの円形指定に加え、火山の警報円
-      // (handleVolcanoReport)も同じレイヤーを使って描画しているため、
-      // ここに追加するだけで両方タップ/クリック対応になる
-      const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill', 'lalert-ellipse-fill']
+      // lalert-ellipse-fill(Lアラートの円形指定・火山の警報円・降灰の楕円)は
+      // 震源✕と同じく、他の面塗り(気象警報・市区町村・都道府県)より優先して
+      // 拾う。描画順(z-order)ではweather-fill等の方が上に乗ることがあり、
+      // 同じ場所に気象警報等が重なっていると、queryRenderedFeaturesが
+      // weather-fill側を先に返してしまい、楕円(火山等)をタップしたつもりが
+      // 気象警報のパネルに変わってしまう不具合があったため、面積の小さい
+      // 楕円系を別途先読みして最優先する
+      if (map.getLayer('lalert-ellipse-fill')) {
+        const ellipseFeatures = map.queryRenderedFeatures(e.point, { layers: ['lalert-ellipse-fill'] });
+        if (ellipseFeatures.length) {
+          const rid = ellipseFeatures[0].properties.recordId;
+          if (activeEvents.has(rid)) {
+            interruptPatrolForNewEvent(rid, true);
+          } else {
+            // 降灰(9)など otherReports の楕円。activeEventsの巡回フォーカス
+            // 機構には載らないので専用のズーム+パネル強調で対応する
+            const other = [...otherReports.values()].find((r) => r.id === rid);
+            if (other) focusOtherReport(other);
+          }
+          return;
+        }
+      }
+      const fillLayers = ['weather-fill', 'municipality-fill', 'prefecture-fill']
         .filter((id) => map.getLayer(id));
       if (fillLayers.length) {
         const features = map.queryRenderedFeatures(e.point, { layers: fillLayers });
@@ -3953,16 +3973,6 @@ async function initMap() {
               (r) => r.geo.prefectures.some((p) => p.id === feature.properties.id)
             );
             if (record) interruptPatrolForNewEvent(record.id, true);
-          } else if (feature.layer.id === 'lalert-ellipse-fill') {
-            const rid = feature.properties.recordId;
-            if (activeEvents.has(rid)) {
-              interruptPatrolForNewEvent(rid, true);
-            } else {
-              // 降灰(9)など otherReports の楕円。activeEventsの巡回フォーカス
-              // 機構には載らないので専用のズーム+パネル強調で対応する
-              const other = [...otherReports.values()].find((r) => r.id === rid);
-              if (other) focusOtherReport(other);
-            }
           }
           return;
         }
@@ -4113,7 +4123,11 @@ async function loadMunicipalityLayer() {
       if (!res.pending) record.ashReport = null;
     }
     syncActiveEventLayers();
-    updateCameraForActiveEvents(null);
+    // 初回読み込み中(WebSocket接続直後の再送処理の途中)は、市区町村
+    // ポリゴンの非同期読み込みが完了したこのタイミングで無条件にカメラを
+    // 動かしてしまうと、地震・津波以外の情報でも日本全体表示から動いて
+    // しまう抜け穴になる。isInitialLoadの抑制と同じ方針に揃える
+    if (!isInitialLoad) updateCameraForActiveEvents(null);
   } catch (err) {
     console.error('市区町村データの読み込みに失敗しました:', err);
   }
