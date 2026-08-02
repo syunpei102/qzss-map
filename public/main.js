@@ -1618,11 +1618,17 @@ function showQuakeLockView() {
 // なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
 const WEATHER_PATROL_MAX_ZOOM = 8.5;
 
+// 指定した地域が属する都道府県の、現在アクティブな一次細分区域を
+// 全部まとめた範囲にズームする(同じ都道府県内の複数区域が同時に
+// 対象でも、1回でまとめて見せる)
 function zoomToWeatherCode(code) {
-  const feature = weatherFeaturesByCode.get(code);
-  if (!feature) return;
+  const boundsList = weatherSitesForSamePrefecture(code)
+    .map((s) => weatherFeaturesByCode.get(s.code))
+    .filter(Boolean)
+    .map((f) => geometryBounds(f.geometry));
+  if (!boundsList.length) return;
   // 巡回表示は急いで切り替える必要が無いので瞬時ジャンプにする(軽量化)
-  flyToBounds(geometryBounds(feature.geometry), 40, WEATHER_PATROL_MAX_ZOOM, true);
+  flyToBounds(unionBounds(boundsList), 40, WEATHER_PATROL_MAX_ZOOM, true);
 }
 
 // 訓練放送(位置情報を持つもの)も気象警報と同じ巡回サイクルに含めて
@@ -1645,7 +1651,10 @@ function trainingPatrolTargetIds() {
 function updateFocusOutline() {
   if (!map) return;
   if (map.getLayer('weather-focus-outline')) {
-    const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode) ? [currentPatrolCode] : [];
+    // 都道府県単位の統合表示に合わせ、同じ都道府県の区域を全部強調する
+    const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode)
+      ? weatherSitesForSamePrefecture(currentPatrolCode).map((s) => s.code)
+      : [];
     map.setFilter('weather-focus-outline', ['in', ['get', 'code'], ['literal', codes]]);
   }
   // Lアラート(市区町村単位)で今まさにズームしている対象地域も、
@@ -2953,6 +2962,62 @@ function updateCameraForActiveEvents(preferredRecord) {
   }
 }
 
+// 気象警報の地域コード(一次細分区域)の上位2桁が都道府県ID
+// (regionDisplayName・受信機側read_legacy_dual.pyのis_in_scopeと同じ導出方法)
+function weatherPrefectureId(code) {
+  return Math.floor(code / 10000);
+}
+
+// 指定した地域コードと同じ都道府県に属する、現在アクティブな気象警報の
+// 地域を全部集める(1つの都道府県内で複数の一次細分区域にまたがって
+// 警報・注意報が出ることが多いため)
+function weatherSitesForSamePrefecture(code) {
+  const prefId = weatherPrefectureId(code);
+  return [...weatherSites.values()].filter((s) => weatherPrefectureId(s.code) === prefId);
+}
+
+// 都道府県単位にまとめた気象警報カードを作る。1都道府県内の複数の
+// 一次細分区域(例: 道北・道東など)をバラバラのカードにせず、1枚に
+// 統合する(ユーザー要望: 日本全体表示中は都道府県単位でまとめ、巡回
+// ズーム・タップされたらその都道府県だけの情報を見せる)。区域が1つ
+// だけならそのまま既存のweatherSiteCardと同じ内容になる
+function weatherPrefectureCard(sites) {
+  if (sites.length === 1) return weatherSiteCard(sites[0]);
+  const allSubs = [...new Set(sites.flatMap((s) => s.subCategories))]
+    .sort((a, b) => weatherSeverityRank(b) - weatherSeverityRank(a));
+  const prefId = weatherPrefectureId(sites[0].code);
+  const prefFeature = prefectureFeaturesById.get(prefId);
+  const prefName = prefFeature ? prefFeature.properties.name : sites[0].name;
+  const latestReportTime = sites.reduce(
+    (max, s) => (s.reportTime && (!max || s.reportTime > max) ? s.reportTime : max), null
+  );
+  const latestUpdatedAt = Math.max(...sites.map((s) => s.updatedAt));
+  const rows = [];
+  if (latestReportTime) rows.push(['発表時刻', formatDateTime(latestReportTime)]);
+  // どの区域がどの種別かも分かるよう、深刻度の高い区域から列挙する
+  const regionLines = [...sites]
+    .sort((a, b) => {
+      const aWorst = [...a.subCategories].sort((x, y) => weatherSeverityRank(y) - weatherSeverityRank(x))[0];
+      const bWorst = [...b.subCategories].sort((x, y) => weatherSeverityRank(y) - weatherSeverityRank(x))[0];
+      return weatherSeverityRank(bWorst) - weatherSeverityRank(aWorst);
+    })
+    .map((s) => `${s.name}: ${[...new Set(s.subCategories)].join('・')}`)
+    .join('\n');
+  return {
+    isTestData: sites.some((s) => s.isTestData),
+    satelliteId: sites[0].satelliteId,
+    satellitePrn: sites[0].satellitePrn,
+    badges: [{ text: allSubs[0] || '気象', class: weatherSeverityBadgeClass(allSubs[0]) }],
+    showBadges: false,
+    headline: allSubs.length ? allSubs : ['気象'],
+    title: prefName,
+    meta: `更新 ${nowTimeString()}`,
+    message: regionLines,
+    rows,
+    updatedAt: latestUpdatedAt,
+  };
+}
+
 // 気象警報(weatherSites)・その他(otherReports)は
 // activeEventsとは別のMapで管理している。気象警報は同時に何十件も
 // アクティブになりうるため、他の通報と違って「常時全件表示」にはせず、
@@ -3200,7 +3265,8 @@ function renderEventsPanel() {
 
   let visibleRecords;
   if (focusedWeatherSite) {
-    visibleRecords = [weatherSiteCard(focusedWeatherSite)];
+    // 巡回ズーム・タップされた地域と同じ都道府県の区域を1枚に統合する
+    visibleRecords = [weatherPrefectureCard(weatherSitesForSamePrefecture(currentPatrolCode))];
   } else if (focusedTrainingEvent) {
     visibleRecords = [focusedTrainingEvent];
   } else if (focusedRealEvent) {
@@ -3215,8 +3281,16 @@ function renderEventsPanel() {
     // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
     // PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版のスクロール/
     // キオスクのページ送りに任せる。ここでも地理的に重なるイベント同士
-    // は1枚の統合カードにまとめる
-    const weatherCards = [...weatherSites.values()].map(weatherSiteCard);
+    // は1枚の統合カードにまとめる。気象警報も同様に都道府県単位で
+    // まとめる(1つの都道府県に複数の一次細分区域がまたがっていても、
+    // 日本全体表示ではバラバラのカードで埋め尽くさない)
+    const weatherByPrefecture = new Map();
+    for (const site of weatherSites.values()) {
+      const pid = weatherPrefectureId(site.code);
+      if (!weatherByPrefecture.has(pid)) weatherByPrefecture.set(pid, []);
+      weatherByPrefecture.get(pid).push(site);
+    }
+    const weatherCards = [...weatherByPrefecture.values()].map(weatherPrefectureCard);
     const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
     const otherCards = [...otherReports.values()].map(otherReportCard);
