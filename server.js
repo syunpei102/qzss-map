@@ -1107,6 +1107,14 @@ for (const group of REGION_GROUPS) {
   for (const id of group.prefectureIds) prefectureIdToGroup.set(id, group);
 }
 
+// public/main.js(日本全体表示での気象警報の地方単位まとめ表示)用に、
+// このテーブルをそのまま公開する。region_groups.jsonをpublic/data/へ
+// 複製すると内容が二重管理になってズレる恐れがあるため、既に読み込み
+// 済みのREGION_GROUPSをそのまま返すだけにする
+app.get("/region-groups", (req, res) => {
+  res.json(REGION_GROUPS);
+});
+
 // Discordの/set_regionコマンド(都道府県名で指定)用の名前→ID解決と、
 // オートコンプリート候補に使う。ブラウザ側(main.js/device-admin.html)は
 // prefectures.geojsonを直接fetchするが、こちらはサーバー内部の処理なので

@@ -205,10 +205,15 @@ const EEW_REGION_TO_PREFECTURE_IDS = {
 };
 
 // azarashiのqzss_dcr_jma_flood_warning_level。1(解除)は塗りつぶし不要
-// (警報が続いている河川だけ地図に出す)なので含めない
+// (警報が続いている河川だけ地図に出す)なので含めない。
+// 2・3は気象警報(sev-caution/sev-keihou、黄色・赤)と同系色だと地図上で
+// 見分けにくいという指摘を受け、青緑(水を連想させる色)に変えた。
+// .report-headline.sev-flood-caution/sev-flood-keihouと同じ色に揃えて
+// ある(地図の色とパネルの色が食い違わないように)。4(氾濫発生情報、
+// 最も深刻)はsev-emergencyのまま=他の緊急事態と同じ赤で統一する
 const FLOOD_WARNING_LEVEL_COLOR = {
-  2: '#f6c945', // 氾濫警戒情報
-  3: '#e63946', // 氾濫危険情報(.report-headline.sev-keihouと同じ赤に揃える)
+  2: '#4fb8c4', // 氾濫警戒情報
+  3: '#0d7d8f', // 氾濫危険情報
   4: '#b3261e', // 氾濫発生情報
 };
 
@@ -361,6 +366,7 @@ let map;
 let epicenterFeaturesById = new Map();
 let tsunamiFeaturesByCode = new Map();
 let prefectureFeaturesById = new Map();
+let prefectureIdToRegion = new Map(); // 都道府県ID -> {id, name, prefectureIds}(地方のグループ情報、/region-groups由来)
 let prefectureFeaturesByName = new Map();
 let municipalityFeaturesByCode = new Map();
 let weatherFeaturesByCode = new Map();
@@ -573,7 +579,9 @@ const SEVERITY_RANK = {
   'sev-emergency': 4,
   'sev-keihou': 3, // 洪水の氾濫危険情報(floodSeverityClass)。sev-warningと同格
   'sev-warning': 3,
+  'sev-flood-keihou': 3, // 洪水専用の色違い(floodSeverityClass)。sev-keihouと同格
   'sev-caution': 2,
+  'sev-flood-caution': 2, // 洪水専用の色違い。sev-cautionと同格
   'sev-info': 1,
   'sev-training': 0,
   'sev-error': 0,
@@ -1366,12 +1374,12 @@ function floodRiverCode10(code) {
 
 function floodSeverityClass(level) {
   if (level === 4) return 'sev-emergency'; // 氾濫発生情報
-  // sev-keihouはstyle.cssの.report-badge/.report-headlineが#e63946で、
-  // FLOOD_WARNING_LEVEL_COLOR[3](地図の色)と全く同じ赤に揃えてある。
-  // 以前sev-warning(オレンジ系)を使っていたため、地図は赤なのにパネルの
-  // 帯・見出しはオレンジのままという食い違いが起きていた
-  if (level === 3) return 'sev-keihou'; // 氾濫危険情報
-  return 'sev-caution'; // 2: 氾濫警戒情報
+  // sev-flood-keihou/sev-flood-cautionはstyle.cssの.report-badge/
+  // .report-headlineがFLOOD_WARNING_LEVEL_COLOR[3]/[2](地図の色)と
+  // 同じ青緑に揃えてある(気象警報のsev-keihou/sev-cautionと同系色だと
+  // 地図上で見分けにくいという指摘を受けての専用クラス)
+  if (level === 3) return 'sev-flood-keihou'; // 氾濫危険情報
+  return 'sev-flood-caution'; // 2: 氾濫警戒情報
 }
 
 // 主要河川(floodRiverFeaturesByCode10に流路データがある河川)1本分を、
@@ -2976,6 +2984,16 @@ function weatherSitesForSamePrefecture(code) {
   return [...weatherSites.values()].filter((s) => weatherPrefectureId(s.code) === prefId);
 }
 
+// 都道府県が属する地方(東北・関東等)のグループIDを返す。/region-groups
+// の読み込みが間に合っていない、またはテーブルに無い都道府県の場合は
+// 都道府県ID自体をキーにする(=その都道府県だけの1件グループとして
+// フォールバックする。誤って無関係の都道府県まで巻き込むより安全)
+function weatherRegionId(code) {
+  const prefId = weatherPrefectureId(code);
+  const group = prefectureIdToRegion.get(prefId);
+  return group ? `region:${group.id}` : `pref:${prefId}`;
+}
+
 // 都道府県単位にまとめた気象警報カードを作る。1都道府県内の複数の
 // 一次細分区域(例: 道北・道東など)をバラバラのカードにせず、1枚に
 // 統合する(ユーザー要望: 日本全体表示中は都道府県単位でまとめ、巡回
@@ -3013,6 +3031,59 @@ function weatherPrefectureCard(sites) {
     title: prefName,
     meta: `更新 ${nowTimeString()}`,
     message: regionLines,
+    rows,
+    updatedAt: latestUpdatedAt,
+  };
+}
+
+// 地方(東北・関東等)単位にまとめた気象警報カードを作る。ユーザー要望:
+// 日本全体表示中は、同じ地方の複数の都道府県にまたがって発表されている
+// 場合もバラバラのカードにせず1枚にまとめる(例: 東北6県で同じ大雨警報が
+// 出ている状況で6枚並ぶのを防ぐ)。都道府県内の統合(weatherPrefectureCard)
+// と同じ考え方を、地方という1段上の単位に適用する。1つの都道府県しか
+// 対象が無ければweatherPrefectureCard(実質weatherSiteCard)と同じ内容になる
+function weatherRegionCard(sites) {
+  const byPrefecture = new Map();
+  for (const site of sites) {
+    const prefId = weatherPrefectureId(site.code);
+    if (!byPrefecture.has(prefId)) byPrefecture.set(prefId, []);
+    byPrefecture.get(prefId).push(site);
+  }
+  if (byPrefecture.size === 1) return weatherPrefectureCard(sites);
+
+  const allSubs = [...new Set(sites.flatMap((s) => s.subCategories))]
+    .sort((a, b) => weatherSeverityRank(b) - weatherSeverityRank(a));
+  const firstPrefId = weatherPrefectureId(sites[0].code);
+  const group = prefectureIdToRegion.get(firstPrefId);
+  const regionName = group ? `${group.name}地方` : '複数の都道府県';
+  const latestReportTime = sites.reduce(
+    (max, s) => (s.reportTime && (!max || s.reportTime > max) ? s.reportTime : max), null
+  );
+  const latestUpdatedAt = Math.max(...sites.map((s) => s.updatedAt));
+  const rows = [];
+  if (latestReportTime) rows.push(['発表時刻', formatDateTime(latestReportTime)]);
+  // 都道府県ごとに1行にまとめ、深刻度の高い都道府県から列挙する
+  const prefLines = [...byPrefecture.entries()]
+    .map(([prefId, pSites]) => {
+      const prefFeature = prefectureFeaturesById.get(prefId);
+      const prefName = prefFeature ? prefFeature.properties.name : pSites[0].name;
+      const subs = [...new Set(pSites.flatMap((s) => s.subCategories))];
+      const worstRank = Math.max(...subs.map((s) => weatherSeverityRank(s)), 0);
+      return { prefName, subs, worstRank };
+    })
+    .sort((a, b) => b.worstRank - a.worstRank)
+    .map((p) => `${p.prefName}: ${p.subs.join('・')}`)
+    .join('\n');
+  return {
+    isTestData: sites.some((s) => s.isTestData),
+    satelliteId: sites[0].satelliteId,
+    satellitePrn: sites[0].satellitePrn,
+    badges: [{ text: allSubs[0] || '気象', class: weatherSeverityBadgeClass(allSubs[0]) }],
+    showBadges: false,
+    headline: allSubs.length ? allSubs : ['気象'],
+    title: regionName,
+    meta: `更新 ${nowTimeString()}`,
+    message: prefLines,
     rows,
     updatedAt: latestUpdatedAt,
   };
@@ -3175,6 +3246,16 @@ function recordsOverlapGeographically(a, b) {
     const bCodes = new Set(b.geo.tsunami.map((t) => t.code));
     if (a.geo.tsunami.some((t) => bCodes.has(t.code))) return true;
   }
+  // 洪水予報河川(floodRiverKey)は同じ河川でも上流・下流など複数の細分
+  // 区間(code10の末尾2桁)に分かれて別々の通報として届くことがある。
+  // 区間ごとにバラバラのカードになり「同じ河川のパネルが2枚出る」という
+  // 指摘を受け、末尾2桁を除いた河川本体のIDが同じなら同一河川として
+  // まとめる
+  if (a.floodRiverKey && b.floodRiverKey) {
+    const baseA = a.floodRiverKey.slice(0, -2);
+    const baseB = b.floodRiverKey.slice(0, -2);
+    if (baseA === baseB) return true;
+  }
   return false;
 }
 
@@ -3281,16 +3362,17 @@ function renderEventsPanel() {
     // 巡回がどこにもズームしていない(日本全体表示に戻っている)状態。
     // PANEL_MAX_CARDSまでは並べて表示し、それ以上はweb版のスクロール/
     // キオスクのページ送りに任せる。ここでも地理的に重なるイベント同士
-    // は1枚の統合カードにまとめる。気象警報も同様に都道府県単位で
-    // まとめる(1つの都道府県に複数の一次細分区域がまたがっていても、
-    // 日本全体表示ではバラバラのカードで埋め尽くさない)
-    const weatherByPrefecture = new Map();
+    // は1枚の統合カードにまとめる。気象警報も同様に地方単位でまとめる
+    // (東北6県など、同じ地方の複数都道府県にまたがっていても、日本全体
+    // 表示ではバラバラのカードで埋め尽くさない。巡回ズーム・タップされた
+    // 時はweatherPrefectureCardの都道府県単位に絞り込まれる)
+    const weatherByRegion = new Map();
     for (const site of weatherSites.values()) {
-      const pid = weatherPrefectureId(site.code);
-      if (!weatherByPrefecture.has(pid)) weatherByPrefecture.set(pid, []);
-      weatherByPrefecture.get(pid).push(site);
+      const rid = weatherRegionId(site.code);
+      if (!weatherByRegion.has(rid)) weatherByRegion.set(rid, []);
+      weatherByRegion.get(rid).push(site);
     }
-    const weatherCards = [...weatherByPrefecture.values()].map(weatherPrefectureCard);
+    const weatherCards = [...weatherByRegion.values()].map(weatherRegionCard);
     const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
     const otherCards = [...otherReports.values()].map(otherReportCard);
@@ -3821,10 +3903,14 @@ async function initMap() {
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
   // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する
-  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON, floodRiversGeoJSON, volcanoesJSON] = await Promise.all([
+  const [tsunamiGeoJSON, prefectureGeoJSON, weatherRegionsGeoJSON, regionGroups, floodRiversGeoJSON, volcanoesJSON] = await Promise.all([
     fetch('./data/tsunami_regions.geojson').then(res => res.json()),
     fetch('./data/prefectures.geojson').then(res => res.json()),
     fetch('./data/weather_regions.geojson').then(res => res.json()),
+    // 都道府県→地方(東北・関東等、標準的な8区分+沖縄)のグルーピング表。
+    // 日本全体表示で気象警報を地方単位にまとめて表示するために使う
+    // (server.jsのregion_groups.jsonをそのまま返すAPI。二重管理を避ける)
+    fetch('/region-groups').then(res => res.json()),
     // 洪水予報河川のうち主要な109の一級水系相当(152河川コード)の実際の
     // 流路。気象庁は河川そのものの形状は公開していないため、国土交通省
     // 「国土数値情報 河川データ」(Geoshapeリポジトリ経由でGeoJSON配布)
@@ -3843,6 +3929,10 @@ async function initMap() {
   }
   for (const [name, coord] of Object.entries(volcanoesJSON)) {
     volcanoesByName.set(name, coord);
+  }
+
+  for (const group of regionGroups) {
+    for (const id of group.prefectureIds) prefectureIdToRegion.set(id, group);
   }
 
   for (const f of tsunamiGeoJSON.features) tsunamiFeaturesByCode.set(f.properties.code, f);
@@ -4170,6 +4260,18 @@ async function loadMunicipalityLayer() {
         filter: ['in', ['get', 'code'], ['literal', []]],
         paint: { 'line-color': '#ffffff', 'line-width': 2.5 },
       });
+      // municipality-fill等はここ(非同期読み込み完了後)で末尾に追加される
+      // ため、同期処理の初期化時点で先に追加していたflood-river-line
+      // (震源✕の直前に配置済み)より上に来てしまい、結果的に市区町村単位の
+      // Lアラート(避難指示等、最もよく使われるLアラートの形)の塗りが
+      // 河川の線より上に乗って隠してしまっていた。municipality-fill/
+      // outline/focus-outlineの3枚をflood-river-lineの直前まで下げ、
+      // 河川(→震源✕)が常に一番上になるようにする
+      if (map.getLayer('flood-river-line')) {
+        for (const id of ['municipality-fill', 'municipality-outline', 'municipality-focus-outline']) {
+          if (map.getLayer(id)) map.moveLayer(id, 'flood-river-line');
+        }
+      }
     }
     municipalityLayerLoaded = true;
     // 読み込み完了より前にLアラート(市区町村指定)が届いていた場合、
