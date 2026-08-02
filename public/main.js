@@ -1555,10 +1555,10 @@ let currentPatrolEventId = null; // 地震・津波・Jアラート・Lアラー
 // アクティブな通報がまとめて再送されてくる。この「初回だけ」は、
 // 地震・津波(QUAKE_LOCK_CATEGORY_NOS)以外の情報でカメラをどこかへ
 // ズームさせず、日本全体表示のまま始める(ユーザー要望: 初回は
-// 日本全体、地震関連がある時だけ最初からその地点にズーム)。
-// INITIAL_LOAD_SETTLE_MS経過したら通常通りに戻す(以降の再接続では
-// この抑制はしない=trueに戻さない)
-const INITIAL_LOAD_SETTLE_MS = 2500;
+// 日本全体表示を5分間維持し、地震関連がある時だけ最初からその地点に
+// ズーム)。INITIAL_LOAD_SETTLE_MS経過したら通常の巡回に戻る
+// (以降の再接続ではこの抑制はしない=trueに戻さない)
+const INITIAL_LOAD_SETTLE_MS = 5 * 60 * 1000; // 5分
 let isInitialLoad = true;
 
 // ==================================================
