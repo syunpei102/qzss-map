@@ -206,14 +206,16 @@ const EEW_REGION_TO_PREFECTURE_IDS = {
 
 // azarashiのqzss_dcr_jma_flood_warning_level。1(解除)は塗りつぶし不要
 // (警報が続いている河川だけ地図に出す)なので含めない。
-// 2・3は気象警報(sev-caution/sev-keihou、黄色・赤)と同系色だと地図上で
-// 見分けにくいという指摘を受け、青緑(水を連想させる色)に変えた。
+// 一時期、気象警報の赤・黄と見分けにくいという指摘を受けて青緑にしたが、
+// 河川は赤系がいいという要望で再度赤系に戻した。ただし気象警報の赤
+// (sev-keihou #e63946・sev-warning #d9822b)とは色味(テラコッタ〜
+// レンガ色)をずらして、それでも見分けやすくしてある。
 // .report-headline.sev-flood-caution/sev-flood-keihouと同じ色に揃えて
 // ある(地図の色とパネルの色が食い違わないように)。4(氾濫発生情報、
 // 最も深刻)はsev-emergencyのまま=他の緊急事態と同じ赤で統一する
 const FLOOD_WARNING_LEVEL_COLOR = {
-  2: '#4fb8c4', // 氾濫警戒情報
-  3: '#0d7d8f', // 氾濫危険情報
+  2: '#c97b5f', // 氾濫警戒情報
+  3: '#a8402f', // 氾濫危険情報
   4: '#b3261e', // 氾濫発生情報
 };
 
@@ -3012,15 +3014,19 @@ function weatherPrefectureCard(sites) {
   const latestUpdatedAt = Math.max(...sites.map((s) => s.updatedAt));
   const rows = [];
   if (latestReportTime) rows.push(['発表時刻', formatDateTime(latestReportTime)]);
-  // どの区域がどの種別かも分かるよう、深刻度の高い区域から列挙する
-  const regionLines = [...sites]
-    .sort((a, b) => {
-      const aWorst = [...a.subCategories].sort((x, y) => weatherSeverityRank(y) - weatherSeverityRank(x))[0];
-      const bWorst = [...b.subCategories].sort((x, y) => weatherSeverityRank(y) - weatherSeverityRank(x))[0];
-      return weatherSeverityRank(bWorst) - weatherSeverityRank(aWorst);
-    })
-    .map((s) => `${s.name}: ${[...new Set(s.subCategories)].join('・')}`)
-    .join('\n');
+  // 区域ごとの種別をまとめ、深刻度の高い区域から列挙する
+  const siteEntries = [...sites]
+    .map((s) => ({ name: s.name, subs: [...new Set(s.subCategories)].sort((x, y) => weatherSeverityRank(y) - weatherSeverityRank(x)) }))
+    .sort((a, b) => weatherSeverityRank(b.subs[0]) - weatherSeverityRank(a.subs[0]));
+  // 全区域が全く同じ種別の組み合わせなら、見出し(headline)で既に種別が
+  // 分かっているので、本文では「区域名だけ」を列挙する(weatherRegionCard
+  // と同じ考え方)
+  const allSameSubs = siteEntries.every(
+    (s) => s.subs.length === siteEntries[0].subs.length && s.subs.every((v, i) => v === siteEntries[0].subs[i])
+  );
+  const regionLines = allSameSubs
+    ? siteEntries.map((s) => s.name).join('、')
+    : siteEntries.map((s) => `${s.name}: ${s.subs.join('・')}`).join('\n');
   return {
     isTestData: sites.some((s) => s.isTestData),
     satelliteId: sites[0].satelliteId,
@@ -3062,18 +3068,28 @@ function weatherRegionCard(sites) {
   const latestUpdatedAt = Math.max(...sites.map((s) => s.updatedAt));
   const rows = [];
   if (latestReportTime) rows.push(['発表時刻', formatDateTime(latestReportTime)]);
-  // 都道府県ごとに1行にまとめ、深刻度の高い都道府県から列挙する
-  const prefLines = [...byPrefecture.entries()]
+  // 都道府県ごとの種別をまとめる
+  const prefEntries = [...byPrefecture.entries()]
     .map(([prefId, pSites]) => {
       const prefFeature = prefectureFeaturesById.get(prefId);
       const prefName = prefFeature ? prefFeature.properties.name : pSites[0].name;
-      const subs = [...new Set(pSites.flatMap((s) => s.subCategories))];
-      const worstRank = Math.max(...subs.map((s) => weatherSeverityRank(s)), 0);
+      const subs = [...new Set(pSites.flatMap((s) => s.subCategories))].sort(
+        (a, b) => weatherSeverityRank(b) - weatherSeverityRank(a)
+      );
+      const worstRank = weatherSeverityRank(subs[0]);
       return { prefName, subs, worstRank };
     })
-    .sort((a, b) => b.worstRank - a.worstRank)
-    .map((p) => `${p.prefName}: ${p.subs.join('・')}`)
-    .join('\n');
+    .sort((a, b) => b.worstRank - a.worstRank);
+  // 全都道府県が全く同じ種別の組み合わせなら、見出し(headline)で既に
+  // 種別が分かっているので、本文では「県名だけ」を列挙する(種別名を
+  // 何度も繰り返さない)。都道府県によって種別が違う場合だけ、これまで
+  // 通り「県名: 種別」で内訳を示す
+  const allSameSubs = prefEntries.every(
+    (p) => p.subs.length === prefEntries[0].subs.length && p.subs.every((s, i) => s === prefEntries[0].subs[i])
+  );
+  const prefLines = allSameSubs
+    ? prefEntries.map((p) => p.prefName).join('、')
+    : prefEntries.map((p) => `${p.prefName}: ${p.subs.join('・')}`).join('\n');
   return {
     isTestData: sites.some((s) => s.isTestData),
     satelliteId: sites[0].satelliteId,
