@@ -1454,30 +1454,39 @@ function handleFloodReport(report) {
       if (match) mergeIntoActiveEvent(match, event, report, TTL_OTHER_CATEGORY_MS);
       else addActiveEvent(event, TTL_OTHER_CATEGORY_MS);
     } else if (isActiveLevel) {
-      uncoveredRows.push([name, levelNames[i] || String(level)]);
+      uncoveredRows.push({ name, level, levelName: levelNames[i] || String(level) });
     }
   });
 
   // 流路データが無い河川は、南海トラフ等と同じ「その他の通報」の枠で
-  // テキストのみ表示する(地図への塗りつぶしは行わない)
+  // テキストのみ表示する(地図への塗りつぶしは行わない)。以前は警戒
+  // レベルに関わらず一律で洪水カテゴリ既定の黄色(sev-caution)だったため、
+  // 氾濫発生情報(最も深刻)が出ていても地図描画対応の河川と違って赤く
+  // ならず分かりにくいという指摘を受けた。floodSeverityClassを使い、
+  // 地図描画対応の河川と同じ色・同じ考え方(氾濫発生情報だけは
+  // sev-emergency)に揃え、レベルの高い河川から並べる
   const existing = otherReports.get(11);
   if (existing && existing.timer) clearTimeout(existing.timer);
   if (!uncoveredRows.length) {
     otherReports.delete(11);
   } else {
-    const rows = [...uncoveredRows];
+    const sorted = [...uncoveredRows].sort((a, b) => b.level - a.level);
+    const worstLevel = sorted[0].level;
+    const rows = [];
     if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
+    rows.push(['備考', '地図に表示できる流路データが無い河川です(河川名に含まれる都道府県付近を目安にしてください)']);
+    const message = sorted.map((r) => `${r.name}: ${r.levelName}`).join('\n');
     const event = applyTrainingLabel({
       isTestData: !!report.is_test_data,
       satelliteId: report.satellite_id,
       satellitePrn: report.satellite_prn,
       badgeText: '洪水',
-      badgeClass: otherBadgeClassForReport(report),
+      badgeClass: 'report-badge ' + floodSeverityClass(worstLevel),
       showBadges: false,
       headline: '河川',
       title: '',
       meta: `受信 ${nowTimeString()}`,
-      message: '',
+      message,
       rows,
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
       bounds: null,
