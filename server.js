@@ -38,6 +38,20 @@ app.use(compression());
 app.use('/data', express.static(path.join(PUBLIC_DIR, 'data'), {
   maxAge: '1d',
 }));
+// vendor/(maplibre-gl・pmtilesのライブラリ本体)とstyle.jsonも、/dataと
+// 同じくデプロイ時以外はほぼ変化しないため同じ1日キャッシュを付ける。
+// 以前はここが未設定(=キャッシュ無し)だったため、地図を開くたびに
+// 数百KBのvendorライブラリの確認リクエストが毎回発生していた
+// (中身が同じなら304で軽いとはいえ、往復自体は毎回発生する)。
+// main.js/index.html/sw.js等は更新頻度が高いため、意図的にこの対象に
+// 含めず従来通りキャッシュ無しのままにする(上のコメント参照)
+app.use('/vendor', express.static(path.join(PUBLIC_DIR, 'vendor'), {
+  maxAge: '1d',
+}));
+app.get('/style.json', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.sendFile(path.join(PUBLIC_DIR, 'style.json'));
+});
 // info.shum10.com は地図ではなく紹介サイト(public/info.html)を配信する。
 // eq.shum10.com など他のホストは従来通り地図(index.html)を配信する。
 // 下の express.static が / に対して index.html を返してしまう前に、

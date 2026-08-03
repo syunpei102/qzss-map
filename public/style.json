@@ -4,7 +4,9 @@
   "sources": {
     "v": {
       "type": "vector",
-      "url": "pmtiles://./data/base_slim_final.pmtiles"
+      "url": "pmtiles://./data/base_slim_final.pmtiles",
+      "minzoom": 4,
+      "maxzoom": 7
     }
   },
   "layers": [
