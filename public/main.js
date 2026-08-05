@@ -1244,6 +1244,20 @@ function computeAshFallEllipse(report) {
   return { ellipse: { polygon, color: ashFallWorstColor(report) }, bounds: geometryBounds(polygon), pending: missing };
 }
 
+// 北西太平洋津波情報(6)は地図に一切描画しない(buildEventFromOtherCategory
+// 参照、ポリゴン・座標を一切持たない)。沿岸域・高さ・到達予想時刻の
+// いずれかが分かっていれば、地図に描けなくてもテキストとして意味のある
+// 情報になるが、今回のように全て「不明(Unknown)」だと「津波情報が
+// 出ています」以外に何も伝えられず、ユーザーが取れる行動に結びつかない。
+// この判定はrenderReport(パネル表示の要否)とserver.jsのshouldNotify
+// (プッシュ通知の要否)の両方で使う
+function tsunamiInfoHasLocation(report) {
+  const known = (arr) => (arr || []).some((v) => v && v !== 'Unknown' && v !== '不明');
+  return known(report.coastal_regions || report.coastal_regions_en)
+    || known(report.tsunami_heights || report.tsunami_heights_en)
+    || (report.expected_tsunami_arrival_times || []).some(Boolean);
+}
+
 // 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱う。
 // 火山(8)も専用のhandleVolcanoReportで扱うため、ここでは
 // 南海トラフ地震(4)・降灰(9)だけを対象にする
@@ -3780,15 +3794,22 @@ function renderReport(report) {
 
   // 南海トラフ地震(4)・北西太平洋津波(6)・降灰(9): カテゴリごとに1枚
   if ([4, 6, 9].includes(report.disaster_category_no)) {
-    const existing = otherReports.get(report.disaster_category_no);
-    if (existing && existing.timer) clearTimeout(existing.timer);
     // 北西太平洋津波(6)は「取消(情報形態=取消)」による解除だけでなく、
     // JMAが状況を再評価して tsunamigenic_potential=0「津波発生の可能性なし」
     // を発表することでも実質的に解除される(azarashiのqzss_dcr_jma_
     // tsunamigenic_potential定義: 0だけが「なし」、1/2/3/4/7は全て何らかの
     // 津波発生可能性ありを意味する)。取消と同様にカードを消す
     const isTsunamiResolved = report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0;
-    if (report.information_type_no === 2 || isTsunamiResolved) {
+    const isCancel = report.information_type_no === 2 || isTsunamiResolved;
+    // 沿岸域・高さ・到達予想時刻が全て不明な北西太平洋津波情報は、地図に
+    // 何も描けないうえテキストでも「津波情報が出ています」以上の意味の
+    // ある情報を伝えられないため、パネル表示自体をしない(取消・解除は
+    // 既存カードを片付ける必要があるので対象外にする)。既存カードに
+    // 実際の位置情報が入っていた場合、そのカードは触らずそのまま残す
+    if (!isCancel && report.disaster_category_no === 6 && !tsunamiInfoHasLocation(report)) return;
+    const existing = otherReports.get(report.disaster_category_no);
+    if (existing && existing.timer) clearTimeout(existing.timer);
+    if (isCancel) {
       otherReports.delete(report.disaster_category_no);
     } else {
       const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);

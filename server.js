@@ -175,8 +175,24 @@ function shouldNotify(report) {
   // 全体設定(globalShowTrainingBroadcasts)を見る
   const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === "Test";
   if (isOfficialTrainingBroadcast && !globalShowTrainingBroadcasts) return false;
+  // 北西太平洋津波情報(6)は、沿岸域・高さ・到達予想時刻が全て「不明」だと
+  // 地図にもパネルにも表示しない(public/main.jsのtsunamiInfoHasLocation
+  // 参照)。表示しないのに通知だけ届くと、開いても何も確認できず紛らわしい
+  // ため、取消・解除(isEndSignal)以外はここでも同じ条件で通知を止める
+  if (report.disaster_category_no === 6 && !isEndSignal(report) && !tsunamiInfoHasLocation(report)) return false;
   if (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return true;
   return PUSH_NOTIFY_CATEGORY_NOS.has(report.disaster_category_no);
+}
+
+// public/main.jsの同名関数と同じ判定(北西太平洋津波情報6の沿岸域・
+// 高さ・到達予想時刻がいずれか分かっているか)。パネル表示・プッシュ
+// 通知の両方でこの判定を揃える必要があるため、サーバー側にも複製する
+// (クライアント専用コードをrequireする構成ではないため)
+function tsunamiInfoHasLocation(report) {
+  const known = (arr) => (arr || []).some((v) => v && v !== "Unknown" && v !== "不明");
+  return known(report.coastal_regions || report.coastal_regions_en)
+    || known(report.tsunami_heights || report.tsunami_heights_en)
+    || (report.expected_tsunami_arrival_times || []).some(Boolean);
 }
 
 const JALERT_HAZARD_JA = {
