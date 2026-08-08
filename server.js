@@ -801,7 +801,15 @@ app.post("/ingest", (req, res) => {
     req.body.client_timestamps.t2_server_received_ms = Date.now();
   }
   const line = JSON.stringify(req.body);
-  console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 400));
+  // 以前は400文字で切り詰めていたため、Lアラート等フィールド数の多い
+  // 通報だと肝心の type・対象地域コードがログに残らず、後から「何が
+  // 届いていたか/届いていなかったか」を調査する手段が無かった(実際に
+  // 沖縄県のLアラートで「地図に描画されていないのに解除の通知だけ来る」
+  // という報告があった際、ログから原因を特定できなかった)。express.json
+  // 側で1リクエストの上限を256kbに制限済みなので、ログ1行がその桁で
+  // 際限なく肥大化することは無い。4000文字あれば実際の通報JSON
+  // (Lアラート等)は余裕を持ってまるごと残るサイズなので、それを上限にする
+  console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 4000));
   handleIncomingLine(line);
   res.status(204).end();
 });
