@@ -3019,6 +3019,57 @@ function weatherRegionId(code) {
   return group ? `region:${group.id}` : `pref:${prefId}`;
 }
 
+// 同じ地方(関東・東北等)であっても、種別や距離を無視して常に1枚の
+// カードにまとめると、例えば大雨特別警報が千葉県だけに出ている状況でも
+// 「関東地方」の1枚に統合され、あたかも関東全域に特別警報が出ている
+// かのような誤解を招く表示になっていた(指摘を受けた)。地方単位の統合
+// (weatherRegionCard)は、その地方の中でもさらに「発表されている種別が
+// 完全に一致」かつ「対象地域が地理的に近い」都道府県どうしだけに限定する。
+//
+// 「近い」の判定にはbounding boxの重なり(緩衝込み)を使う。都道府県
+// ポリゴンの単純なbounding boxだと東京都(小笠原)・鹿児島県(奄美)の
+// ような遠方の属島に引っ張られて破綻するため、mainLandBounds(本土のみ)
+// を使う。緩衝は東京湾を挟んだ隣接県(例: 千葉県・神奈川県)程度の
+// 隙間を許容しつつ、同じ地方内でも本当に離れた県どうし(例: 千葉県・
+// 群馬県)は結合しない値として0.4度(おおよそ40〜45km)を採用する
+const WEATHER_MERGE_PROXIMITY_DEG = 0.4;
+
+function prefectureMainLandBounds(prefId) {
+  const feature = prefectureFeaturesById.get(prefId);
+  return feature ? mainLandBounds(feature.geometry) : null;
+}
+
+function boundsAreClose(a, b, bufferDeg) {
+  if (!a || !b) return false;
+  return !(a[2] + bufferDeg < b[0] || b[2] + bufferDeg < a[0] || a[3] + bufferDeg < b[1] || b[3] + bufferDeg < a[1]);
+}
+
+// 都道府県単位の候補(種別セット・bounding boxを持つ)どうしを、
+// 「種別が完全一致」かつ「地理的に近い」場合だけ推移的にまとめる
+// (clusterOverlappingRecordsと同じ考え方の総当たりマージ)
+function clusterWeatherPrefectureEntries(entries) {
+  const sameSubs = (a, b) =>
+    a.subs.length === b.subs.length && a.subs.every((v, i) => v === b.subs[i]);
+  const mergeable = (a, b) => sameSubs(a, b) && boundsAreClose(a.bounds, b.bounds, WEATHER_MERGE_PROXIMITY_DEG);
+
+  const groups = entries.map((e) => [e]);
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer: for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        if (groups[i].some((a) => groups[j].some((b) => mergeable(a, b)))) {
+          groups[i] = groups[i].concat(groups[j]);
+          groups.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return groups;
+}
+
 // 都道府県単位にまとめた気象警報カードを作る。1都道府県内の複数の
 // 一次細分区域(例: 道北・道東など)をバラバラのカードにせず、1枚に
 // 統合する(ユーザー要望: 日本全体表示中は都道府県単位でまとめ、巡回
@@ -3084,7 +3135,18 @@ function weatherRegionCard(sites) {
     .sort((a, b) => weatherSeverityRank(b) - weatherSeverityRank(a));
   const firstPrefId = weatherPrefectureId(sites[0].code);
   const group = prefectureIdToRegion.get(firstPrefId);
-  const regionName = group ? `${group.name}地方` : '複数の都道府県';
+  // buildWeatherIdleCards側で種別・距離が揃う都道府県だけに絞り込んで
+  // 呼ばれるため、渡されたsitesがその地方の全都道府県を含むとは限らない。
+  // 一部の都道府県だけなのに「XX地方」と名乗ると、その地方全域に警報が
+  // 出ているかのような誤解を招くため、地方の全都道府県を含む場合だけ
+  // 地方名を使い、一部だけの場合は該当する都道府県名を直接列挙する
+  const isFullRegion = !!group && group.prefectureIds.length === byPrefecture.size;
+  const regionName = isFullRegion
+    ? `${group.name}地方`
+    : [...byPrefecture.keys()].map((prefId) => {
+        const f = prefectureFeaturesById.get(prefId);
+        return f ? f.properties.name : sites.find((s) => weatherPrefectureId(s.code) === prefId).name;
+      }).join('・');
   const latestReportTime = sites.reduce(
     (max, s) => (s.reportTime && (!max || s.reportTime > max) ? s.reportTime : max), null
   );
@@ -3126,6 +3188,41 @@ function weatherRegionCard(sites) {
     rows,
     updatedAt: latestUpdatedAt,
   };
+}
+
+// 日本全体表示(idle)中の気象警報カードを組み立てる。まず地方
+// (東北・関東等)単位に大まかに分け、その中でさらに「発表されている
+// 種別が完全に一致」かつ「対象地域が地理的に近い」都道府県どうしだけを
+// クラスタリングしてからカード化する(clusterWeatherPrefectureEntries
+// 参照)。地方に属さない都道府県(/region-groups未読込・未定義)は
+// weatherRegionId側で1件ずつの独立グループになるためそのまま渡す
+function buildWeatherIdleCards() {
+  const weatherByRegion = new Map();
+  for (const site of weatherSites.values()) {
+    const rid = weatherRegionId(site.code);
+    if (!weatherByRegion.has(rid)) weatherByRegion.set(rid, []);
+    weatherByRegion.get(rid).push(site);
+  }
+
+  const cards = [];
+  for (const regionSites of weatherByRegion.values()) {
+    const byPrefecture = new Map();
+    for (const site of regionSites) {
+      const prefId = weatherPrefectureId(site.code);
+      if (!byPrefecture.has(prefId)) byPrefecture.set(prefId, []);
+      byPrefecture.get(prefId).push(site);
+    }
+    const entries = [...byPrefecture.entries()].map(([prefId, pSites]) => ({
+      prefId,
+      sites: pSites,
+      subs: [...new Set(pSites.flatMap((s) => s.subCategories))].sort(),
+      bounds: prefectureMainLandBounds(prefId),
+    }));
+    for (const cluster of clusterWeatherPrefectureEntries(entries)) {
+      cards.push(weatherRegionCard(cluster.flatMap((e) => e.sites)));
+    }
+  }
+  return cards;
 }
 
 // 気象警報(weatherSites)・その他(otherReports)は
@@ -3403,15 +3500,13 @@ function renderEventsPanel() {
     // キオスクのページ送りに任せる。ここでも地理的に重なるイベント同士
     // は1枚の統合カードにまとめる。気象警報も同様に地方単位でまとめる
     // (東北6県など、同じ地方の複数都道府県にまたがっていても、日本全体
-    // 表示ではバラバラのカードで埋め尽くさない。巡回ズーム・タップされた
-    // 時はweatherPrefectureCardの都道府県単位に絞り込まれる)
-    const weatherByRegion = new Map();
-    for (const site of weatherSites.values()) {
-      const rid = weatherRegionId(site.code);
-      if (!weatherByRegion.has(rid)) weatherByRegion.set(rid, []);
-      weatherByRegion.get(rid).push(site);
-    }
-    const weatherCards = [...weatherByRegion.values()].map(weatherRegionCard);
+    // 表示ではバラバラのカードで埋め尽くさない)。ただし種別・距離を
+    // 無視して常に地方全体を1枚にまとめると、大雨特別警報が1県だけに
+    // 出ている状況でも地方全体に出ているかのような誤解を招くため、
+    // 地方の中でもさらに同じ種別・近い地域どうしだけをまとめる
+    // (buildWeatherIdleCards参照)。巡回ズーム・タップされた時は
+    // weatherPrefectureCardの都道府県単位に絞り込まれる
+    const weatherCards = buildWeatherIdleCards();
     const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
     const otherCards = [...otherReports.values()].map(otherReportCard);
