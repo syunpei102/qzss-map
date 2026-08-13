@@ -918,7 +918,14 @@ function buildEventFromLAlert(report) {
     lalertKey: lalertMatchKey(report),
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
-    badgeText: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
+    // badgeTextは災害種別名(例: 大雨)にする。「Lアラート」等の固定文言
+    // (headline)にすると、同じ市区町村に複数種別のLアラートが出て
+    // mergedCardForRecordsで統合された時、区別のつかない同じ文字列の
+    // バッジが種別数だけ並んでしまう(千葉県印西市の実例で指摘を受けた)。
+    // 単体表示時はshowBadges:falseにより見出し(Lアラート)の下に
+    // titleとして同じ種別名がどのみち表示されるため、この変更で単体
+    // カードの見た目は変わらない
+    badgeText: hazardJa,
     badgeClass: 'report-badge ' + jalertSeverityClass(report),
     // 丸角の見出しは「情報の種類」(Lアラート/自治体情報)を固定で表示し、
     // 災害種別名(例: 大雨)はその下に太字白文字で表示する(火山と同じ
@@ -3411,7 +3418,20 @@ function mergedCardForRecords(records) {
   const message = [...new Set(records.map((r) => r.message).filter(Boolean))].join('\n\n');
   const rowsMap = new Map();
   for (const r of ranked) for (const [k, v] of r.rows || []) if (!rowsMap.has(k)) rowsMap.set(k, v);
-  const badges = records.flatMap(recordBadges);
+  // バッジは同じ文字列につき1つまでにする。例えばLアラートはbadgeTextが
+  // 種別によらず常に「Lアラート」(具体的な災害種別はtitle側)なので、
+  // 同じ市区町村に複数種別のLアラートが出ていると、以前は区別できない
+  // 「Lアラート」の丸角しかくバッジが件数分そのまま並んでしまっていた
+  // (千葉県印西市の実例で指摘を受けた)。同じテキストが重複する場合は、
+  // その中で最も深刻な(色の濃い)ものだけを残す
+  const badgesByText = new Map();
+  for (const badge of records.flatMap(recordBadges)) {
+    const existing = badgesByText.get(badge.text);
+    if (!existing || SEVERITY_RANK[extractSevClass(badge.class)] > SEVERITY_RANK[extractSevClass(existing.class)]) {
+      badgesByText.set(badge.text, badge);
+    }
+  }
+  const badges = [...badgesByText.values()];
   return {
     isTestData: records.some((r) => r.isTestData),
     satelliteId: primary.satelliteId,
