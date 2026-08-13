@@ -461,6 +461,17 @@ function rememberNotifiedUnit(key, token, now) {
   }
 }
 
+// 解除・取消時、この通報自身が指す対象(トークン)だけ「通知済み」記憶を
+// 忘れる。同じグループキー配下の他のトークンには触れない(下のisEndSignal
+// 分岐のコメント参照)
+function forgetNotifiedUnit(key, token) {
+  if (key === null) return;
+  const m = notifiedUnitsByKey.get(key);
+  if (!m) return;
+  m.delete(token);
+  if (m.size === 0) notifiedUnitsByKey.delete(key);
+}
+
 // 増分通知の本文を組み立てる。降灰は火山名を頭に添える
 function deltaBodyFor(report, labels) {
   const body = labels.join("・");
@@ -494,9 +505,26 @@ function sendPushNotifications(report) {
   const now = Date.now();
 
   // 解除・取消は必ず通知し、その系統の「通知済み」記録をリセットする
-  // (同じ対象が後で再び発表されたら、また新規として通知できるように)
+  // (同じ対象が後で再び発表されたら、また新規として通知できるように)。
+  //
+  // 地域単位で管理できる種別(units非null)は、この解除通報自身が指す
+  // トークンだけをリセットする。以前はグループキー全体(例:
+  // n:lalert|Rainfall = 同じ災害種別の全市区町村分)を丸ごとリセット
+  // していたため、ある市区町村のLアラートが解除されると、同じ災害種別の
+  // 他の市区町村の(内容が全く変わっていない)まだアクティブな警報まで
+  // 「未通知」扱いに巻き戻り、数分後の定期再送(衛星は同一内容を配信
+  // 終了まで繰り返し送る仕様)で無意味に再通知されてしまっていた
+  // (ユーザー報告: 「既に発表されている情報がまた通知が来た」)。
+  // 地域の概念が無い種別(units=null。地震・津波等)は、そもそも
+  // グループ内に複数の独立した対象が並存する想定ではないため、
+  // 従来通りキー全体をリセットする
   if (isEndSignal(report)) {
-    if (key !== null) notifiedUnitsByKey.delete(key);
+    const units = notificationUnits(report);
+    if (units && key !== null) {
+      for (const u of units) forgetNotifiedUnit(key, u.token);
+    } else if (key !== null) {
+      notifiedUnitsByKey.delete(key);
+    }
     dispatchPush(report, notificationBodyFor(report));
     return;
   }
