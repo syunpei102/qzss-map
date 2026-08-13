@@ -1594,11 +1594,19 @@ let currentPatrolEventId = null; // 地震・津波・Jアラート・Lアラー
 // ページを開いて最初にWebSocketが繋がった直後、サーバーから既存の
 // アクティブな通報がまとめて再送されてくる。この「初回だけ」は、
 // 地震・津波(QUAKE_LOCK_CATEGORY_NOS)以外の情報でカメラをどこかへ
-// ズームさせず、日本全体表示のまま始める(ユーザー要望: 初回は
-// 日本全体表示を5分間維持し、地震関連がある時だけ最初からその地点に
-// ズーム)。INITIAL_LOAD_SETTLE_MS経過したら通常の巡回に戻る
-// (以降の再接続ではこの抑制はしない=trueに戻さない)
-const INITIAL_LOAD_SETTLE_MS = 5 * 60 * 1000; // 5分
+// ズームさせず、日本全体表示のまま始める(ユーザー要望: 初回は日本
+// 全体表示から始め、地震関連がある時だけ最初からその地点にズーム)。
+// INITIAL_LOAD_SETTLE_MS経過したら通常の巡回に戻る(以降の再接続では
+// この抑制はしない=trueに戻さない)。
+//
+// 以前は5分に設定していたが、この抑制は「その地震・津波以外の情報」を
+// 一律で対象にしており、再送された既存の通報だけでなく、抑制期間中に
+// 新しく発表された本当に新しい通報のカメラズームまで巻き込んで止めて
+// しまっていた(=ページを開いてから5分間は、新しいLアラート等が来ても
+// カメラが一切動かないという不具合になっていた)。再送自体はサーバーから
+// 一括・ほぼ瞬時(通常1秒未満)に届くため、数秒あれば安全マージンとして
+// 十分という判断で短縮した
+const INITIAL_LOAD_SETTLE_MS = 5 * 1000; // 5秒
 let isInitialLoad = true;
 
 // ==================================================
@@ -3323,6 +3331,13 @@ function buildReportCardHtml(record) {
   const messageHtml = record.message
     ? `<div class="report-message">${escapeHtml(record.message)}</div>`
     : '';
+  // 日本全国表示中のLアラート統合パネル(buildLalertNationwideCard)専用。
+  // 都道府県→種別→深刻度の階層をmessage(プレーンテキストのみ)では
+  // 表現しきれないため、あらかじめエスケープ済みのHTMLをそのまま
+  // 差し込む(このフィールドは常に自前のbuildLalertNationwideCard内で
+  // escapeHtmlを通した値だけを組み立てており、通報の生テキストを
+  // 未エスケープで渡すことは無い)
+  const customBodyHtml = record.customBodyHtml || '';
   const titleHtml = record.title ? `<div class="report-title">${escapeHtml(record.title)}</div>` : '';
   const cardKeyAttr = record.cardKey ? ` data-card-key="${escapeHtml(record.cardKey)}"` : '';
   return `
@@ -3337,6 +3352,7 @@ function buildReportCardHtml(record) {
       ${titleHtml}
       <div class="report-meta">${escapeHtml(record.meta)}</div>
       ${messageHtml}
+      ${customBodyHtml}
       <dl class="report-summary">${rowsHtml}</dl>
     </div>`;
 }
@@ -3475,6 +3491,99 @@ function groupOverlappingRecords(records) {
   return clusterOverlappingRecords(records).map(mergedCardForRecords);
 }
 
+// buildEventFromLAlertのrows「対象地域」(例: 「千葉県印西市」)から、
+// 都道府県名を取り出す。市区町村コードでの数値換算より、実際の47都道府県
+// 名のどれかで前方一致するかを見る方が、ポリゴン未解決(pendingMunicipalityCode)
+// のケースでも取りこぼしなく判定できる(都道府県名どうしで前方一致が
+// 衝突することは無い)
+function prefectureNameFromAreaText(text) {
+  if (!text) return null;
+  for (const name of prefectureFeaturesByName.keys()) {
+    if (text.startsWith(name)) return name;
+  }
+  return null;
+}
+
+// 日本全国表示(idle)中、Lアラートは対象の市区町村ごとにバラバラの
+// カードで並べると件数が多い時に把握しづらいという指摘を受け、1枚の
+// パネルに統合する。都道府県→種別(災害の種類)→深刻度の3階層で整理し、
+// どこに何が起きているか一目で追えるようにする。並び順はいずれの階層も
+// 深刻度が高いものを上にする(一番見てほしい情報を優先する)
+function buildLalertNationwideCard(records) {
+  if (!records.length) return null;
+
+  const prefs = new Map(); // 都道府県名 -> { worstRank, hazards: Map(種別名 -> {worstRank, sevs: Map(深刻度名 -> {rank, class, names:[]})}) }
+  let worstOverallRank = -Infinity;
+  let worstOverallClass = 'sev-info';
+
+  for (const r of records) {
+    const areaRow = (r.rows || []).find(([k]) => k === '対象地域');
+    const overlapRow = (r.rows || []).find(([k]) => k === '参考(重なる都道府県)');
+    const prefName = prefectureNameFromAreaText(areaRow ? areaRow[1] : null)
+      || (overlapRow ? overlapRow[1].split('・')[0] : null)
+      || '対象地域不明';
+    // 都道府県セクションの下に市区町村名を並べるため、既に見出しに出ている
+    // 県名が頭に付いたまま(例: 「千葉県流山市」)だと二重に見えて冗長。
+    // prefNameが実際に前方一致していた場合だけ、その部分を取り除く
+    const rawAreaLabel = areaRow ? areaRow[1] : (r.rows || []).find(([k]) => k === '対象範囲')?.[1] || prefName;
+    const areaLabel = rawAreaLabel.startsWith(prefName) ? rawAreaLabel.slice(prefName.length) || prefName : rawAreaLabel;
+    const sevRow = (r.rows || []).find(([k]) => k === '深刻度');
+    const sevLabel = sevRow ? sevRow[1] : '不明';
+    const sevClass = extractSevClass(r.badgeClass);
+    const rank = SEVERITY_RANK[sevClass] ?? 0;
+    const hazardTitle = r.title || 'Lアラート';
+    if (rank > worstOverallRank) { worstOverallRank = rank; worstOverallClass = sevClass; }
+
+    if (!prefs.has(prefName)) prefs.set(prefName, { worstRank: -Infinity, hazards: new Map() });
+    const prefEntry = prefs.get(prefName);
+    if (rank > prefEntry.worstRank) prefEntry.worstRank = rank;
+
+    if (!prefEntry.hazards.has(hazardTitle)) prefEntry.hazards.set(hazardTitle, { worstRank: -Infinity, sevs: new Map() });
+    const hazardEntry = prefEntry.hazards.get(hazardTitle);
+    if (rank > hazardEntry.worstRank) hazardEntry.worstRank = rank;
+
+    if (!hazardEntry.sevs.has(sevLabel)) hazardEntry.sevs.set(sevLabel, { rank, class: sevClass, names: [] });
+    hazardEntry.sevs.get(sevLabel).names.push(areaLabel);
+  }
+
+  const bySevDesc = (a, b) => b[1].worstRank - a[1].worstRank;
+  const prefSectionsHtml = [...prefs.entries()].sort(bySevDesc).map(([prefName, prefEntry]) => {
+    const hazardsHtml = [...prefEntry.hazards.entries()].sort(bySevDesc).map(([hazardTitle, hazardEntry]) => {
+      const sevsHtml = [...hazardEntry.sevs.entries()].sort((a, b) => b[1].rank - a[1].rank).map(([sevLabel, sevEntry]) => `
+        <div class="lalert-summary-sev ${escapeHtml(sevEntry.class)}">
+          <span class="lalert-summary-sev-label">${escapeHtml(sevLabel)}</span>
+          <span class="lalert-summary-sev-names">${escapeHtml(sevEntry.names.join('・'))}</span>
+        </div>`).join('');
+      return `
+        <div class="lalert-summary-hazard">
+          <div class="lalert-summary-hazard-title">${escapeHtml(hazardTitle)}</div>
+          ${sevsHtml}
+        </div>`;
+    }).join('');
+    return `
+      <div class="lalert-summary-pref">
+        <div class="lalert-summary-pref-title">${escapeHtml(prefName)}</div>
+        ${hazardsHtml}
+      </div>`;
+  }).join('');
+
+  return {
+    isTestData: records.some((r) => r.isTestData),
+    satelliteId: records[0].satelliteId,
+    satellitePrn: records[0].satellitePrn,
+    badgeText: 'Lアラート',
+    badgeClass: 'report-badge ' + worstOverallClass,
+    showBadges: false,
+    headline: ['Lアラート'],
+    title: '',
+    meta: `更新 ${nowTimeString()}(${records.length}件)`,
+    message: '',
+    customBodyHtml: prefSectionsHtml,
+    rows: [],
+    updatedAt: Math.max(...records.map((r) => r.updatedAt || 0)),
+  };
+}
+
 function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
@@ -3527,10 +3636,26 @@ function renderEventsPanel() {
     // (buildWeatherIdleCards参照)。巡回ズーム・タップされた時は
     // weatherPrefectureCardの都道府県単位に絞り込まれる
     const weatherCards = buildWeatherIdleCards();
-    const eventCards = groupOverlappingRecords([...activeEvents.values()].filter((r) => !r.isTraining));
+    // Lアラートは対象の市区町村ごとに件数が多くなりやすく、他のイベントと
+    // 同じ「地理的に重なるものだけ統合」のルールだとバラバラのカードが
+    // 並びすぎて把握しづらいという指摘を受けた。日本全国表示中だけは
+    // Lアラート全体を都道府県→種別→深刻度の階層で1枚にまとめる
+    // (buildLalertNationwideCard)。地震・津波・Jアラート・洪水・火山等は
+    // 従来通りgroupOverlappingRecords(地理的重なりでの統合)のまま
+    const nonTraining = [...activeEvents.values()].filter((r) => !r.isTraining);
+    const lalertRecords = nonTraining.filter((r) => r.lalertKey);
+    const otherActiveRecords = nonTraining.filter((r) => !r.lalertKey);
+    const eventCards = groupOverlappingRecords(otherActiveRecords);
+    const lalertSummaryCard = buildLalertNationwideCard(lalertRecords);
     const trainingCards = [...activeEvents.values()].filter((r) => r.isTraining);
     const otherCards = [...otherReports.values()].map(otherReportCard);
-    visibleRecords = [...weatherCards, ...eventCards, ...trainingCards, ...otherCards];
+    visibleRecords = [
+      ...weatherCards,
+      ...eventCards,
+      ...(lalertSummaryCard ? [lalertSummaryCard] : []),
+      ...trainingCards,
+      ...otherCards,
+    ];
   }
 
   clearInterval(panelPageTimer);
