@@ -160,15 +160,40 @@ function renderChart(history) {
   if (!history.length) return;
 
   const recent = history.slice(-60);
-  const maxTotal = Math.max(...recent.map((h) => h.totalMs), 100);
+  // 通信エラー等でごく一部だけ極端に遅い値が混ざると、それに合わせて
+  // 軸全体が縮小され正常系同士の比較ができなくなっていた。軸の上限は
+  // 全体最大値ではなく、外れ値に引っ張られにくい四分位範囲(IQR)方式
+  // (箱ひげ図の上限ヒンジ: Q3 + 1.5×IQR)で決め、それを超える棒は
+  // 枠外へ切り詰めて上に▲マーク+実測値を表示する。p90など単純な
+  // percentileだと、外れ値が2件以上混ざると外れ値自体がp90に入って
+  // しまい軸が潰れたままになるケースがあったため採用している
+  const sortedTotals = recent.map((h) => h.totalMs).sort((a, b) => a - b);
+  const trueMax = sortedTotals[sortedTotals.length - 1] || 0;
+  let maxTotal;
+  if (sortedTotals.length < 8) {
+    // データ数が少ないと四分位が意味を持たないため、そのまま全体最大値を使う
+    maxTotal = Math.max(trueMax, 100);
+  } else {
+    const q1 = percentile(sortedTotals, 0.25);
+    const q3 = percentile(sortedTotals, 0.75);
+    const iqr = q3 - q1;
+    maxTotal = Math.max(q3 + iqr * 1.5, q3 * 1.1, 100);
+  }
   const barGap = 3;
   const barWidth = Math.max(2, (cssWidth - barGap * recent.length) / recent.length);
   const padBottom = 20;
-  const scale = (cssHeight - padBottom) / maxTotal;
+  const padTop = 16;
+  const plotBottom = cssHeight - padBottom;
+  const plotTop = padTop;
+  const scale = (plotBottom - plotTop) / maxTotal;
   const colors = { decodeMs: '#4c8bf5', networkMs: '#f1c40f', dispatchPrepMs: '#9c7fe0', renderMs: '#2ecc71' };
 
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, plotTop, cssWidth, plotBottom - plotTop);
+  ctx.clip();
   recent.forEach((h, i) => {
-    let y = cssHeight - padBottom;
+    let y = plotBottom;
     const x = i * (barWidth + barGap);
     for (const key of ['decodeMs', 'networkMs', 'dispatchPrepMs', 'renderMs']) {
       const segH = Math.max(0, h[key]) * scale;
@@ -177,11 +202,27 @@ function renderChart(history) {
       y -= segH;
     }
   });
+  ctx.restore();
+
+  ctx.fillStyle = '#e74c3c';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'center';
+  recent.forEach((h, i) => {
+    if (h.totalMs <= maxTotal) return;
+    const x = i * (barWidth + barGap) + barWidth / 2;
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop - 6);
+    ctx.lineTo(x - barWidth / 2, plotTop + 3);
+    ctx.lineTo(x + barWidth / 2, plotTop + 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillText(`${formatSeconds(h.totalMs)}s`, x, plotTop - 8);
+  });
 
   ctx.strokeStyle = '#2a2e35';
   ctx.beginPath();
-  ctx.moveTo(0, cssHeight - padBottom);
-  ctx.lineTo(cssWidth, cssHeight - padBottom);
+  ctx.moveTo(0, plotBottom);
+  ctx.lineTo(cssWidth, plotBottom);
   ctx.stroke();
 }
 
@@ -240,6 +281,20 @@ function formatDateTime(iso) {
   });
   const p = Object.fromEntries(fmt.formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));
   return `${p.month}/${p.day} ${p.hour}:${p.minute}`;
+}
+
+// recordedAtは秒未満の差も比較したい計測値なので秒まで表示。以前は
+// toLocaleTimeStringで時刻のみだったため日をまたぐと何日の記録か
+// 分からなかった。formatDateTimeと同じくAsia/Tokyo固定+月/日表示にする
+function formatRecordedAt(epochMs) {
+  const d = new Date(epochMs);
+  if (isNaN(d.getTime())) return '';
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  const p = Object.fromEntries(fmt.formatToParts(d).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));
+  return `${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
 
 function reportBadgeText(r) {
@@ -341,7 +396,7 @@ function renderHistory(history) {
           <div class="latency-bar">${barHtml}</div>
           <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.totalMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
         </div>
-        <div class="recorded-time">受信 ${new Date(h.recordedAt).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo' })}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
+        <div class="recorded-time">受信 ${formatRecordedAt(h.recordedAt)}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
       </div>
     `;
   }).join('');
