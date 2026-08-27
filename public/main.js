@@ -3955,8 +3955,33 @@ function renderReport(report) {
     codes.forEach((code, i) => {
       if (resolved) {
         const existing = weatherSites.get(code);
-        if (existing && existing.timer) clearTimeout(existing.timer);
-        if (weatherSites.delete(code) && currentPatrolCode === code) removedFocusedRegion = true;
+        if (!existing) return;
+        if (existing.timer) clearTimeout(existing.timer);
+        const subCategory = subCats[i];
+        // 解除は本来「その地域の警報が全て無くなった」とは限らない。
+        // 例えば「全ての気象特別警報(解除)」は特別警報(ランク3)が
+        // 警報へ引き下げられたことを意味するだけで、同じ地域に出ている
+        // 土砂災害警戒情報など特別警報以外の項目は対象外。以前はcode単位で
+        // 丸ごと削除しており、無関係の警報まで一緒に地図から消えてしまう
+        // バグがあった(実機で確認: 大雨特別警報の解除で富山県の
+        // 土砂災害警戒情報まで消えた)。種別が特定できる場合はその種別
+        // だけをsubCategoriesから取り除き、種別が不明な場合のみ従来通り
+        // 地域ごと丸ごと消す
+        const remaining = !subCategory
+          ? []
+          : subCategory === '全ての気象特別警報'
+            ? existing.subCategories.filter((c) => weatherSeverityRank(c) !== 3)
+            : existing.subCategories.filter((c) => c !== subCategory);
+        if (remaining.length) {
+          weatherSites.set(code, {
+            ...existing,
+            subCategories: remaining,
+            updatedAt: Date.now(),
+            timer: setTimeout(() => expireWeatherSite(code), TTL_WEATHER_MS),
+          });
+        } else if (weatherSites.delete(code) && currentPatrolCode === code) {
+          removedFocusedRegion = true;
+        }
         return;
       }
       // デバイスロックモードでは、地域コード上位2桁(都道府県ID、
