@@ -118,12 +118,17 @@ const ALLOWED_CATEGORIES = new Set([1, 2, 3, 5]); // EEW, 震源, 震度, 津波
 // /set_training_broadcasts で変更)から起動時に取得する。取得できる
 // までの既定値・取得失敗時のフォールバックはtrue(従来通り表示する)
 let showTrainingBroadcasts = true;
+// Lアラート(QzssDcxLAlert・QzssDcxMTInfo)の解析(表示・通知)ON/OFF。
+// showTrainingBroadcastsと同じくサーバー側(Discordの/set_lalertで変更)
+// から起動時に取得する。既定値・取得失敗時のフォールバックはtrue
+let lalertEnabled = true;
 async function loadShowTrainingBroadcastsSetting() {
   try {
     const url = LOCKED_DEVICE_ID ? `/config?device=${encodeURIComponent(LOCKED_DEVICE_ID)}` : '/config';
     const res = await fetch(url);
     const data = await res.json();
     if (typeof data.showTrainingBroadcasts === 'boolean') showTrainingBroadcasts = data.showTrainingBroadcasts;
+    if (typeof data.lalertEnabled === 'boolean') lalertEnabled = data.lalertEnabled;
   } catch (err) {
     console.warn('訓練放送表示設定の取得に失敗しました(既定値のまま続行):', err);
   }
@@ -1571,6 +1576,16 @@ function clearActiveTrainingContent() {
   }
   for (const [code, site] of weatherSites) {
     if (site.isTraining) expireWeatherSite(code);
+  }
+}
+
+// Discordの/set_lalertでOFFにした瞬間、その時点で既に表示中のLアラート
+// (activeEventsのうちlalertKeyを持つもの)を即座に消す。clearActiveTrainingContent
+// と同じ考え方。lalertEnabledがtrueに戻った場合は何もしない
+function clearActiveLalertContent() {
+  if (lalertEnabled) return;
+  for (const [id, record] of activeEvents) {
+    if (record.lalertKey) removeActiveEvent(id);
   }
 }
 
@@ -3930,6 +3945,10 @@ function renderReport(report) {
   // テスト配信した通報(奈良県十津川村の実例)が地図に何も描画されない
   // 不具合になっていた
   if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
+    // Discordの/set_lalertでOFFにされている場合は解析(表示・通知)自体を
+    // 行わない。取消(All Clear)も含めて無視する(OFF中は元々何も
+    // 表示していないはずなので、取消処理をする対象も無い)
+    if (!lalertEnabled) return;
     if (report.a1_message_type === 'All Clear') {
       const key = lalertMatchKey(report);
       for (const [id, record] of activeEvents) {
@@ -4753,6 +4772,19 @@ function connectWebSocket() {
       // ままになる。サーバー側はTTLの間activeReportsを保持しているので、
       // 再接続してその再送を受け直し、今度はONとして正しく表示する
       if (wasOff && showTrainingBroadcasts) {
+        intentionalReconnect = true;
+        socket.close();
+      }
+      return;
+    }
+
+    // Discordの/set_lalertで設定が変わった通知。TrainingBroadcastSettingChanged
+    // と同じ考え方(OFF→ONならactiveReportsの再送を受け直す)
+    if (report.type === 'LalertSettingChanged') {
+      const wasOff = !lalertEnabled;
+      await loadShowTrainingBroadcastsSetting();
+      clearActiveLalertContent();
+      if (wasOff && lalertEnabled) {
         intentionalReconnect = true;
         socket.close();
       }

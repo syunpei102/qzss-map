@@ -87,6 +87,19 @@ const commands = [
     ],
   },
   {
+    name: "set_lalert",
+    description: "Lアラート(避難情報等の自治体配信)の解析(表示・通知)を行うか設定する。deviceを指定すればその拠点だけ、省略すれば全体に適用",
+    options: [
+      {
+        name: "enabled",
+        description: "表示・通知するかどうか",
+        type: BOOLEAN_OPTION_TYPE,
+        required: true,
+      },
+      optionalDeviceOption,
+    ],
+  },
+  {
     name: "delete_device",
     description: "拠点の記録を全て削除する(状態報告履歴・地域設定・トークン失効・訓練放送設定)。元に戻せません",
     options: [deviceOption],

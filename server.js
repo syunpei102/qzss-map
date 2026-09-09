@@ -180,7 +180,14 @@ function shouldNotify(report) {
   // 参照)。表示しないのに通知だけ届くと、開いても何も確認できず紛らわしい
   // ため、取消・解除(isEndSignal)以外はここでも同じ条件で通知を止める
   if (report.disaster_category_no === 6 && !isEndSignal(report) && !tsunamiInfoHasLocation(report)) return false;
-  if (report.type === "QzssDcxJAlert" || report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return true;
+  // Lアラート(消防庁経由の標準配信QzssDcxLAlertと、自治体からの直接配信
+  // QzssDcxMTInfoの両方。地図側の判定(public/main.jsのrenderReport)と
+  // 揃える)は、Discordの/set_lalertでOFFにできる。通知には拠点(device)の
+  // 紐付けが無いため、訓練放送の通知ゲート(globalShowTrainingBroadcasts)
+  // と同じく全体設定(globalLalertEnabled)を見る
+  const isLalertReport = report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo";
+  if (isLalertReport && !globalLalertEnabled) return false;
+  if (report.type === "QzssDcxJAlert" || isLalertReport) return true;
   return PUSH_NOTIFY_CATEGORY_NOS.has(report.disaster_category_no);
 }
 
@@ -1415,6 +1422,51 @@ function resolveShowTrainingBroadcasts(deviceId) {
   return globalShowTrainingBroadcasts;
 }
 
+// ==================================================
+// Lアラート(QzssDcxLAlert・QzssDcxMTInfo)の解析(表示・通知)ON/OFF
+//
+// 訓練放送ON/OFFと全く同じ2段構え(全体既定値+拠点ごとの上書き)。
+// Discordの/set_lalertで、deviceを指定すればその拠点だけ、指定しなければ
+// 全体(=上書きしていない拠点すべて)の設定を変更できる。
+// ==================================================
+let globalLalertEnabled = true;
+const deviceLalertOverrides = new Map(); // device_id -> boolean
+const LALERT_ENABLED_STATE_FILE = "lalert_enabled_settings.json";
+
+async function loadLalertEnabledSettings() {
+  const restored = await loadPersistedJson(LALERT_ENABLED_STATE_FILE);
+  if (!restored || typeof restored !== "object") return;
+  if (typeof restored.global === "boolean") globalLalertEnabled = restored.global;
+  if (restored.perDevice && typeof restored.perDevice === "object") {
+    for (const [deviceId, val] of Object.entries(restored.perDevice)) {
+      if (typeof val === "boolean") deviceLalertOverrides.set(deviceId, val);
+    }
+  }
+}
+
+function persistLalertEnabledSettings() {
+  persistJson(LALERT_ENABLED_STATE_FILE, {
+    global: globalLalertEnabled,
+    perDevice: Object.fromEntries(deviceLalertOverrides),
+  });
+}
+
+// deviceId=null/undefinedなら全体の既定値を変更する。指定すればその
+// 拠点だけの上書きを設定する
+function setLalertEnabledSetting(deviceId, enabled) {
+  if (deviceId) {
+    deviceLalertOverrides.set(deviceId, enabled);
+  } else {
+    globalLalertEnabled = enabled;
+  }
+  persistLalertEnabledSettings();
+}
+
+function resolveLalertEnabled(deviceId) {
+  if (deviceId && deviceLalertOverrides.has(deviceId)) return deviceLalertOverrides.get(deviceId);
+  return globalLalertEnabled;
+}
+
 // ラズパイのローカルkiosk(LOCAL_STATE_ONLY=true)専用の同期エンドポイント。
 // Discordの/set_training_broadcastsはCloud Run(公開URL)にしか届かず、
 // LAN内だけのローカルkioskサーバーはそのWebhookを一切受け取れない。
@@ -1429,6 +1481,11 @@ if (LOCAL_STATE_ONLY) {
     broadcast(JSON.stringify({ type: "TrainingBroadcastSettingChanged" }));
     res.status(204).end();
   });
+  app.post("/local-sync/lalert", (req, res) => {
+    setLalertEnabledSetting(null, !!req.body.enabled);
+    broadcast(JSON.stringify({ type: "LalertSettingChanged" }));
+    res.status(204).end();
+  });
 }
 
 // 拠点をまるごと「忘れる」(Discordの/delete_device)。状態報告履歴・
@@ -1441,7 +1498,8 @@ function deleteDevice(deviceId) {
     pendingCommands.has(deviceId) ||
     deviceRegionConfig.has(deviceId) ||
     deviceIngestTokens.has(deviceId) ||
-    deviceTrainingBroadcastOverrides.has(deviceId);
+    deviceTrainingBroadcastOverrides.has(deviceId) ||
+    deviceLalertOverrides.has(deviceId);
 
   deviceStatus.delete(deviceId);
   pendingCommands.delete(deviceId);
@@ -1449,6 +1507,7 @@ function deleteDevice(deviceId) {
   if (deviceRegionConfig.delete(deviceId)) persistRegionConfig();
   if (deviceIngestTokens.delete(deviceId)) persistDeviceIngestTokens();
   if (deviceTrainingBroadcastOverrides.delete(deviceId)) persistTrainingBroadcastSettings();
+  if (deviceLalertOverrides.delete(deviceId)) persistLalertEnabledSettings();
 
   return { ok: true, existed };
 }
@@ -1505,7 +1564,10 @@ app.get("/device-region/:deviceId", (req, res) => {
 // ないため認証は無し
 app.get("/config", (req, res) => {
   const deviceId = req.query.device ? String(req.query.device) : null;
-  res.json({ showTrainingBroadcasts: resolveShowTrainingBroadcasts(deviceId) });
+  res.json({
+    showTrainingBroadcasts: resolveShowTrainingBroadcasts(deviceId),
+    lalertEnabled: resolveLalertEnabled(deviceId),
+  });
 });
 
 // ==================================================
@@ -1634,6 +1696,18 @@ function handleCommand(interaction) {
         : `✅ 全体(拠点ごとの上書きが無い端末すべて)の訓練放送表示を${enabled ? "ON" : "OFF"}にしました`
     );
   }
+  if (interaction.data.name === "set_lalert") {
+    const enabled = !!options.enabled;
+    const targetDevice = deviceId || null; // device未指定なら全体設定を変更する
+    setLalertEnabledSetting(targetDevice, enabled);
+    // set_training_broadcastsと同じ理由(既に繋がっているブラウザへ即時反映)
+    broadcast(JSON.stringify({ type: "LalertSettingChanged" }));
+    return ephemeralReply(
+      targetDevice
+        ? `✅ ${targetDevice} のLアラート表示・通知を${enabled ? "ON" : "OFF"}にしました(この拠点だけの設定)`
+        : `✅ 全体(拠点ごとの上書きが無い端末すべて)のLアラート表示・通知を${enabled ? "ON" : "OFF"}にしました`
+    );
+  }
   if (interaction.data.name === "delete_device") {
     if (!deviceId) return ephemeralReply("❌ deviceを指定してください");
     const result = deleteDevice(deviceId);
@@ -1673,6 +1747,7 @@ Promise.all([
   loadAdminPasswordHash(),
   loadDeviceIngestTokens(),
   loadTrainingBroadcastSettings(),
+  loadLalertEnabledSettings(),
   loadActiveReports(),
   loadLatencyHistory(),
   loadPushSubscriptions(),
