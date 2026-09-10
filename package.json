@@ -2,7 +2,8 @@
   "name": "qzss-map",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",

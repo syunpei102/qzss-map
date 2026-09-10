@@ -1113,15 +1113,16 @@ const VOLCANO_SEVERITY_COLOR = {
 // 南海トラフ等と同じテキストのみのotherReportsカードにフォールバックする
 function handleVolcanoReport(report) {
   const name = report.volcano_name;
+  const fallbackKey = `volcano:${name || "unknown"}`;
   const isCancel = report.information_type_no === 2;
 
   if (isCancel) {
     for (const [id, record] of activeEvents) {
       if (record.volcanoKey === name) removeActiveEvent(id);
     }
-    const existing = otherReports.get(8);
+    const existing = otherReports.get(fallbackKey);
     if (existing && existing.timer) clearTimeout(existing.timer);
-    otherReports.delete(8);
+    otherReports.delete(fallbackKey);
     syncActiveEventLayers();
     return;
   }
@@ -1155,6 +1156,7 @@ function handleVolcanoReport(report) {
       // 丸角の見出しは種別名(火山)固定にし、山の名前はその下に
       // 太字白文字で出す(report-titleの既存スタイル、weatherSiteCardの
       // 地域名と同じ位置づけ)
+      id: `other:${fallbackKey}`,
       headline: '火山',
       title: name || '',
       meta: `受信 ${nowTimeString()}`,
@@ -1170,7 +1172,7 @@ function handleVolcanoReport(report) {
       else addActiveEvent(event, TTL_VOLCANO_MS);
     }
   } else {
-    const existing = otherReports.get(8);
+    const existing = otherReports.get(fallbackKey);
     if (existing && existing.timer) clearTimeout(existing.timer);
     const event = applyTrainingLabel({
       isTestData: !!report.is_test_data,
@@ -1179,6 +1181,7 @@ function handleVolcanoReport(report) {
       badgeText: '火山',
       badgeClass: 'report-badge ' + severityClass,
       showBadges: false,
+      id: `other:${fallbackKey}`,
       headline: '火山',
       title: name || '',
       meta: `受信 ${nowTimeString()}`,
@@ -1189,10 +1192,10 @@ function handleVolcanoReport(report) {
       updatedAt: Date.now(),
     }, report);
     event.timer = setTimeout(() => {
-      otherReports.delete(8);
+      otherReports.delete(fallbackKey);
       renderEventsPanel();
     }, TTL_VOLCANO_MS);
-    otherReports.set(8, event);
+    otherReports.set(fallbackKey, event);
   }
   syncActiveEventLayers();
 }
@@ -1460,6 +1463,10 @@ function handleFloodReport(report) {
     const code10 = floodRiverCode10(code);
     const level = levels[i];
     const name = names[i] || String(code);
+    const fallbackKey = `flood:${code10}`;
+    const previous = otherReports.get(fallbackKey);
+    if (previous?.timer) clearTimeout(previous.timer);
+    otherReports.delete(fallbackKey);
     const hasGeometry = floodRiverFeaturesByCode10.has(code10);
     const isActiveLevel = !!FLOOD_WARNING_LEVEL_COLOR[level]; // 2/3/4のみ塗る対象、1(解除)・未知は対象外
 
@@ -1480,7 +1487,7 @@ function handleFloodReport(report) {
       if (match) mergeIntoActiveEvent(match, event, report, TTL_OTHER_CATEGORY_MS);
       else addActiveEvent(event, TTL_OTHER_CATEGORY_MS);
     } else if (isActiveLevel) {
-      uncoveredRows.push({ name, level, levelName: levelNames[i] || String(level) });
+      uncoveredRows.push({ code10, name, level, levelName: levelNames[i] || String(level) });
     }
   });
 
@@ -1491,17 +1498,13 @@ function handleFloodReport(report) {
   // ならず分かりにくいという指摘を受けた。floodSeverityClassを使い、
   // 地図描画対応の河川と同じ色・同じ考え方(氾濫発生情報だけは
   // sev-emergency)に揃え、レベルの高い河川から並べる
-  const existing = otherReports.get(11);
-  if (existing && existing.timer) clearTimeout(existing.timer);
-  if (!uncoveredRows.length) {
-    otherReports.delete(11);
-  } else {
-    const sorted = [...uncoveredRows].sort((a, b) => b.level - a.level);
-    const worstLevel = sorted[0].level;
+  for (const row of uncoveredRows) {
+    const fallbackKey = `flood:${row.code10}`;
+    const worstLevel = row.level;
     const rows = [];
     if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
-    rows.push(['備考', '地図に表示できる流路データが無い河川です(河川名に含まれる都道府県付近を目安にしてください)']);
-    const message = sorted.map((r) => `${r.name}: ${r.levelName}`).join('\n');
+    rows.push(['備考', '地図に表示できる流路データが無い河川です']);
+    const message = `${row.name}: ${row.levelName}`;
     const event = applyTrainingLabel({
       isTestData: !!report.is_test_data,
       satelliteId: report.satellite_id,
@@ -1509,6 +1512,7 @@ function handleFloodReport(report) {
       badgeText: '洪水',
       badgeClass: 'report-badge ' + floodSeverityClass(worstLevel),
       showBadges: false,
+      id: `other:${fallbackKey}`,
       headline: '河川',
       title: '',
       meta: `受信 ${nowTimeString()}`,
@@ -1519,11 +1523,11 @@ function handleFloodReport(report) {
       updatedAt: Date.now(),
     }, report);
     event.timer = setTimeout(() => {
-      otherReports.delete(11);
+      otherReports.delete(fallbackKey);
       syncActiveEventLayers();
       renderEventsPanel();
     }, TTL_OTHER_CATEGORY_MS);
-    otherReports.set(11, event);
+    otherReports.set(fallbackKey, event);
   }
   syncActiveEventLayers();
 }
@@ -4054,12 +4058,16 @@ function renderReport(report) {
   // otherReportsを丸ごと片付ける)
   if (report.disaster_category_no === 11) {
     if (report.information_type_no === 2) {
+      const codes = (report.flood_forecast_regions_raw || []).map(floodRiverCode10);
       for (const [id, record] of activeEvents) {
-        if (record.floodRiverKey) removeActiveEvent(id);
+        if (record.floodRiverKey && (!codes.length || codes.includes(record.floodRiverKey))) removeActiveEvent(id);
       }
-      const existing = otherReports.get(11);
-      if (existing && existing.timer) clearTimeout(existing.timer);
-      otherReports.delete(11);
+      for (const [key, record] of otherReports) {
+        if (String(key).startsWith('flood:') && (!codes.length || codes.includes(String(key).slice(6)))) {
+          if (record.timer) clearTimeout(record.timer);
+          otherReports.delete(key);
+        }
+      }
       syncActiveEventLayers();
     } else {
       handleFloodReport(report);
@@ -4091,20 +4099,32 @@ function renderReport(report) {
     // 既存カードを片付ける必要があるので対象外にする)。既存カードに
     // 実際の位置情報が入っていた場合、そのカードは触らずそのまま残す
     if (!isCancel && report.disaster_category_no === 6 && !tsunamiInfoHasLocation(report)) return;
-    const existing = otherReports.get(report.disaster_category_no);
+    const ashPrefix = `ash:${report.volcano_name_raw ?? report.volcano_name ?? 'unknown'}|`;
+    const otherKey = report.disaster_category_no === 9
+      ? ashPrefix + JSON.stringify([...(report.local_governments_raw || [])].sort())
+      : report.disaster_category_no;
+    const existing = otherReports.get(otherKey);
     if (existing && existing.timer) clearTimeout(existing.timer);
     if (isCancel) {
-      otherReports.delete(report.disaster_category_no);
+      if (report.disaster_category_no === 9) {
+        for (const [key, record] of otherReports) {
+          if (String(key).startsWith(ashPrefix)) {
+            if (record.timer) clearTimeout(record.timer);
+            otherReports.delete(key);
+          }
+        }
+      } else otherReports.delete(otherKey);
     } else {
       const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);
+      event.id = `other:${otherKey}`;
       // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
       const ttl = report.disaster_category_no === 6 ? TTL_TSUNAMI_INFO_MS : TTL_OTHER_CATEGORY_MS;
       event.timer = setTimeout(() => {
-        otherReports.delete(report.disaster_category_no);
+        otherReports.delete(otherKey);
         syncActiveEventLayers();
         renderEventsPanel();
       }, ttl);
-      otherReports.set(report.disaster_category_no, event);
+      otherReports.set(otherKey, event);
     }
     // 降灰(9)はWeb版で対象市区町村を地図に塗る(buildEventFromOtherCategory参照)
     // ため、パネルだけでなくレイヤーも更新する。取消時も塗りを消すため呼ぶ

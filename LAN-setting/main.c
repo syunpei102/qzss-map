@@ -7,6 +7,7 @@
  * 依存コンポーネント:usb_host_cdc_acm, esp_wifi, lwip
  */
 #include <stdio.h>
+#include <assert.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -34,6 +35,8 @@
 
 static int client_sock = -1;
 static SemaphoreHandle_t client_mutex;
+static SemaphoreHandle_t device_disconnected_sem;
+static void usb_lib_task(void *arg);
 
 // ============ USB CDC受信コールバック ============
 static bool usb_data_cb(const uint8_t *data, size_t data_len, void *arg)
@@ -60,7 +63,8 @@ static void usb_event_cb(const cdc_acm_host_dev_event_data_t *event, void *user_
             break;
         case CDC_ACM_HOST_DEVICE_DISCONNECTED:
             ESP_LOGI(TAG, "GNSS disconnected");
-            cdc_acm_host_close(event->data.cdc_hdl);
+            ESP_ERROR_CHECK(cdc_acm_host_close(event->data.cdc_hdl));
+            xSemaphoreGive(device_disconnected_sem);
             break;
         default: break;
     }
@@ -73,6 +77,9 @@ static void usb_host_task(void *arg)
         .intr_flags = ESP_INTR_FLAG_LEVEL1,
     };
     ESP_ERROR_CHECK(usb_host_install(&host_config));
+    // USBライブラリの初期化後にイベントタスクを開始する．
+    BaseType_t created = xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, NULL, 10, NULL, 0);
+    assert(created == pdPASS);
     ESP_ERROR_CHECK(cdc_acm_host_install(NULL));
 
     while (1) {
@@ -105,10 +112,8 @@ static void usb_host_task(void *arg)
         };
         cdc_acm_host_line_coding_set(cdc_dev, &line_coding);
 
-        // データ受信はコールバック経由。ここは接続維持だけ
-        while (cdc_dev) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
+        // 切断コールバックの通知を待ち，次のopenへ戻る．
+        xSemaphoreTake(device_disconnected_sem, portMAX_DELAY);
     }
 }
 
@@ -180,11 +185,12 @@ void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
     client_mutex = xSemaphoreCreateMutex();
+    device_disconnected_sem = xSemaphoreCreateBinary();
+    assert(client_mutex && device_disconnected_sem);
 
     wifi_init();
     vTaskDelay(pdMS_TO_TICKS(3000));  // Wi-Fi接続待ち
 
-    xTaskCreatePinnedToCore(usb_lib_task, "usb_lib", 4096, NULL, 10, NULL, 0);
     xTaskCreatePinnedToCore(usb_host_task, "usb_host", 4096, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(tcp_server_task, "tcp_srv", 4096, NULL, 5, NULL, 1);
 }

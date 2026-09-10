@@ -1,4 +1,5 @@
 const express = require("express");
+const { reportGroupKey, updateActiveReports } = require("./report-state");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -652,39 +653,6 @@ function isEndSignal(report) {
 // 揃えているが、こちらは「新規接続時に何を再送するか」の粗い絞り込み用
 // なので、完全な一致判定ではなく「取消が無関係の通報まで巻き込まない」
 // ことを目的とした簡易版にとどめる。
-function reportGroupKey(report) {
-  if (!report) return null;
-  if (report.type === "QzssDcxJAlert") {
-    const areas = [...(report.ex9_target_area_list_ja || [])].sort().join(",");
-    return `jalert|${report.a4_hazard_type || ""}|${areas}`;
-  }
-  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") {
-    // QzssDcxLAlert(消防庁経由)とQzssDcxMTInfo(自治体からの直接配信)は
-    // フィールド構成が同一のため同じキー形式でグルーピングする
-    if (typeof report.ex1_target_area_code_raw === "number") {
-      return `lalert|${report.a4_hazard_type || ""}|ex1:${report.ex1_target_area_code_raw}`;
-    }
-    if (typeof report.a12_ellipse_centre_latitude === "number") {
-      return `lalert|${report.a4_hazard_type || ""}|ellipse:${report.a12_ellipse_centre_latitude.toFixed(2)},${report.a13_ellipse_centre_longitude.toFixed(2)}`;
-    }
-    return `lalert|${report.a4_hazard_type || ""}|unknown`;
-  }
-  if (report.disaster_category_no === 5) return "tsunami"; // 津波は種別を問わずまとめて解除扱い
-  if (report.disaster_category_no === 10) {
-    const codes = [...(report.weather_forecast_regions_raw || [])].sort().join(",");
-    return `weather|${codes}`;
-  }
-  if (typeof report.disaster_category_no === "number") {
-    if ([1, 2, 3].includes(report.disaster_category_no)) {
-      // 地震系(EEW/震源/震度)は震央コード、無ければ発生時刻でグルーピングする
-      if (typeof report.seismic_epicenter_raw === "number") return `eq|epi:${report.seismic_epicenter_raw}`;
-      if (report.occurrence_time_of_earthquake) return `eq|time:${report.occurrence_time_of_earthquake}`;
-      return "eq|unknown";
-    }
-    return `cat:${report.disaster_category_no}`;
-  }
-  return null;
-}
 
 function isReplayable(report) {
   // ハートビートやデコードエラーは再送する意味が無いので対象外
@@ -789,34 +757,8 @@ function handleIncomingLine(line) {
     return;
   }
 
-  if (isEndSignal(report)) {
-    const key = reportGroupKey(report);
-    if (key !== null) {
-      activeReports = activeReports.filter((entry) => reportGroupKey(entry.report) !== key);
-      persistActiveReports();
-    }
-    // key が判定できない場合は何もしない(誤って無関係の通報まで
-    // 消してしまうより、消し忘れて残る方が安全なため)
-  } else if (isReplayable(report)) {
-    // 災危通報は同一内容が配信終了条件を満たすまで数秒〜数分おきに
-    // 繰り返し配信される仕様(isDuplicateReportの10秒ウィンドウより
-    // 間隔が空くと重複排除をすり抜ける)。以前はここで無条件にpushして
-    // いたため、同じ警報が長時間続くほどactiveReportsに同一内容の
-    // エントリが積み上がっていた(実機で確認: L-Alert訓練放送が数分
-    // おきに3件重複)。reportGroupKeyが一致する既存エントリがあれば
-    // 置き換える(受信時刻も更新=最新の配信を起点にTTLが延びる)
-    const key = reportGroupKey(report);
-    if (key !== null) {
-      // findIndexで最初の1件だけ差し替えると、何らかの理由(Cloud Runの
-      // コールドスタート時のGCS読み込みと書き込みの競合等)で同じキーの
-      // エントリが複数溜まってしまっていた場合に1件しか解消されず、
-      // 残りが新規接続のたびに再送され続けてしまう(実機で確認: 十津川村
-      // 宛のend-to-endテスト配信が3件重複したまま残っていた)。
-      // isEndSignal側と同じくfilterで一致する分を全て取り除いてから
-      // 新しい1件を積み直す
-      activeReports = activeReports.filter((entry) => reportGroupKey(entry.report) !== key);
-    }
-    activeReports.push({ report, receivedAt: Date.now() });
+  if (isEndSignal(report) || isReplayable(report)) {
+    activeReports = updateActiveReports(activeReports, report, Date.now(), isEndSignal(report));
     pruneStaleActiveReports();
     persistActiveReports();
   }
