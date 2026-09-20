@@ -6,7 +6,7 @@
 
 地図サーバー／ブラウザ／受信デコーダー／Raspberry Pi運用スクリプトを再レビューし，発見した問題をすべてGitHub Issueへ登録した．GitHubには合計42件を登録し，仕様誤認1件と完全重複1件をcloseしたため，有効な問題は40件である．Claude Codeは指定どおりSonnetを使用して修正し，その後に差分を独立再レビューした．
 
-最終結果は，地図側の自動テスト65件とPi側114件がすべて成功，`npm audit --omit=dev`は脆弱性0件である．修正は[地図側PR #24](https://github.com/syunpei102/qzss-map/pull/24)と[Pi側PR #20](https://github.com/syunpei102/qzss-pi-package/pull/20)へpush済みである．デプロイは行っていない．実機固有の6項目も未確認なので，Issueはopenのまま維持した．
+最終結果は，地図側の自動テスト65件とPi側114件がすべて成功，`npm audit --omit=dev`は脆弱性0件である．修正は[地図側PR #24](https://github.com/syunpei102/qzss-map/pull/24)と[Pi側PR #20](https://github.com/syunpei102/qzss-pi-package/pull/20)へpush済みで，両PRのGitHub Actionsも成功した．デプロイは行っていない．実機固有の6項目も未確認なので，Issueはopenのまま維持した．
 
 ## Issue登録結果
 
@@ -79,6 +79,7 @@ cd /Users/syunpei/Desktop/map/qzss_pi_package
 | 主要Python`py_compile` | 成功 |
 | 両リポジトリ`git diff --check` | 成功 |
 | `npm audit --omit=dev` | 脆弱性0件 |
+| GitHub Actions | 地図側PR／Pi側PRとも成功 |
 
 ## 未確認事項と次の判断
 
@@ -95,7 +96,7 @@ cd /Users/syunpei/Desktop/map/qzss_pi_package
 
 - 完了報告：このファイル．
 - 再開用資料：[REVIEW_HANDOFF.md](/Users/syunpei/Desktop/map/REVIEW_HANDOFF.md)．
-- コミット／push／PR：実施済み．地図側#24，Pi側#20．
+- コミット／push／PR：実施済み．地図側#24，Pi側#20．両方のGitHub Actions成功を確認済み．
 - デプロイ：未実施．PRのCIと実機確認後に別工程で行う．
 - Issue：PRのレビュー，CI，実機確認，マージが完了したIssueからcloseする．
 - 既存のルート`.gitignore`変更はユーザー所有として保持した．

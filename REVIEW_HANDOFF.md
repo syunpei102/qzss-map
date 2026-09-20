@@ -8,6 +8,7 @@
 
 - 地図側PR：<https://github.com/syunpei102/qzss-map/pull/24>
 - Pi側PR：<https://github.com/syunpei102/qzss-pi-package/pull/20>
+- GitHub Actions：両PRとも成功，merge stateは`CLEAN`．
 
 ## GitHub Issue
 
@@ -63,4 +64,4 @@ git diff --check
 - `qzss_pi_package`は独立したGitリポジトリである．ルートリポジトリと別々に差分確認／コミットすること．
 - Claude用の一時worktreeは同期確認後に削除済みである．
 - 自動ロールバック確認は稼働checkoutを壊さず，一時cloneとコマンドスタブで行う手順へ変更済みである．
-- 両リポジトリのコミット／push／PR作成は実施済みである．デプロイは未実施．次担当者はPRのCIと実機確認後にマージ／デプロイし，対応Issueをcloseすること．
+- 両リポジトリのコミット／push／PR作成とCI成功確認は実施済みである．デプロイは未実施．次担当者はPRレビューと実機確認後にマージ／デプロイし，対応Issueをcloseすること．
