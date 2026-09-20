@@ -14,10 +14,11 @@ INGEST_TOKEN = os.environ.get("QZSS_INGEST_TOKEN", "").strip()
 
 
 def send(payload_json_str):
+    """送信に成功したらTrue，失敗したらFalseを返す(呼び出し側は成功時だけ
+    重複履歴へ登録する)。"""
     if CLOUD_URL:
-        _send_cloud(payload_json_str)
-    else:
-        _send_local_fifo(payload_json_str)
+        return _send_cloud(payload_json_str)
+    return _send_local_fifo(payload_json_str)
 
 
 def _send_cloud(payload_json_str):
@@ -33,10 +34,18 @@ def _send_cloud(payload_json_str):
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             resp.read()
-    except urllib.error.URLError as e:
+    except (urllib.error.URLError, OSError) as e:
+        # HTTPError(4xx/5xx)もURLErrorの一種なので失敗として扱う
         print("⚠️ クラウドへの送信に失敗しました:", e)
+        return False
+    return True
 
 
 def _send_local_fifo(payload_json_str):
-    with open("qzss_pipe", "w") as fifo:
-        fifo.write(payload_json_str + "\n")
+    try:
+        with open("qzss_pipe", "w") as fifo:
+            fifo.write(payload_json_str + "\n")
+    except OSError as e:
+        print("⚠️ ローカルFIFOへの書き込みに失敗しました:", e)
+        return False
+    return True

@@ -42,9 +42,19 @@ if [ "$ENABLE_WEB_ADMIN" = "true" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PAS
   ENV_VARS="$ENV_VARS,ENABLE_WEB_ADMIN=true,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH,SESSION_SECRET=$SESSION_SECRET"
 fi
 
+# このサービスはWebSocket接続・activeReports・通知の重複抑止・デバイス状態を
+# 各プロセスのメモリに持つ単一プロセス設計のため，Cloud Runは最大1インスタンスに
+# 固定する(複数になると，ingestを受けたインスタンス以外の閲覧者へ配信されない)．
+# 複数インスタンス化するにはPub/Sub等で配信と状態を共有する設計変更が必要．
+# 同時接続数は1インスタンスに収まる範囲(CONCURRENCY，既定80)で受ける．
+MAX_INSTANCES=1
+CONCURRENCY="${CONCURRENCY:-80}"
+
 gcloud run deploy "$SERVICE_NAME" \
   --source . \
   --region "$REGION" \
+  --max-instances "$MAX_INSTANCES" \
+  --concurrency "$CONCURRENCY" \
   --allow-unauthenticated \
   --set-env-vars "$ENV_VARS"
 

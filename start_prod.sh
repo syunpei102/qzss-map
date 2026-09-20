@@ -61,7 +61,9 @@ sleep 1
 open "http://localhost:8080/"
 
 echo "🛰️  受信機からの取り込みを開始 ($PORT @ $BAUDRATE)"
-./venv/bin/python3 read_legacy.py "$PORT" "$BAUDRATE" &
+source "$DIR/receiver_launcher.sh"
+# ローカルの地図サーバーへ送る(loopbackなのでトークン不要)
+( export QZSS_CLOUD_URL="http://localhost:8080/ingest"; receiver_exec "$PORT" "$BAUDRATE" ) &
 READER_PID=$!
 
 wait

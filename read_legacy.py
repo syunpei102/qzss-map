@@ -1,4 +1,3 @@
-import sys
 import argparse
 import operator
 from functools import reduce
@@ -15,12 +14,37 @@ from qzss_decode import decode_to_json
 HEARTBEAT_INTERVAL_SEC = 30
 
 # 災危通報は同一内容が配信終了条件を満たすまで数秒おきに再送され続ける仕様の
-# ため、直近に送信済みの内容と完全一致する通報はクラウドへ再送しない。
+# ため、直近に送信成功した内容と完全一致する通報は短時間だけクラウドへ再送しない。
 # 判定にはデコード結果の raw(DCRメッセージ本体)を使う。プリアンブル(A/B/C)は
 # 送信ごとに巡回し、sentence は内容が同じでも毎回変わるが、raw はプリアンブル・
 # CRC・衛星IDを含まないため、内容が同じなら常に一致する。
+#
+# 抑止するのは最後の送信成功から DEDUP_WINDOW_SEC の間だけ。数時間続く警報は
+# 窓が過ぎたら再送し、サーバー側のTTL(最後の更新から数える)を更新する。
+# 送信失敗時は履歴へ登録しないので、次の再送で即再試行される。
 RECENT_CONTENT_HISTORY_SIZE = 50
+DEDUP_WINDOW_SEC = 5 * 60
 recent_content_keys = deque(maxlen=RECENT_CONTENT_HISTORY_SIZE)
+_sent_at = {}  # key -> 最後に送信成功した時刻(monotonic)。履歴と同じ上限で管理
+
+
+def send_if_new(payload, key, history, sender, now=None, window=DEDUP_WINDOW_SEC, sent_at=None):
+    """時間窓内に送信成功済みの同一キーなら送らずFalseを返す。送信して成功した
+    場合だけ履歴と時刻を更新してTrueを返す(失敗時は履歴に触れない)。"""
+    now = time.monotonic() if now is None else now
+    sent_at = _sent_at if sent_at is None else sent_at
+    if key in history and now - sent_at.get(key, float("-inf")) < window:
+        return False
+    if not sender(payload):
+        return False
+    if key in history:
+        history.remove(key)
+    history.append(key)
+    sent_at[key] = now
+    # dequeのmaxlenで押し出されたキーの時刻も捨て、メモリ上限を保つ
+    for stale in [k for k in sent_at if k not in history]:
+        del sent_at[stale]
+    return True
 
 # シリアル接続が実際に確立できている間だけ立てるフラグ。
 # ハートビートはこれを見て送るかどうかを決めるので、アンテナ/USBが
@@ -96,6 +120,19 @@ def nmea_checksum(sentence):
     cksum = reduce(operator.xor, (ord(s) for s in data), 0)
     return cksum
 
+def nmea_checksum_matches(sentence):
+    """NMEAのチェックサムが正しいか。大文字・小文字の16進どちらも受理し、
+    区切り(*)や値が無い/不正な場合は例外を出さずFalseを返す。"""
+    if "*" not in sentence:
+        return False
+    _, given = sentence.split("*", 1)
+    try:
+        return nmea_checksum(sentence) == int(given.strip(), 16)
+    except ValueError:
+        return False
+
+UBX_MAX_PAYLOAD = 1024  # 想定外に大きい長さは破損とみなす(受信停止を避ける)
+
 def ubx_checksum(message):
     ck_a = 0
     ck_b = 0
@@ -108,7 +145,11 @@ def ubx_checksum(message):
 
 def ubx2qzqsm(line):
     if line[:7] == b'\xB5\x62\x02\x13\x2C\x00\x05': # UBX-RXM-SFRBX, 44 bytes, QZSS
-        satId = satellite_id[line[7] + 182] # PRN -> Satellite ID
+        satId = satellite_id.get(line[7] + 182) # PRN -> Satellite ID
+        if satId is None:
+            # 未登録のSVID(新衛星・破損パケット)は警告してこのパケットだけ無視する
+            print(f"⚠️ 未登録のQZSS衛星番号のため無視します (PRN={line[7] + 182})")
+            return None
         data = b''
         for i in range(9):
             data += bytes((line[14+3+i*4], line[14+2+i*4], line[14+1+i*4], line[14+0+i*4]))
@@ -155,8 +196,11 @@ if __name__ == '__main__':
                     payload_length = 0
                     while True:
                         if ubx_flag:
-                            if count > 4 and payload_length == 0:
-                                payload_length = int.from_bytes(line[4:5], "little")
+                            if count > 5 and payload_length == 0:
+                                # payload長は2バイトのlittle-endian
+                                payload_length = int.from_bytes(line[4:6], "little")
+                                if payload_length == 0 or payload_length > UBX_MAX_PAYLOAD:
+                                    break # 破損フレーム: 下のチェックサム検証で捨てて再同期
                             if payload_length > 0 and count == payload_length + 8: # header 6 bytes + checksum 2 bytes
                                 break
                         b = ser.read()
@@ -185,15 +229,14 @@ if __name__ == '__main__':
                     if args.nmea and nmea_flag:
                         try:
                             sentence = line.decode().strip('\r\n')
-                            ck = nmea_checksum(sentence)
-                            if format(ck, 'x') == sentence.split('*', 1)[1]:
+                            if nmea_checksum_matches(sentence):
                                 print(sentence)
-                        except (UnicodeDecodeError, IndexError):
+                        except UnicodeDecodeError:
                             # バイナリ(UBX)データの中の'$'に偶然反応しただけの
                             # ノイズなので、無視して読み取りを続ける
                             pass
 
-                    if ubx_flag:
+                    if ubx_flag and 0 < payload_length <= UBX_MAX_PAYLOAD and len(line) == payload_length + 8:
                         ck_a, ck_b = ubx_checksum(line[2:payload_length+6])
                         if line[-2] == ck_a and line[-1] == ck_b:
                             sentence = ubx2qzqsm(line)
@@ -209,12 +252,10 @@ if __name__ == '__main__':
                                     except (ValueError, TypeError):
                                         dedup_key = None
                                     dedup_key = dedup_key or sentence
-                                    if dedup_key in recent_content_keys:
-                                        print("前回と同一内容のため送信スキップ")
-                                    else:
-                                        recent_content_keys.append(dedup_key)
-                                        qzss_sink.send(payload)
+                                    if send_if_new(payload, dedup_key, recent_content_keys, qzss_sink.send):
                                         print("送信:", payload)
+                                    else:
+                                        print("直近に送信済みの同一内容、または送信失敗のためスキップ(失敗時は次の再送で再試行)")
         except (serial.SerialException, OSError) as e:
             serial_ok.clear()
             print(f"⚠️ シリアル接続が切れました({e})。{RECONNECT_WAIT_SEC}秒後に再接続を試みます...")

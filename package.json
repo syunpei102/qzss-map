@@ -3,15 +3,20 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-timeout=60000 test/*.test.js"
   },
   "dependencies": {
-    "@google-cloud/storage": "^7.21.0",
-    "compression": "^1.8.1",
+    "@google-cloud/storage": "^8.2.0",
+    "compression": "^1.8.2",
     "discord-interactions": "^4.4.0",
-    "express": "^4.22.2",
-    "pmtiles": "^4.3.0",
+    "express": "^4.22.3",
+    "pmtiles": "^4.5.0",
     "web-push": "^3.6.7",
-    "ws": "^8.18.1"
+    "ws": "^8.21.3"
+  },
+  "overrides": {
+    "gaxios": {
+      "uuid": "^11.1.1"
+    }
   }
 }

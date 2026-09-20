@@ -1,5 +1,5 @@
 const express = require("express");
-const { reportGroupKey, updateActiveReports } = require("./report-state");
+const { reportGroupKey, updateActiveReports, pruneExpiredReports } = require("./report-state");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -8,18 +8,29 @@ const WebSocket = require("ws");
 const webpush = require("web-push");
 const compression = require("compression");
 const { Storage } = require("@google-cloud/storage");
+const { createSerialQueue, createDebouncedTask } = require("./persist-queue");
+const { DeviceCommandQueue } = require("./device-commands");
+const { isDeviceOnline } = require("./device-status");
+const guards = require("./request-guards");
 const { verifyKey, InteractionType, InteractionResponseType, InteractionResponseFlags } = require("discord-interactions");
 
 // ==== 設定 ====
 // ローカルでもCloud Run上でも同じコードで動くように、
 // 静的ファイル配信・WebSocket配信・受信API(/ingest)を
 // すべて同じHTTPサーバー/ポートにまとめている。
-const PORT = process.env.PORT || 8080;
+const LISTEN = guards.resolveListenConfig(process.env);
+if (LISTEN.error) {
+  console.error(`❌ ${LISTEN.error}`);
+  process.exit(1);
+}
+const PORT = LISTEN.port;
 const INGEST_TOKEN = (process.env.INGEST_TOKEN || "").trim();
 const FIFO_PATH = path.resolve(__dirname, "qzss_pipe");
 const PUBLIC_DIR = path.resolve(__dirname, "public");
 
 const app = express();
+// Cloud Run(K_SERVICE)ではGoogleのフロント1段だけを信頼し，レート制限のクライアントIPに使う
+if (process.env.K_SERVICE) app.set("trust proxy", 1);
 // 市区町村境界データ(municipalities.geojson、数MB)を素で返すと
 // 特にモバイル回線で初回読み込みが遅くなるため、gzip圧縮する
 app.use(compression());
@@ -94,6 +105,8 @@ if (PUSH_ENABLED) {
 // ようにする
 const pushSubscriptions = new Map(); // endpoint -> subscription object
 const PUSH_SUBSCRIPTIONS_STATE_FILE = "push_subscriptions.json";
+const MAX_PUSH_SUBSCRIPTIONS = Number(process.env.MAX_PUSH_SUBSCRIPTIONS) || 5000;
+const pushSubscribeLimiter = guards.createRateLimiter({ windowMs: 60 * 1000, max: 10 });
 
 async function loadPushSubscriptions() {
   const restored = await loadPersistedJson(PUSH_SUBSCRIPTIONS_STATE_FILE);
@@ -108,16 +121,22 @@ function persistPushSubscriptions() {
 }
 
 app.post("/push/subscribe", (req, res) => {
-  const sub = req.body;
-  if (!sub || !sub.endpoint) return res.status(400).json({ error: "invalid subscription" });
+  if (!pushSubscribeLimiter(req.ip)) return res.status(429).json({ error: "too many requests" });
+  const checked = guards.validatePushSubscription(req.body);
+  if (!checked.ok) return res.status(400).json({ error: checked.error });
+  const sub = checked.subscription;
+  if (!pushSubscriptions.has(sub.endpoint) && pushSubscriptions.size >= MAX_PUSH_SUBSCRIPTIONS) {
+    return res.status(503).json({ error: "subscription limit reached" });
+  }
+  const changed = JSON.stringify(pushSubscriptions.get(sub.endpoint)) !== JSON.stringify(sub);
   pushSubscriptions.set(sub.endpoint, sub);
-  persistPushSubscriptions();
+  if (changed) persistPushSubscriptions();
   console.log(`🔔 プッシュ通知を購読登録しました(現在 ${pushSubscriptions.size} 件)`);
   res.status(201).json({ ok: true });
 });
 
 app.post("/push/unsubscribe", (req, res) => {
-  const endpoint = req.body && req.body.endpoint;
+  const endpoint = req.body && typeof req.body.endpoint === "string" ? req.body.endpoint : null;
   if (endpoint && pushSubscriptions.delete(endpoint)) persistPushSubscriptions();
   res.status(204).end();
 });
@@ -431,10 +450,7 @@ function notificationGroupKey(report) {
   if (report.disaster_category_no === 11) return "n:flood";
   if (report.disaster_category_no === 9) return "n:ashfall";
   if ([1, 2, 3].includes(report.disaster_category_no)) {
-    // 地震は事象ごと(震央)に分ける(別の地震は別通知にしたいため)
-    if (typeof report.seismic_epicenter_raw === "number") return `n:eq|${report.seismic_epicenter_raw}`;
-    if (report.occurrence_time_of_earthquake) return `n:eq|${report.occurrence_time_of_earthquake}`;
-    return "n:eq";
+    return guards.earthquakeNotificationKey(report);
   }
   if (typeof report.disaster_category_no === "number") return `n:cat${report.disaster_category_no}`;
   return null;
@@ -488,7 +504,9 @@ function deltaBodyFor(report, labels) {
 }
 
 function dispatchPush(report, body) {
-  const payload = JSON.stringify({ title: notificationTitleFor(report), body });
+  const groupKey = notificationGroupKey(report);
+  const tag = guards.notificationTag(groupKey, body, [1, 2, 3].includes(report.disaster_category_no));
+  const payload = JSON.stringify({ title: notificationTitleFor(report), body, tag });
   for (const [endpoint, sub] of pushSubscriptions) {
     webpush.sendNotification(sub, payload).catch((err) => {
       if (err.statusCode === 410 || err.statusCode === 404) {
@@ -575,49 +593,14 @@ let activeReports = [];
 
 // 安全策: 取消・解除信号を万一受信し損ねた場合、その通報が永久に
 // activeReportsに居座り新規接続の全員に配信され続けてしまう
-// (実機テストで、テストデータの取消を送らなかったところ何分経っても
-// 再送され続けることを確認した)。実際の災危通報がこれほど長時間
-// アクティブで居続けることは無いはずなので、24時間を安全策の上限とする
-// (通常はreportGroupKeyによる正規の取消処理で先に消える)
-const ACTIVE_REPORT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
-// 震源・震度速報(disaster_category_no 2/3)はそもそも「取消」の仕組みが
-// 無い(発表して終わりの事実情報)ため、24時間の安全策だけでは長すぎる。
-// public/main.jsのttlMsForReportと同じ考え方(実機で見つけたバグ:
-// クライアント側のTTLはそのブラウザの表示だけを消し、activeReportsには
-// 反映されないため、何時間経っても新規接続に再送され続けていた)を
-// サーバー側にも適用し、判定できる場合はより短いTTLで安全策を効かせる
-const TTL_HYPOCENTER_INTENSITY_MS = 20 * 60 * 1000; // 震源・震度速報: 20分(public/main.jsのクライアント側TTLと揃える)
-const TTL_TSUNAMI_MS = 24 * 60 * 60 * 1000; // 津波: 24時間(解除信号が主、これは保険)
-const TTL_TSUNAMI_INFO_MS = 3 * 60 * 60 * 1000; // 北西太平洋津波情報(6): 3時間(public/main.jsと同じ理由)
-const TTL_TEST_DATA_MS = 60 * 1000; // テストデータ: 1分
-// 気象警報・注意報とLアラートは、public/main.js側のTTL_WEATHER_MS/
-// TTL_LALERT_UNKNOWN_MSと同じ3時間に揃える(以前は24時間の安全策
-// 任せで、新規接続のたびに何時間も前の警報が再送され続けていた)
-const TTL_WEATHER_LALERT_MS = 3 * 60 * 60 * 1000;
-
-function ttlMsForReport(report) {
-  if (report.is_test_data) return TTL_TEST_DATA_MS;
-  if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
-  if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
-  // 北西太平洋津波情報(6)は解除(取消/可能性なし)の最後の1通を受信し
-  // 損ねたまま衛星からの再送自体が静かに止まるケースが実機で確認された
-  // (public/main.jsのTTL_TSUNAMI_INFO_MSと同じ理由・同じ値。ここが
-  // デフォルトのACTIVE_REPORT_MAX_AGE_MS=24hのままだと、クライアント側の
-  // 3hタイマーで一旦消えても、再接続時にサーバーの古い永続状態から
-  // 復活してしまう)
-  if (report.disaster_category_no === 6) return TTL_TSUNAMI_INFO_MS;
-  if (report.disaster_category_no === 10) return TTL_WEATHER_LALERT_MS;
-  if (report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo") return TTL_WEATHER_LALERT_MS;
-  return null; // 判定できないものは従来通りACTIVE_REPORT_MAX_AGE_MSの安全策に任せる
-}
-
+// (実機テストで，テストデータの取消を送らなかったところ何分経っても
+// 再送され続けることを確認した)．通報種別ごとのTTLで取り除く．
+// 種別ごとのTTLはブラウザと共有する public/report-ttl.js が唯一の定義
+// (再接続時に古い情報が復活したり，継続中の情報が早く消えたりしないため)．
+// 判定は report-state.js の pruneExpiredReports にある．
 function pruneStaleActiveReports() {
   const before = activeReports.length;
-  activeReports = activeReports.filter((entry) => {
-    const maxAge = ttlMsForReport(entry.report) ?? ACTIVE_REPORT_MAX_AGE_MS;
-    return Date.now() - entry.receivedAt < maxAge;
-  });
+  activeReports = pruneExpiredReports(activeReports, Date.now());
   if (activeReports.length !== before) {
     console.log(`🧹 期限切れのactiveReportsを削除しました(${before - activeReports.length}件)`);
     persistActiveReports();
@@ -810,6 +793,7 @@ async function loadLatencyHistory() {
 function persistLatencyHistory() {
   persistJson(LATENCY_HISTORY_STATE_FILE, latencyHistory);
 }
+const latencyPersist = createDebouncedTask(persistLatencyHistory);
 
 // ラズパイのローカルキオスクは、誰も公開サイトを見ていなくても実測値を
 // 貯めておきたい(資料用途)ため、設定されていればここで受けた計測を
@@ -821,33 +805,14 @@ const CLOUD_LATENCY_REPORT_URL = (process.env.CLOUD_LATENCY_REPORT_URL || "").tr
 // レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
 // ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
 // 実運用に影響しない計測専用の経路のため)
+const clientTimingLimiter = guards.createRateLimiter({ windowMs: 60 * 1000, max: 30 });
 app.post("/client-timing", (req, res) => {
-  const ts = req.body || {};
-  if (ts.t0_received_ms && typeof ts.client_processing_ms === "number") {
-    // decodeMs(受信機内、同じ時計)・networkMs(受信機→サーバー)・
-    // dispatchPrepMs(サーバー内、同じ時計)はそれぞれ計算に使う2つの
-    // 時刻が同じ機器の時計同士なので問題無い。renderMs(配信→描画完了)
-    // だけは以前「サーバーが配信した時刻」と「ブラウザが描画し終えた
-    // 時刻」という別々の機器の時計を引き算していて、機器間の時計のズレが
-    // そのまま誤差になっていた(キオスク端末で特に顕著: マイナスや
-    // 数秒〜十数秒という明らかにおかしな値が実機のダッシュボードで
-    // 確認された)。ブラウザが自分の時計だけで測った所要時間
-    // (client_processing_ms)をそのまま使い、totalMsも各区間を足し算
-    // する形にして、機器間の時刻比較を一切行わないようにする
-    const decodeMs = ts.t1_decoded_ms - ts.t0_received_ms;
-    const networkMs = ts.t2_server_received_ms - ts.t1_decoded_ms;
-    const dispatchPrepMs = ts.t3_dispatched_ms - ts.t2_server_received_ms;
-    const renderMs = ts.client_processing_ms;
-    const entry = {
-      recordedAt: Date.now(),
-      isTestData: !!ts.isTestData,
-      reportSummary: ts.reportSummary || null,
-      decodeMs,
-      networkMs,
-      dispatchPrepMs,
-      renderMs,
-      totalMs: decodeMs + networkMs + dispatchPrepMs + renderMs,
-    };
+  if (!clientTimingLimiter(req.ip)) return res.status(429).end();
+  // 数値・範囲を検証し，NaNや欠損時刻を履歴へ入れない．ブラウザが自分の時計だけで
+  // 測った client_processing_ms を使い，機器間の時計比較はしない(区間は同一機器内の差)
+  const timing = guards.validateClientTiming(req.body);
+  if (timing) {
+    const entry = { recordedAt: Date.now(), ...timing };
     console.log(
       `⏱️ end-to-end合計: ${entry.totalMs}ms `
       + `(受信→デコード${entry.decodeMs}ms, `
@@ -857,13 +822,14 @@ app.post("/client-timing", (req, res) => {
     );
     latencyHistory.push(entry);
     if (latencyHistory.length > LATENCY_HISTORY_MAX_SIZE) latencyHistory.shift();
-    persistLatencyHistory();
+    // GCSへの書込みは間引く(最後の更新から30秒後，最長5分ごと)
+    latencyPersist.schedule();
 
     if (CLOUD_LATENCY_REPORT_URL) {
       fetch(CLOUD_LATENCY_REPORT_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ts),
+        body: JSON.stringify(req.body),
       }).catch((err) => console.warn("⚠️ クラウドへのレイテンシ転送に失敗:", err.message));
     }
   }
@@ -882,12 +848,21 @@ app.get("/api/latency-history", (req, res) => {
 // pull型の考え方)にしているため、ここでも「ラズパイが定期的に自分の
 // 状態を送ってくる(push)」「ラズパイが定期的に保留中のコマンドが
 // 無いか確認しに来る(pull)」という組み合わせにする。
-// 状態はメモリ上にのみ保持する(Cloud Runの再起動で消えるが、次の
-// 状態報告(1時間おき)で自然に復元されるので実運用上問題ない)。
+// 状態はメモリ上にのみ保持する(Cloud Runの再起動で消えるが，次の
+// 状態報告(5分おき)で自然に復元されるので実運用上問題ない)．
 // ==================================================
 const deviceStatus = new Map(); // device_id -> 最新の状態報告
-const pendingCommands = new Map(); // device_id -> [{command, requestedAt}, ...]
-const DEVICE_OFFLINE_AFTER_MS = 130 * 60 * 1000; // この時間報告が無ければオフライン扱い(状態報告は1時間おきなので、それより余裕を持たせる)
+// 配送状態(pending/delivered/acked/expired等)はdevice-commands.jsで管理し，
+// 再起動をまたぐようGCS/ローカルへ永続化する(Issue #18)
+const deviceCommands = new DeviceCommandQueue();
+const DEVICE_COMMANDS_STATE_FILE = "device_commands.json";
+async function loadDeviceCommands() {
+  deviceCommands.restore(await loadPersistedJson(DEVICE_COMMANDS_STATE_FILE));
+}
+function persistDeviceCommands() {
+  persistJson(DEVICE_COMMANDS_STATE_FILE, deviceCommands.toJSON());
+}
+// 状態報告は5分おき。3回分(15分)途絶えたらオフライン扱い(境界値は device-status.js)
 
 // 拠点ごとのINGEST_TOKEN(deviceIngestTokens、GCS永続化)で認証する。
 // トークンから拠点IDを逆引きするため、リクエスト本文の自己申告
@@ -898,7 +873,12 @@ const DEVICE_OFFLINE_AFTER_MS = 130 * 60 * 1000; // この時間報告が無け�
 // 後方互換/ローカル動作確認用に、共有のINGEST_TOKENも引き続き使える
 // (この場合は拠点を特定できないのでdeviceId=nullを返す)。
 function requireDeviceToken(req, res) {
-  if (deviceIngestTokens.size === 0 && !INGEST_TOKEN) return { ok: true, deviceId: null };
+  if (deviceIngestTokens.size === 0 && !INGEST_TOKEN) {
+    // トークン未設定の無認証受付は，loopback接続か明示フラグ(QZSS_ALLOW_INSECURE_LAN)のみ
+    if (guards.mayBypassAuth(req.socket.remoteAddress, process.env)) return { ok: true, deviceId: null };
+    res.status(401).json({ error: "unauthorized" });
+    return { ok: false, deviceId: null };
+  }
   const token = req.get("X-Api-Key") || "";
   const deviceId = resolveDeviceToken(token);
   if (deviceId === undefined) {
@@ -1060,8 +1040,14 @@ app.post("/device/status", (req, res) => {
     deviceId,
     receivedAt: Date.now(),
   });
-  const commands = pendingCommands.get(deviceId) || [];
-  pendingCommands.delete(deviceId); // 一度渡したら消す(取りに来た=実行される前提)
+  // supports_ack:true の端末にはackされるまで再配信する(応答喪失・再起動対策)．
+  // 旧端末は再配信でreboot連発しないよう従来どおり1回だけ渡す．
+  const before = JSON.stringify(deviceCommands.list(deviceId));
+  const commands = deviceCommands.collect(deviceId, {
+    supportsAck: req.body.supports_ack === true,
+    ackedIds: req.body.acked_command_ids,
+  });
+  if (JSON.stringify(deviceCommands.list(deviceId)) !== before) persistDeviceCommands();
   res.json({ ok: true, commands });
 });
 
@@ -1072,11 +1058,10 @@ function queueDeviceCommand(deviceId, command) {
   if (!["reboot", "force_update_check"].includes(command)) {
     return { ok: false, error: "未対応のコマンドです" };
   }
-  const list = pendingCommands.get(deviceId) || [];
-  list.push({ command, requestedAt: Date.now() });
-  pendingCommands.set(deviceId, list);
-  console.log(`🛠️ デバイス[${deviceId}]にコマンドを予約しました: ${command}`);
-  return { ok: true };
+  const record = deviceCommands.enqueue(deviceId, command);
+  persistDeviceCommands();
+  console.log(`🛠️ デバイス[${deviceId}]にコマンドを予約しました: ${command} (id=${record.id})`);
+  return { ok: true, id: record.id };
 }
 
 if (ENABLE_WEB_ADMIN) {
@@ -1086,8 +1071,10 @@ if (ENABLE_WEB_ADMIN) {
     const now = Date.now();
     const devices = [...deviceStatus.values()].map((d) => ({
       ...d,
-      online: now - d.receivedAt < DEVICE_OFFLINE_AFTER_MS,
+      online: isDeviceOnline(d.receivedAt, now),
       homePrefectureId: (deviceRegionConfig.get(d.deviceId) || {}).homePrefectureId ?? null,
+      // 配信・確認状態(state: pending/delivered/acked/sent_unconfirmed/expired/failed)
+      commands: deviceCommands.list(d.deviceId),
     }));
     res.json({ devices });
   });
@@ -1195,13 +1182,16 @@ function persistJson(filename, data) {
   } catch (err) {
     console.warn(`⚠️ ローカルファイルへの保存に失敗しました(${filename}):`, err.message);
   }
-  if (LOCAL_STATE_ONLY) return;
-  gcsStorage
+  if (LOCAL_STATE_ONLY) return Promise.resolve();
+  // 同一ファイルへのGCS保存は呼び出し順に直列化する(完了順が逆転して古い状態が
+  // 最終版になるのを防ぐ)．先行が失敗しても後続は実行される．
+  return gcsSaveQueue(filename, () => gcsStorage
     .bucket(REGION_STATE_BUCKET)
     .file(filename)
-    .save(json, { contentType: "application/json" })
+    .save(json, { contentType: "application/json" }))
     .catch((err) => console.warn(`⚠️ GCSへの保存に失敗しました(${filename}):`, err.message));
 }
+const gcsSaveQueue = createSerialQueue();
 
 // ==================================================
 // 拠点ごとのINGEST_TOKEN
@@ -1418,12 +1408,15 @@ function resolveLalertEnabled(deviceId) {
 // 反映する。LOCAL_STATE_ONLYでない(=Cloud Run本番)場合は絶対に登録
 // しない(公開URLに無認証の設定変更エンドポイントを晒さないため)
 if (LOCAL_STATE_ONLY) {
-  app.post("/local-sync/training-broadcasts", (req, res) => {
+  // 設定変更なのでloopback以外(同一LANの他端末等)からは受け付けない
+  const loopbackOnly = (req, res, next) =>
+    guards.isLoopbackAddress(req.socket.remoteAddress) ? next() : res.status(403).json({ error: "forbidden" });
+  app.post("/local-sync/training-broadcasts", loopbackOnly, (req, res) => {
     setTrainingBroadcastSetting(null, !!req.body.enabled);
     broadcast(JSON.stringify({ type: "TrainingBroadcastSettingChanged" }));
     res.status(204).end();
   });
-  app.post("/local-sync/lalert", (req, res) => {
+  app.post("/local-sync/lalert", loopbackOnly, (req, res) => {
     setLalertEnabledSetting(null, !!req.body.enabled);
     broadcast(JSON.stringify({ type: "LalertSettingChanged" }));
     res.status(204).end();
@@ -1437,14 +1430,14 @@ if (LOCAL_STATE_ONLY) {
 function deleteDevice(deviceId) {
   const existed =
     deviceStatus.has(deviceId) ||
-    pendingCommands.has(deviceId) ||
+    deviceCommands.hasDevice(deviceId) ||
     deviceRegionConfig.has(deviceId) ||
     deviceIngestTokens.has(deviceId) ||
     deviceTrainingBroadcastOverrides.has(deviceId) ||
     deviceLalertOverrides.has(deviceId);
 
   deviceStatus.delete(deviceId);
-  pendingCommands.delete(deviceId);
+  if (deviceCommands.delete(deviceId)) persistDeviceCommands();
 
   if (deviceRegionConfig.delete(deviceId)) persistRegionConfig();
   if (deviceIngestTokens.delete(deviceId)) persistDeviceIngestTokens();
@@ -1590,12 +1583,12 @@ function handleCommand(interaction) {
   if (interaction.data.name === "reboot") {
     const result = queueDeviceCommand(deviceId, "reboot");
     return ephemeralReply(result.ok
-      ? `✅ ${deviceId} に再起動を予約しました(次回の状態報告時に実行されます)`
+      ? `✅ ${deviceId} に再起動を予約しました(次回の状態報告時に配信され，端末のackで確認済みになります．期限24時間．ID: ${result.id})`
       : `❌ ${result.error}`);
   }
   if (interaction.data.name === "update_check") {
     const result = queueDeviceCommand(deviceId, "force_update_check");
-    return ephemeralReply(result.ok ? `✅ ${deviceId} に更新確認を予約しました` : `❌ ${result.error}`);
+    return ephemeralReply(result.ok ? `✅ ${deviceId} に更新確認を予約しました(ID: ${result.id})` : `❌ ${result.error}`);
   }
   if (interaction.data.name === "set_region") {
     const prefectureName = String(options.prefecture || "");
@@ -1693,12 +1686,15 @@ Promise.all([
   loadActiveReports(),
   loadLatencyHistory(),
   loadPushSubscriptions(),
+  loadDeviceCommands(),
 ]).finally(() => {
-  server.listen(PORT, () => {
-    console.log(`✅ サーバー起動: http://localhost:${PORT}`);
+  server.listen(PORT, LISTEN.host, () => {
+    console.log(`✅ サーバー起動: http://localhost:${PORT} (bind ${LISTEN.host}:${PORT}, ${INGEST_TOKEN ? "認証あり" : "トークン未設定"})`);
     if (!INGEST_TOKEN) {
       console.warn(
-        "⚠️ INGEST_TOKEN が未設定です。/ingest は無認証で受け付けます(本番運用では必ず環境変数 INGEST_TOKEN を設定してください)"
+        LISTEN.exposed
+          ? "⚠️ INGEST_TOKEN が未設定です。loopback以外からの /ingest 等は拒否されます(QZSS_ALLOW_INSECURE_LAN=true で無認証を許可できますが非推奨)"
+          : "ℹ️ INGEST_TOKEN が未設定です。loopbackからの接続のみ無認証で受け付けます"
       );
     }
   });
@@ -1766,3 +1762,22 @@ if (fs.existsSync(FIFO_PATH)) {
 } else {
   console.log("ℹ️ qzss_pipe が無いため、/ingest 経由の受信のみ待ち受けます");
 }
+
+// Cloud Runの停止(SIGTERM)時に，間引いていた保存を書き切ってから終了する
+let shuttingDown = false;
+process.on("SIGTERM", async () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  const forceExit = setTimeout(() => process.exit(1), 9000);
+  try {
+    await latencyPersist.flush();
+    await gcsSaveQueue.drain();
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (err) {
+    console.warn("⚠️ 終了前の状態保存に失敗しました:", err.message);
+    clearTimeout(forceExit);
+    process.exit(1);
+  }
+});

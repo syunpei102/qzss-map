@@ -12,8 +12,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci --omit=dev
+      - run: python -m pip install -r requirements.txt
       - run: node --check server.js
       - run: node --check report-state.js
       - run: node --check public/main.js
+      - run: node --check persist-queue.js
+      - run: node --check request-guards.js
+      - run: node --check device-commands.js
+      - run: node --check device-status.js
+      - run: node --check public/report-ttl.js
+      - run: node --check public/earthquake-identity.js
+      - run: node --check public/push-display.js
+      - run: node --check public/sw.js
+      - run: bash -n deploy_gcloud.sh receiver_launcher.sh start_pi.sh start_receiver.sh start_prod.sh
       - run: npm test
+      - run: python -m unittest discover -s test -p 'test_*.py' -v
