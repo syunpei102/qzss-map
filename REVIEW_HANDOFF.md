@@ -4,7 +4,10 @@
 
 ## 現在地
 
-`qzss-map`と，入れ子の別リポジトリ`qzss_pi_package`をレビューし，GitHub Issueへの登録，Claude Code Sonnetによる修正，独立再レビュー，回帰テスト追加まで完了した．修正はローカル作業ツリーにあり，コミット／pushはしていない．Issueも，リモートへ修正が届く前に誤って完了扱いにしないためopenのままである．
+`qzss-map`と，入れ子の別リポジトリ`qzss_pi_package`をレビューし，GitHub Issueへの登録，Claude Code Sonnetによる修正，独立再レビュー，回帰テスト追加，PR作成まで完了した．デプロイは行っていない．IssueはPRのレビュー，CI，実機確認，マージ後に完了判定できるようopenのままである．
+
+- 地図側PR：<https://github.com/syunpei102/qzss-map/pull/24>
+- Pi側PR：<https://github.com/syunpei102/qzss-pi-package/pull/20>
 
 ## GitHub Issue
 
@@ -60,5 +63,4 @@ git diff --check
 - `qzss_pi_package`は独立したGitリポジトリである．ルートリポジトリと別々に差分確認／コミットすること．
 - Claude用の一時worktreeは同期確認後に削除済みである．
 - 自動ロールバック確認は稼働checkoutを壊さず，一時cloneとコマンドスタブで行う手順へ変更済みである．
-- コミット／push／デプロイは未実施である．次担当者は差分を再確認し，リポジトリごとにコミットしてCI成功後にIssueをcloseすること．
-
+- 両リポジトリのコミット／push／PR作成は実施済みである．デプロイは未実施．次担当者はPRのCIと実機確認後にマージ／デプロイし，対応Issueをcloseすること．
