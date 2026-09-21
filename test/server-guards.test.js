@@ -129,7 +129,52 @@ test('client timing: valid input is computed, NaN/missing/out-of-range are dropp
     assert.equal(g.validateClientTiming({ ...ok, ...patch }), null, JSON.stringify(patch));
   }
   assert.equal(g.validateClientTiming(null), null);
-  assert.equal(g.validateClientTiming({ ...ok, reportSummary: 'x'.repeat(999) }).reportSummary.length, 200);
+  assert.equal(g.validateClientTiming({ ...ok, reportSummary: 'x'.repeat(999) }).reportSummary, null);
+});
+
+test('client timing: browser report objects survive storage and dashboard rendering', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const html = fs.readFileSync(path.join(__dirname, '../public/latency.html'), 'utf8');
+  const context = vm.createContext({ formatDateTime: v => v, hazardTypeJa: r => r.a4_hazard_type,
+    hazardDurationJa: v => v });
+  vm.runInContext(html.slice(html.indexOf('function reportBadgeText('), html.indexOf('const LATENCY_SEGMENTS')), context);
+  vm.runInContext(html.slice(html.indexOf('function isProductionEntry('), html.indexOf('async function refresh(')), context);
+  const reports = [
+    { type: 'QzssDcxLAlert', a4_hazard_type: 'Flood', a1_message_type: 'Test', a5_severity: 'Severe', ex1_target_area_ja: '東京都' },
+    { type: 'QzssDcxJAlert', a4_hazard_type: 'Missile', a1_message_type: 'Alert', ex9_target_area_list_ja: ['東京都'] },
+    { type: 'QzssDcxMTInfo', a4_hazard_type: 'Flood', a1_message_type: 'Alert' },
+    { type: 'QzssDcReportJmaEarthquake', disaster_category: '震源', disaster_category_no: 2,
+      report_classification_no: 7, seismic_epicenter: '東京湾', magnitude: 5.2, report_time: '2026-09-21T08:00:00Z' },
+  ];
+  for (const reportSummary of reports) {
+    const body = JSON.parse(JSON.stringify({ t0_received_ms: 1000, t1_decoded_ms: 1006,
+      t2_server_received_ms: 1015, t3_dispatched_ms: 1016, client_processing_ms: 16, reportSummary }));
+    const entry = JSON.parse(JSON.stringify(g.validateClientTiming(body)));
+    assert.deepEqual(entry.reportSummary, reportSummary);
+    assert.equal(entry.totalMs, 32);
+    assert.notEqual(context.reportBadgeText(entry.reportSummary), '不明');
+    assert.notEqual(context.reportTitle(entry.reportSummary), '(内容なし)');
+    assert.deepEqual(JSON.parse(JSON.stringify(context.reportRows(entry.reportSummary))),
+      JSON.parse(JSON.stringify(context.reportRows(reportSummary))));
+    assert.equal(context.isProductionEntry(entry), !(reportSummary.a1_message_type === 'Test' || reportSummary.report_classification_no === 7));
+  }
+});
+
+test('client timing: summary rejects invalid types and bounds untrusted fields', () => {
+  const timing = { t0_received_ms: 1000, t1_decoded_ms: 1010, t2_server_received_ms: 1050,
+    t3_dispatched_ms: 1060, client_processing_ms: 30 };
+  for (const reportSummary of [null, [], 'text', 123, {}, { a5_severity: {} }]) {
+    const entry = g.validateClientTiming({ ...timing, reportSummary });
+    assert.equal(entry.reportSummary, null);
+    assert.equal(entry.totalMs, 90);
+  }
+  const reportSummary = { type: 'x'.repeat(999), raw: 'omit', extra: { nested: true },
+    disaster_category_no: '2', magnitude: Infinity, a5_severity: {},
+    weather_forecast_regions: Array(150).fill('y'.repeat(999)), ex9_target_area_list_ja: ['東京都', {}, null] };
+  const summary = g.validateClientTiming({ ...timing, reportSummary }).reportSummary;
+  assert.deepEqual(summary, { type: 'x'.repeat(200), weather_forecast_regions: Array(100).fill('y'.repeat(200)), ex9_target_area_list_ja: ['東京都'] });
+  assert.equal(reportSummary.type.length, 999, 'input is not mutated');
 });
 
 test('notification tag: earthquakes replace per event, area types never overwrite others', () => {

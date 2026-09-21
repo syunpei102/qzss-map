@@ -79,6 +79,29 @@ function validatePushSubscription(body) {
 
 // ---- レイテンシ計測の検証 (Issue #14) ----
 const MAX_SPAN_MS = 24 * 60 * 60 * 1000;
+function validateReportSummary(report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  // main.jsはオブジェクトを送る．ダッシュボードが使う項目だけを型・サイズ制限付きで保存する．
+  const summary = {};
+  const textFields = ["type", "disaster_category", "information_type", "a1_message_type",
+    "a4_hazard_type", "a5_severity", "a8_hazard_duration", "report_time",
+    "seismic_epicenter", "seismic_intensity_lower_limit", "ex1_target_area_ja"];
+  for (const key of textFields) {
+    if (typeof report[key] === "string") summary[key] = report[key].slice(0, 200);
+  }
+  for (const key of ["disaster_category_no", "report_classification_no", "magnitude"]) {
+    if (Number.isFinite(report[key])) summary[key] = report[key];
+  }
+  // マグニチュードはデコーダによって文字列(不明など)の場合もある．
+  if (typeof report.magnitude === "string") summary.magnitude = report.magnitude.slice(0, 200);
+  for (const key of ["eew_forecast_regions", "ex9_target_area_list_ja", "weather_forecast_regions"]) {
+    if (Array.isArray(report[key])) {
+      summary[key] = report[key].slice(0, 100).filter(v => typeof v === "string").map(v => v.slice(0, 200));
+    }
+  }
+  return Object.keys(summary).length ? summary : null;
+}
+
 function validateClientTiming(ts) {
   if (!ts || typeof ts !== "object" || Array.isArray(ts)) return null;
   const { t0_received_ms: t0, t1_decoded_ms: t1, t2_server_received_ms: t2, t3_dispatched_ms: t3, client_processing_ms: render } = ts;
@@ -86,7 +109,7 @@ function validateClientTiming(ts) {
   if (!nums.every(Number.isFinite) || t0 <= 0 || render < 0 || render > MAX_SPAN_MS) return null;
   const decodeMs = t1 - t0, networkMs = t2 - t1, dispatchPrepMs = t3 - t2;
   if ([decodeMs, networkMs, dispatchPrepMs].some(v => Math.abs(v) > MAX_SPAN_MS)) return null;
-  const summary = typeof ts.reportSummary === "string" ? ts.reportSummary.slice(0, 200) : null;
+  const summary = validateReportSummary(ts.reportSummary);
   return { decodeMs, networkMs, dispatchPrepMs, renderMs: render, totalMs: decodeMs + networkMs + dispatchPrepMs + render, reportSummary: summary, isTestData: !!ts.isTestData };
 }
 
