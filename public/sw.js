@@ -2,7 +2,9 @@
 // 地図の見た目(HTML/JS/CSS/スタイル定義/GeoJSON/アイコン)だけを
 // オフラインでも開けるようキャッシュする。リアルタイム通信である
 // WebSocketや /ingest への送信には一切関与しない(GET以外は素通し)。
-const CACHE_VERSION = 'qzss-map-v5';
+importScripts('./push-display.js');
+
+const CACHE_VERSION = 'qzss-map-v6';
 
 // インストール時に必ず事前キャッシュしておくファイル。以前はmaplibre-gl・
 // pmtilesのライブラリ本体やほとんどのgeojsonデータが含まれておらず、
@@ -14,6 +16,9 @@ const CACHE_VERSION = 'qzss-map-v5';
 const APP_SHELL = [
   './',
   './index.html',
+  './report-ttl.js',
+  './earthquake-identity.js',
+  './push-display.js',
   './main.js',
   './style.css',
   './style.json',
@@ -134,20 +139,8 @@ self.addEventListener('fetch', (event) => {
 // 元に通知を表示する。JSONとして解釈できない場合は最低限の通知だけ出す。
 // ==================================================
 self.addEventListener('push', (event) => {
-  let data = { title: '防災情報', body: '新しい通報が届きました。アプリを開いて確認してください。' };
-  try {
-    if (event.data) data = { ...data, ...event.data.json() };
-  } catch (e) {
-    // JSONでなければデフォルト文言のまま表示する
-  }
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: './icons/icon-192.png',
-      badge: './icons/icon-192.png',
-      tag: 'qzss-alert', // 同時に複数出た場合に古い通知を上書きしすぎないよう、必要ならtagを外すことも検討
-    })
-  );
+  const { title, options } = PushDisplay.buildNotification(PushDisplay.parsePushData(event));
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 // 通知タップでアプリのタブを前面に出す(既に開いていればそれをフォーカス、

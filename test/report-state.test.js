@@ -51,10 +51,46 @@ test('test data does not overwrite or cancel a live report', () => {
 test('weather warning replay replaces same region set and cancellation clears it', () => {
   const report = { disaster_category_no: 10, weather_forecast_regions_raw: [130010, 140010] };
   let state = put([], report);
-  assert.equal(state.length, 1);
+  assert.equal(state.length, 2, 'stored per region');
   state = put(state, { ...report, a1_message_type: 'Update' });
-  assert.equal(state.length, 1);
+  assert.equal(state.length, 2);
   assert.equal(put(state, report, true).length, 0);
+});
+test('weather warning update to a subset of regions drops no stale snapshot', () => {
+  const base = { disaster_category_no: 10, weather_forecast_regions_raw: [100, 200],
+    weather_forecast_regions: ['A', 'B'], weather_related_disaster_sub_categories: ['x', 'y'] };
+  let state = put([], base);
+  state = put(state, { ...base, weather_forecast_regions_raw: [100], weather_forecast_regions: ['A'],
+    weather_related_disaster_sub_categories: ['z'] });
+  const view = state.map(({ report }) => [report.weather_forecast_regions_raw, report.weather_forecast_regions, report.weather_related_disaster_sub_categories]);
+  assert.deepEqual(view, [[[200], ['B'], ['y']], [[100], ['A'], ['z']]]);
+});
+test('weather warning cancellation removes only the addressed region from a combined legacy entry', () => {
+  const combined = {
+    disaster_category_no: 10,
+    weather_forecast_regions_raw: [130010, 140010],
+    weather_forecast_regions: ['Tokyo', 'Kanagawa'],
+    weather_related_disaster_sub_categories: ['Heavy rain', 'Flood'],
+  };
+  const state = put(
+    [{ report: combined, receivedAt: 50 }],
+    {
+      disaster_category_no: 10,
+      information_type_no: 2,
+      weather_forecast_regions_raw: [130010],
+      weather_forecast_regions: ['Tokyo'],
+      weather_related_disaster_sub_categories: ['Heavy rain'],
+    },
+    true
+  );
+  assert.deepEqual(
+    state.map(({ report }) => ({
+      codes: report.weather_forecast_regions_raw,
+      names: report.weather_forecast_regions,
+      subCategories: report.weather_related_disaster_sub_categories,
+    })),
+    [{ codes: [140010], names: ['Kanagawa'], subCategories: ['Flood'] }]
+  );
 });
 test('J-Alert groups by hazard and area, independent of other J-Alert areas', () => {
   const tokyo = { type: 'QzssDcxJAlert', a4_hazard_type: 'Missile', ex9_target_area_list_ja: ['Tokyo'] };
@@ -86,4 +122,75 @@ test('earthquake without epicenter or occurrence time falls back to an unknown b
   state = put(state, { disaster_category_no: 1, note: 'updated' });
   assert.equal(state.length, 2, 'a same-kind replay still replaces only its own kind');
   assert.equal(put(state, a, true).length, 0, 'cancellation matches on the coarser eq|unknown group and clears both');
+});
+test('earthquakes at the same epicenter but different occurrence times remain independent', () => {
+  const first = {
+    disaster_category_no: 1,
+    seismic_epicenter_raw: 123,
+    occurrence_time_of_earthquake: '2026-09-21T00:00:00',
+  };
+  const second = {
+    ...first,
+    occurrence_time_of_earthquake: '2026-09-21T00:05:00',
+  };
+  let state = put(put([], first), second);
+  assert.deepEqual(
+    state.map(({ report }) => report.occurrence_time_of_earthquake),
+    [first.occurrence_time_of_earthquake, second.occurrence_time_of_earthquake]
+  );
+  state = put(state, first, true);
+  assert.deepEqual(
+    state.map(({ report }) => report.occurrence_time_of_earthquake),
+    [second.occurrence_time_of_earthquake]
+  );
+});
+test('L-Alert with an incomplete ellipse coordinate does not crash grouping', () => {
+  const incomplete = {
+    type: 'QzssDcxLAlert',
+    a4_hazard_type: 'Flood',
+    a12_ellipse_centre_latitude: 35.5,
+  };
+  assert.doesNotThrow(() => put([], incomplete));
+});
+
+test('L-Alert ellipse key needs both finite coordinates', () => {
+  const { reportGroupKey } = require('../report-state');
+  const base = { type: 'QzssDcxLAlert', a4_hazard_type: 'Flood' };
+  for (const bad of [{ a12_ellipse_centre_latitude: 35 }, { a13_ellipse_centre_longitude: 139 },
+    { a12_ellipse_centre_latitude: NaN, a13_ellipse_centre_longitude: 1 },
+    { a12_ellipse_centre_latitude: 1, a13_ellipse_centre_longitude: Infinity }]) {
+    assert.equal(reportGroupKey({ ...base, ...bad }), 'lalert|Flood|unknown');
+  }
+  assert.equal(reportGroupKey({ ...base, a12_ellipse_centre_latitude: 35.123, a13_ellipse_centre_longitude: 139.456 }),
+    'lalert|Flood|ellipse:35.12,139.46');
+});
+test('earthquake compares every field present on both sides; missing fields fall back', () => {
+  const { sameEarthquake } = require('../report-state');
+  const t = 'T1';
+  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { occurrence_time_of_earthquake: t, seismic_epicenter_raw: 2 }), false, 'same time, different epicenter');
+  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { occurrence_time_of_earthquake: 'T2', seismic_epicenter_raw: 1 }), false);
+  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { seismic_epicenter_raw: 1 }), true);
+  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t }, { seismic_epicenter_raw: 1 }), false);
+});
+test('server and browser share one TTL table; prune boundaries', () => {
+  const { pruneExpiredReports } = require('../report-state');
+  const { ttlMsForReport, TTL } = require('../public/report-ttl');
+  const H = 3600 * 1000;
+  const cases = [
+    [{ disaster_category_no: 1 }, 20 * 60 * 1000],
+    [{ disaster_category_no: 8 }, 12 * H],
+    [{ disaster_category_no: 5 }, 24 * H],
+    [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Duration < 6H' }, 6 * H],
+    [{ type: 'QzssDcxLAlert', a8_hazard_duration: '6H <= Duration < 12H' }, 12 * H],
+    [{ type: 'QzssDcxLAlert', a8_hazard_duration: '12H <= Duration < 24H' }, 24 * H],
+    [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Unknown' }, TTL.LALERT_UNKNOWN],
+    [{ type: 'QzssDcxLAlert' }, 3 * H],
+    [{ disaster_category_no: 1, is_test_data: true }, 60 * 1000],
+  ];
+  for (const [report, ttl] of cases) {
+    assert.equal(ttlMsForReport(report), ttl, JSON.stringify(report));
+    const entries = [{ report, receivedAt: 1000 }];
+    assert.equal(pruneExpiredReports(entries, 1000 + ttl - 1).length, 1, 'just before TTL');
+    assert.equal(pruneExpiredReports(entries, 1000 + ttl).length, 0, 'at TTL');
+  }
 });

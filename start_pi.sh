@@ -37,4 +37,5 @@ fi
 
 echo "🛰️  受信機からの取り込みを開始し、重要な通報のみ $QZSS_CLOUD_URL に送信します"
 echo "   ($PORT @ $BAUDRATE)"
-./venv/bin/python3 read_legacy.py "$PORT" "$BAUDRATE"
+source "$DIR/receiver_launcher.sh"
+receiver_exec "$PORT" "$BAUDRATE"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 実機の受信機からクラウド(Cloud Run)へ送信する一発起動スクリプト。
 # ポート名を指定し、QZSS_INGEST_TOKEN を環境変数で渡してから実行する
-# (read_legacy.py を起動する。地図の描画自体はCloud Run側が行う)。
+# (正式な受信実装を起動する。地図の描画自体はCloud Run側が行う)。
 #
 # 秘密のトークンをこのファイルに直接書かない(公開リポジトリのため)。
 # 使い方:
@@ -38,4 +38,5 @@ fi
 
 echo "🛰️  受信機からの取り込みを開始し、重要な通報のみクラウドへ送信します"
 echo "   ($PORT @ $BAUDRATE) -> $QZSS_CLOUD_URL"
-./venv/bin/python3 read_legacy.py "$PORT" "$BAUDRATE" --nmea
+source "$DIR/receiver_launcher.sh"
+receiver_exec "$PORT" "$BAUDRATE" --nmea

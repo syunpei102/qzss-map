@@ -40,7 +40,7 @@
 ### B. クラウド構成(ラズパイ + Google Cloud Run)
 
 ```
-[受信機] --(シリアル)--> [read_legacy.py on ラズパイ]
+[受信機] --(シリアル)--> [read_legacy_dual.py(正式実装) on ラズパイ]
                              │ azarashiでデコード
                              │ 重要な通報だけ(緊急地震速報/震源/震度速報/津波/Jアラート)
                              ▼
@@ -73,7 +73,8 @@ map/
 │
 ├── qzss_decode.py         # azarashiでのデコード + JSON化 + 重要度判定(共通ヘルパー)
 ├── qzss_sink.py           # 送信先切り替え(ローカルFIFO or クラウドPOST)
-├── read_legacy.py         # 実機(u-blox)からシリアルで読み取り、デコードして送信
+├── read_legacy.py         # 互換・検証用の受信実装(正式実装は qzss_pi_package/read_legacy_dual.py)
+├── receiver_launcher.sh   # start_*.shが共通で使う受信プロセス起動(正式実装へ委譲)
 ├── test.py                # 擬似データ送信スクリプト(9種類の通報 + Jアラートを5秒おきに1周送信して終了)
 ├── requirements.txt       # azarashi, pyserial (venv用)
 │
@@ -177,7 +178,7 @@ u-bloxのGNSS受信機をUSB接続し、クラウドを使わず同じマシン�
    初回はPythonのvenv作成・パッケージインストール(azarashi, pyserial)・FIFO作成を自動で行う。
    自動で `http://localhost:8080/` が開き、以下の流れで動く。
 
-   - `read_legacy.py` が受信機を初期化(`UBX-RXM-SFRBX` 出力ON)し、シリアルから読み続ける
+   - 受信実装(`receiver_launcher.sh`経由で`read_legacy_dual.py`)が受信機を初期化(`UBX-RXM-SFRBX` 出力ON)し、シリアルから読み続ける
    - QZSSのDC report(災危通報)メッセージを検出したらデコードし、ターミナルに逐次表示する
    - 「重要」(緊急地震速報・震源・震度速報・津波・Jアラート)と判定された通報だけが
      `qzss_pipe`(FIFO)経由で `server.js` に渡り、WebSocketでブラウザに配信される
@@ -237,6 +238,14 @@ INGEST_TOKEN=$(openssl rand -hex 16) ./deploy_gcloud.sh [サービス名] [リ�
   `ADMIN_PASSWORD_HASH`/`SESSION_SECRET`/`ENABLE_WEB_ADMIN`は**本番では
   設定しない**(設定すると復活してしまう)
 
+**Cloud Runは最大1インスタンスに固定している**(`deploy_gcloud.sh`の
+`--max-instances 1`)。WebSocket接続・`activeReports`・通知の重複抑止・デバイス状態は
+Nodeプロセスのメモリ上にあり、複数インスタンスに分かれると`/ingest`を受けた
+インスタンス以外の閲覧者へ配信されないため。複数インスタンス化するには
+Pub/Sub等で配信と状態を共有する設計変更が必要。GCSへの保存は同一ファイルごとに
+呼び出し順で直列化している。デバイスコマンドの配送状態(`device_commands.json`)も
+GCS/ローカルへ永続化する。
+
 ### ラズベリーパイからクラウドへ送信する
 
 ラズパイに受信機を接続し、`start_pi.sh` を使う。`QZSS_INGEST_TOKEN`は
@@ -250,11 +259,60 @@ export QZSS_INGEST_TOKEN="<Discordの/create_device_tokenで発行したこの�
 ./start_pi.sh /dev/ttyUSB0 115200
 ```
 
-内部的には `read_legacy.py` → `qzss_decode.py` でデコード後、`qzss_sink.py` が
-`QZSS_CLOUD_URL` の有無を見て送信先を自動判定する(未設定ならローカルFIFOに書き込む、
-設定されていればそのURLへHTTPS POSTする)。
+#### 受信実装は1つに統一している
+
+正式な受信実装は別リポジトリ
+[`qzss-pi-package`](https://github.com/syunpei102/qzss-pi-package)の
+`read_legacy_dual.py`(非同期送信・keep-alive・時間制の重複抑止・未知衛星/NMEA/UBX
+対策を含む)。`start_pi.sh`/`start_receiver.sh`/`start_prod.sh`は共通の
+`receiver_launcher.sh`を通して、必ずそれを起動する(Macでの手動受信も同じ)。
+
+- 既定の場所は`map/qzss_pi_package/`(`git clone https://github.com/syunpei102/qzss-pi-package.git qzss_pi_package`)。
+  別の場所なら`QZSS_PI_PACKAGE_DIR`で指定する
+- 見つからない場合は、誤って旧経路で動かさないよう案内を出して終了する。
+  開発・検証用に互換実装(このリポジトリの`read_legacy.py`)を使う場合だけ
+  `QZSS_ALLOW_LEGACY_RECEIVER=1`を明示する
+- `read_legacy.py`/`qzss_sink.py`/`qzss_decode.py`はシミュレータ(`test*.py`)と
+  互換実装のために残しており、上記の不具合修正(未知衛星・NMEA大小文字・UBX長・
+  送信成功時のみ重複登録・時間制重複抑止)は同じ内容を入れてCIで検証している。
+  ただし正式実装との統合(共有パッケージ化・リポジトリ間の版固定)は
+  `qzss-pi-package`側の作業が必要で、まだ未完了(Issue #19参照)。
+
+### ローカルサーバー(`LOCAL_STATE_ONLY=true`)の公開範囲
+
+- 既定では`127.0.0.1`(loopback)だけで待ち受ける。同一LANの別端末からは接続できない
+- LANへ公開する場合は`HOST=0.0.0.0`を明示し、`INGEST_TOKEN`も設定する。
+  トークン無しで公開する危険を承知の場合のみ`QZSS_ALLOW_INSECURE_LAN=true`
+  (未設定だと起動を拒否する)
+- トークン未設定のとき、`/ingest`・`/device/status`はloopback接続のみ無認証で許可する
+- `/local-sync/*`は常にloopback接続のみ
+- Cloud Run(`LOCAL_STATE_ONLY`なし)は従来どおり全インターフェースでPORTを受ける
+- 起動ログに実際のbind先と認証状態を表示する
+
+## テスト
+
+```bash
+npm ci
+npm test                                   # Node(report-state・サーバー設定・検証・静的確認 等)
+python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
+./venv/bin/python -m unittest discover -s test -p 'test_*.py' -v   # Python(デコード・受信)
+```
+
+`test.py`・`test_timeline.py`・`test_tohoku_2011.py`は送信シミュレータで、unittestではない。
+CI(`.github/workflows/test.yml`)は構文検査・`npm test`・上記Pythonテストを実行する。
 
 ## デバイス管理・拠点ごとの地域設定
+
+### デバイスコマンドの配送(ack)
+
+コマンドは`id`・期限(24時間)・配送状態
+(`pending`/`delivered`/`acked`/`sent_unconfirmed`/`expired`/`failed`)を持ち、
+GCS/ローカルへ永続化される(`/admin/api/devices`の`commands`で確認できる)。
+`/device/status`のリクエストに`supports_ack: true`と`acked_command_ids: [...]`を
+含める端末には、ackされるまで(最大5回)再配信する。ack非対応の旧端末には
+rebootの繰り返しを避けるため従来どおり1回だけ渡し`sent_unconfirmed`とする。
+端末側は非冪等なコマンド(reboot)を実行する**前に**ackすること。
+端末側(`qzss-pi-package`の`report_status.sh`)のack対応は別リポジトリの作業。
 
 拠点(ラズパイ)の再起動予約・更新確認予約・対象地域の割り当ては、
 **Discordのスラッシュコマンドから行う**(`/reboot device:<id>`・

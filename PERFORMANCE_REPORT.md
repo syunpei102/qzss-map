@@ -275,3 +275,28 @@ T4-T3, 合計)がまとまって出力される(Cloud Run/journalctlログ)。
 CPU使用率とクラッシュ頻度は実測値。レイテンシの絶対値(何ms→何ms)は
 計測基盤を入れたばかりで、実際の受信データが蓄積され次第、本レポートに
 追記する。
+
+## Pi向け軽量描画の実機ベンチマーク手順(Issue #21)
+
+**この節には測定結果を載せていない。** 実機での計測は未実施で、結果は捏造しない。
+軽量アイドル表示は既定で無効のままとし、下の手順で採否を決める。
+
+### 切り替え方(端末判定ではなく明示設定)
+
+- `http://localhost:8080/?lightweight=1` を開くと有効(`localStorage`の`qzss.lightweightIdle=1`に保存される)
+- `?lightweight=0`で無効に戻す(既定も無効)
+- 有効時は日本全体表示の間だけ、全国ポリゴンの塗りが最大`MAX_IDLE_OVERVIEW_MARKERS`(12)個の色付きマーカーになる(外観差あり。ズームインすると通常表示に戻る)
+
+### 手順
+
+1. 同一のPi・同一のChromiumフラグ(`start_pi_local.sh`)・同一の受信データで、通常表示と`?lightweight=1`を交互に各5回計測する
+2. 大量警報シナリオ: `test/replay_test_cases.py`や`test_tohoku_2011.py`で全国に多数の気象警報・Lアラートを流す
+3. 記録する項目: フレーム時間(DevToolsのPerformanceまたは`chrome://tracing`)、`ps`/`top`でのCPU・RSS、`vcgencmd measure_temp`と`get_throttled`、クラッシュ有無(`journalctl`・Chromiumのcrashdump)
+4. 初期表示の計測: コンソールの`[qzss-perf]`ログ、またはDevToolsで`performance.getEntriesByType('mark')`の`qzss:stage1-data`・`qzss:map-ready`・`qzss:flood-rivers-data`等を読む。低速回線は`tc`やDevToolsのスロットリングで再現する
+5. 採否: 効果が十分で外観差が許容できるなら既定を有効にする設定を入れる。乏しければ軽量表示コードを削除する。結果は日時・機材・OS/Chromium版とともにこの節へ追記する
+
+### 実機確認項目(自動ブラウザテスト未整備)
+
+- 洪水・火山データの取得を遅延/失敗させても基本地図と主要警報が先に表示される
+- 後着データの取得後に、既存の洪水・火山通報が地図へ再描画される
+- 大量警報時にクラッシュせず、軽量表示の外観が要件に合う
