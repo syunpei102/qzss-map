@@ -11,6 +11,7 @@ const { Storage } = require("@google-cloud/storage");
 const { createSerialQueue, createDebouncedTask } = require("./persist-queue");
 const { DeviceCommandQueue } = require("./device-commands");
 const { isDeviceOnline } = require("./device-status");
+const { OperationsTelemetry } = require("./operations-telemetry");
 const guards = require("./request-guards");
 const { verifyKey, InteractionType, InteractionResponseType, InteractionResponseFlags } = require("discord-interactions");
 
@@ -27,6 +28,7 @@ const PORT = LISTEN.port;
 const INGEST_TOKEN = (process.env.INGEST_TOKEN || "").trim();
 const FIFO_PATH = path.resolve(__dirname, "qzss_pipe");
 const PUBLIC_DIR = path.resolve(__dirname, "public");
+const operationsTelemetry = new OperationsTelemetry();
 
 const app = express();
 // Cloud Run(K_SERVICE)ではGoogleのフロント1段だけを信頼し，レート制限のクライアントIPに使う
@@ -74,6 +76,7 @@ app.get('/', (req, res, next) => {
   if (req.hostname === 'info.shum10.com') {
     return res.sendFile(path.join(PUBLIC_DIR, 'info.html'));
   }
+  operationsTelemetry.notePageView();
   next();
 });
 app.use(express.static(PUBLIC_DIR));
@@ -699,7 +702,7 @@ function isDuplicateReport(report) {
   return isDup;
 }
 
-function handleIncomingLine(line) {
+function handleIncomingLine(line, deviceId = null) {
   let report = null;
   try {
     report = JSON.parse(line);
@@ -722,6 +725,8 @@ function handleIncomingLine(line) {
     }
     line = JSON.stringify(report);
   }
+
+  operationsTelemetry.noteIncoming(report, line, { deviceId });
 
   // ハートビートは接続状態の指標なので、重複判定の対象にせず必ず流す
   if (report && report.type === "Heartbeat") {
@@ -770,7 +775,7 @@ app.post("/ingest", (req, res) => {
   // 際限なく肥大化することは無い。4000文字あれば実際の通報JSON
   // (Lアラート等)は余裕を持ってまるごと残るサイズなので、それを上限にする
   console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 4000));
-  handleIncomingLine(line);
+  handleIncomingLine(line, auth.deviceId);
   res.status(204).end();
 });
 
@@ -979,6 +984,42 @@ function requireAdminAuth(req, res) {
   return true;
 }
 
+// 運用データには生の受信JSONと端末状態が含まれる．ローカル接続，または
+// 有効化済みのWeb管理画面の認証済みセッションからだけ閲覧できるようにする．
+function requireOperationsAccess(req, res, next) {
+  res.set('Cache-Control', 'no-store');
+  if (!process.env.K_SERVICE && guards.isLoopbackAddress(req.socket.remoteAddress)) return next();
+  if (ENABLE_WEB_ADMIN) {
+    if (requireAdminAuth(req, res)) return next();
+    return;
+  }
+  res.status(404).end();
+}
+
+app.get('/operations', requireOperationsAccess, (req, res) => {
+  res.sendFile(path.join(__dirname, 'private', 'operations.html'));
+});
+
+app.get('/api/operations', requireOperationsAccess, (req, res) => {
+  const now = Date.now();
+  const snapshot = operationsTelemetry.snapshot(now);
+  const devices = [...deviceStatus.values()].map((d) => ({
+    deviceId: d.deviceId,
+    receivedAt: d.receivedAt,
+    online: isDeviceOnline(d.receivedAt, now),
+    temperatureC: Number.isFinite(d.temperature_c) ? d.temperature_c : null,
+    diskFreePct: Number.isFinite(d.disk_free_pct) ? d.disk_free_pct : null,
+    uptimeSec: Number.isFinite(d.uptime_sec) ? d.uptime_sec : null,
+    mapCommit: typeof d.git_commit_map === 'string' ? d.git_commit_map.slice(0, 12) : null,
+    piCommit: typeof d.git_commit_pi === 'string' ? d.git_commit_pi.slice(0, 12) : null,
+  }));
+  res.json({ ...snapshot, devices, openWebSocketConnections: wss.clients.size });
+});
+
+app.get('/api/operations/raw', requireOperationsAccess, (req, res) => {
+  res.json({ recent: operationsTelemetry.rawSnapshot() });
+});
+
 if (ENABLE_WEB_ADMIN) {
   app.post("/admin/api/login", (req, res) => {
     if (!ADMIN_EMAIL || !currentAdminPasswordHash || !SESSION_SECRET) {
@@ -1145,7 +1186,9 @@ const gcsStorage = new Storage();
 // (start_demo.sh/start_prod.sh/start_pi_local.shが自動で設定する)。
 // 未設定(Cloud Run本番)の場合はGCSが実質的な永続化先になる。
 const LOCAL_STATE_ONLY = (process.env.LOCAL_STATE_ONLY || "").trim() === "true";
-const LOCAL_STATE_DIR = path.join(__dirname, ".local_state");
+const LOCAL_STATE_DIR = LOCAL_STATE_ONLY && process.env.QZSS_LOCAL_STATE_DIR
+  ? path.resolve(process.env.QZSS_LOCAL_STATE_DIR)
+  : path.join(__dirname, ".local_state");
 
 function localStatePath(filename) {
   return path.join(LOCAL_STATE_DIR, filename);

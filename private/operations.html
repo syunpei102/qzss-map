@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>QZSS 運用ダッシュボード</title>
+  <style>
+    :root { color-scheme:dark; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif; background:#0b1118; color:#eef4f6; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:320px; }
+    button { font:inherit; cursor:pointer; }
+    a { color:#87e3cb; }
+    .shell { max-width:1220px; margin:auto; padding:28px 30px 60px; }
+    header { display:flex; justify-content:space-between; align-items:flex-start; gap:20px; margin-bottom:18px; }
+    .eyebrow { color:#78dec3; font-size:11px; font-weight:800; letter-spacing:.13em; }
+    h1 { font-size:clamp(26px,3vw,36px); margin:8px 0 7px; letter-spacing:-.04em; }
+    h2 { font-size:16px; margin:0 0 7px; }
+    p { line-height:1.6; }
+    .muted { color:#a8b8c2; font-size:13px; margin:0; }
+    .refresh { border:1px solid #5d9f91; background:#15352f; color:#aaf0d7; padding:9px 13px; border-radius:9px; white-space:nowrap; }
+    .notice { border:1px solid #3c5362; background:#152330; border-radius:11px; padding:11px 14px; color:#c2d0d8; font-size:12px; line-height:1.6; margin:0 0 18px; }
+    .notice.error { border-color:#9f665b; color:#ffd5cb; }
+    .tabs { display:flex; gap:8px; overflow:auto; border-bottom:1px solid #2c3d49; margin-bottom:20px; }
+    .tabs button { border:0; color:#a9b9c2; background:none; padding:12px 14px; border-bottom:2px solid transparent; white-space:nowrap; }
+    .tabs button[aria-selected="true"] { color:#87e8ce; border-bottom-color:#87e8ce; font-weight:700; }
+    [hidden] { display:none !important; }
+    .grid { display:grid; gap:15px; }
+    .cards { grid-template-columns:repeat(4,minmax(0,1fr)); margin-bottom:18px; }
+    .two { grid-template-columns:1.15fr 1fr; }
+    .panel { min-width:0; background:#121e29; border:1px solid #2c4050; border-radius:15px; padding:18px; }
+    .label { color:#9fb0bc; font-size:12px; }
+    .value { font-size:27px; font-weight:750; letter-spacing:-.04em; margin:10px 0 4px; overflow-wrap:anywhere; }
+    .value.small { font-size:18px; letter-spacing:0; }
+    .good { color:#80e5bd; }
+    .warn { color:#f1cb88; }
+    .bad { color:#ffad9f; }
+    .foot { color:#90a5b1; font-size:11px; line-height:1.55; }
+    .row { display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #293a47; font-size:13px; }
+    .row:last-child { border-bottom:0; }
+    .row span:first-child { color:#a9b9c3; }
+    .row strong { text-align:right; }
+    .list { display:grid; gap:9px; margin-top:12px; }
+    .list-item { background:#1a2a36; border-radius:10px; padding:11px 12px; font-size:13px; }
+    .list-item small { display:block; color:#a0b2bd; margin-top:4px; }
+    .toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .toggle { border:1px solid #476a79; background:#1b303d; color:#deedf0; border-radius:9px; padding:8px 11px; font-size:12px; }
+    .feed { display:grid; gap:10px; }
+    .event { border:1px solid #304454; background:#172733; border-radius:11px; padding:12px 14px; }
+    .event-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:#a9b9c3; }
+    .event-head time { margin-left:auto; }
+    .event h3 { font-size:14px; margin:9px 0 4px; }
+    .event p { margin:0; color:#b3c1ca; font-size:12px; white-space:pre-wrap; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#091720; border:1px solid #304957; border-radius:8px; color:#b3ead4; font-size:11px; line-height:1.55; padding:12px; margin:11px 0 0; }
+    .empty { padding:16px; background:#192936; border:1px dashed #4e6674; border-radius:10px; font-size:13px; color:#acbfca; }
+    @media(max-width:900px) { .cards { grid-template-columns:repeat(2,minmax(0,1fr)); } .two { grid-template-columns:1fr; } }
+    @media(max-width:560px) { .shell { padding:19px 15px 42px; } header { display:block; } .refresh { margin-top:14px; } .cards { gap:9px; } .panel { padding:14px; } .value { font-size:22px; } }
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header><div><div class="eyebrow">QZSS · OPERATIONS</div><h1>受信・配信の運用状況</h1><p class="muted">このサーバーが実際に受け取った情報を表示します．</p></div><button class="refresh" id="refresh" type="button">今すぐ更新</button></header>
+  <div id="notice" class="notice" role="status">読み込み中…</div>
+  <nav class="tabs" aria-label="表示切替"><button type="button" data-tab="status" aria-selected="true">稼働状況</button><button type="button" data-tab="received" aria-selected="false">受信データ</button><button type="button" data-tab="usage" aria-selected="false">利用・費用</button></nav>
+
+  <section id="status" class="tab">
+    <div class="grid cards">
+      <div class="panel"><div class="label">地図サーバー</div><div class="value good">応答中</div><div class="foot">この画面のAPI応答で確認</div></div>
+      <div class="panel"><div class="label">受信機の状態報告</div><div class="value small" id="device-health">確認中</div><div class="foot" id="device-age">報告待ち</div></div>
+      <div class="panel"><div class="label">最終ハートビート</div><div class="value small" id="heartbeat-age">未受信</div><div class="foot" id="serial-status">シリアル接続は不明</div></div>
+      <div class="panel"><div class="label">直近の電文</div><div class="value small" id="report-age">未受信</div><div class="foot">ハートビートを除く</div></div>
+    </div>
+    <div class="grid two"><div class="panel"><h2>受信機</h2><p class="muted">状態報告は通常5分周期です．15分以上届かなければオフラインと判定します．</p><div id="devices" class="list"></div></div><div class="panel"><h2>受信した号機</h2><p class="muted">再起動後に受け取った電文・ハートビートのPRNを表示します．電波強度は取得していません．</p><div id="satellites" class="list"></div></div></div>
+  </section>
+
+  <section id="received" class="tab" hidden><div class="panel"><div class="toolbar"><div><h2>直近の受信データ</h2><p class="muted">新しい順に20件．同じ内容の再送も記録します．再起動時に履歴は消えます．</p></div><button type="button" id="raw-toggle" class="toggle" aria-pressed="false">受信JSONを読み込む</button></div><div id="feed" class="feed"></div><p class="foot">JSONは最大6,000文字まで表示します．通常の自動更新では送信せず，ボタンを押した時だけ取得します．</p></div></section>
+
+  <section id="usage" class="tab" hidden>
+    <div class="grid cards">
+      <div class="panel"><div class="label">現在のWebSocket接続</div><div class="value" id="connections">—</div><div class="foot">キオスクや複数タブも含む</div></div>
+      <div class="panel"><div class="label">地図のページ表示</div><div class="value" id="page-views">—</div><div class="foot">このプロセス起動後の GET / 回数</div></div>
+      <div class="panel"><div class="label">重複しない利用者数</div><div class="value small">未計測</div><div class="foot">接続数・表示回数とは異なる</div></div>
+      <div class="panel"><div class="label">今月の実際の請求額</div><div class="value small">未連携</div><div class="foot">0円を意味しません</div></div>
+    </div>
+    <div class="grid two"><div class="panel"><h2>利用状況の読み方</h2><p class="muted">ページ表示にはキオスク・再読み込み・クローラーが混ざる可能性があります．WebSocket接続は現在開いているタブ数に近い値で，人数ではありません．これらの値は再起動時にリセットされます．</p><div class="row"><span>サーバー起動</span><strong id="server-started">—</strong></div><div class="row"><span>受信したJSON</span><strong id="ingest-count">—</strong></div></div><div class="panel"><h2>費用</h2><p class="muted">この画面はCloud Billing・Monitoring APIを呼びません．実費を自動表示するには請求データの連携が必要で，追加費用を評価してから導入します．</p><p><a href="https://console.cloud.google.com/billing" target="_blank" rel="noopener noreferrer">Google Cloudで実際の請求額を見る ↗</a></p><p class="foot">請求データは遅れて反映されます．この画面自体をCloud Runで利用すると，通常のHTTP配信分の使用量は増えます．</p></div></div>
+  </section>
+</main>
+<script>
+  const byId = (id) => document.getElementById(id);
+  let current = null;
+  const formatTime = (ms) => Number.isFinite(ms) ? new Date(ms).toLocaleString('ja-JP') : '未受信';
+  function ago(ms, now) {
+    if (!Number.isFinite(ms)) return '未受信';
+    const seconds = Math.max(0, Math.floor((now - ms) / 1000));
+    if (seconds < 60) return `${seconds}秒前`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}分前`;
+    return `${Math.floor(seconds / 3600)}時間前`;
+  }
+  function empty(message) {
+    const div = document.createElement('div');
+    div.className = 'empty';
+    div.textContent = message;
+    return div;
+  }
+  function listItem(title, detail) {
+    const div = document.createElement('div');
+    div.className = 'list-item';
+    const strong = document.createElement('strong');
+    strong.textContent = title;
+    const small = document.createElement('small');
+    small.textContent = detail;
+    div.append(strong, small);
+    return div;
+  }
+  function render(data) {
+    current = data;
+    byId('raw-toggle').setAttribute('aria-pressed', 'false');
+    byId('raw-toggle').textContent = '受信JSONを読み込む';
+    const now = data.sampledAt;
+    const online = data.devices.filter((d) => d.online);
+    byId('device-health').textContent = data.devices.length ? `${online.length} / ${data.devices.length} 台オンライン` : '状態報告なし';
+    byId('device-health').className = `value small ${!data.devices.length ? 'warn' : !online.length ? 'bad' : 'good'}`;
+    byId('device-age').textContent = data.devices.length ? `最終報告 ${ago(Math.max(...data.devices.map((d) => d.receivedAt)), now)}` : '受信機からの報告待ち';
+    byId('heartbeat-age').textContent = ago(data.lastHeartbeatAt, now);
+    byId('heartbeat-age').className = `value small ${data.lastHeartbeatAt && now - data.lastHeartbeatAt < 90000 ? 'good' : 'warn'}`;
+    byId('serial-status').textContent = data.serialConnected === null ? 'シリアル接続は不明' : data.serialConnected ? '最終ハートビート時は接続あり' : '最終ハートビート時に切断を報告';
+    byId('report-age').textContent = data.recent.length ? ago(data.recent[0].receivedAt, now) : '未受信';
+    const devices = byId('devices');
+    devices.replaceChildren();
+    if (!data.devices.length) devices.append(empty('このサーバーの起動後，受信機の状態報告はまだ届いていません．'));
+    for (const d of data.devices) devices.append(listItem(`${d.deviceId} · ${d.online ? 'オンライン' : 'オフライン'}`, `最終報告 ${ago(d.receivedAt, now)} · 温度 ${d.temperatureC ?? '不明'}℃ · 空き容量 ${d.diskFreePct ?? '不明'}% · 地図 ${d.mapCommit || '不明'} / 受信機 ${d.piCommit || '不明'}`));
+    const satellites = byId('satellites');
+    satellites.replaceChildren();
+    if (!data.satellites.length) satellites.append(empty('このサーバーの起動後，号機を特定できる電文はまだ届いていません．'));
+    for (const s of data.satellites) satellites.append(listItem(s.name, `PRN ${s.satellitePrn ?? '不明'} · 最終受信 ${ago(s.receivedAt, now)}`));
+    const feed = byId('feed');
+    feed.replaceChildren();
+    if (!data.recent.length) feed.append(empty('受信履歴はまだありません．ハートビートは履歴に含めません．'));
+    for (const r of data.recent) {
+      const article = document.createElement('article'); article.className = 'event';
+      const head = document.createElement('div'); head.className = 'event-head';
+      const kind = document.createElement('strong'); kind.textContent = r.category || r.type;
+      const satellite = document.createElement('span'); satellite.textContent = `PRN ${r.satellitePrn ?? '不明'}${r.deviceId ? ` · ${r.deviceId}` : ''}`;
+      const time = document.createElement('time'); time.textContent = formatTime(r.receivedAt);
+      head.append(kind, satellite, time);
+      const title = document.createElement('h3'); title.textContent = `${r.informationType || '情報'} · ${r.type}`;
+      const description = document.createElement('p'); description.textContent = r.description || '説明なし';
+      const raw = document.createElement('pre'); raw.hidden = true; raw.dataset.reportId = String(r.id);
+      article.append(head, title, description, raw); feed.append(article);
+    }
+    byId('connections').textContent = data.openWebSocketConnections.toLocaleString('ja-JP');
+    byId('page-views').textContent = data.pageViewsSinceStart.toLocaleString('ja-JP');
+    byId('server-started').textContent = formatTime(data.startedAt);
+    byId('ingest-count').textContent = data.ingestCountSinceStart.toLocaleString('ja-JP');
+    const notice = byId('notice'); notice.className = 'notice';
+    notice.textContent = `最終更新 ${formatTime(now)} · 60秒ごとに更新（このタブが表示中の間）．受信履歴・集計はサーバー再起動でリセットされます．`;
+  }
+  async function refresh() {
+    if (document.hidden) return;
+    const button = byId('refresh'); button.disabled = true;
+    try {
+      const response = await fetch('/api/operations', { cache:'no-store', credentials:'same-origin' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      render(await response.json());
+    } catch (error) {
+      const notice = byId('notice'); notice.className = 'notice error';
+      notice.textContent = `運用データを取得できませんでした（${error.message}）．接続と管理者認証を確認してください．`;
+    } finally { button.disabled = false; }
+  }
+  for (const tab of document.querySelectorAll('[data-tab]')) tab.addEventListener('click', () => {
+    for (const button of document.querySelectorAll('[data-tab]')) button.setAttribute('aria-selected', String(button === tab));
+    for (const section of document.querySelectorAll('.tab')) section.hidden = section.id !== tab.dataset.tab;
+  });
+  byId('raw-toggle').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (button.getAttribute('aria-pressed') === 'true') {
+      button.setAttribute('aria-pressed', 'false');
+      button.textContent = '受信JSONを読み込む';
+      for (const pre of document.querySelectorAll('#feed pre')) pre.hidden = true;
+      return;
+    }
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/operations/raw', { cache:'no-store', credentials:'same-origin' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const rawById = new Map((await response.json()).recent.map((r) => [String(r.id), r]));
+      for (const pre of document.querySelectorAll('#feed pre')) {
+        const r = rawById.get(pre.dataset.reportId);
+        pre.textContent = r ? r.rawJson + (r.truncated ? '\n…（先頭6,000文字のみ）' : '') : 'この電文は履歴から消えました．';
+        pre.hidden = false;
+      }
+      button.setAttribute('aria-pressed', 'true');
+      button.textContent = '受信JSONを隠す';
+    } catch (error) {
+      const notice = byId('notice'); notice.className = 'notice error';
+      notice.textContent = `受信JSONを取得できませんでした（${error.message}）．`;
+    } finally { button.disabled = false; }
+  });
+  byId('refresh').addEventListener('click', refresh);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  refresh();
+  setInterval(refresh, 60000);
+</script>
+</body>
+</html>
