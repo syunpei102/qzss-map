@@ -1704,6 +1704,10 @@ const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws) => {
   console.log("WebSocket クライアント接続");
+  // Cloud Runではアイドル中にタイマーが動かないことがあるため，再接続時にも
+  // TTLを確認する．期限切れのEEWを再送するとブラウザ側の表示期限が
+  // 接続時刻から延び，取消が届いていない速報が再び表示されてしまう．
+  pruneStaleActiveReports();
   // 保持している「現在アクティブな」通報を、新しく繋がったクライアントにだけ
   // 順番に再送する(ブラウザ側の統合ロジックが同じ表示状態を再現する)。
   // client_timestamps(T0-T3)は元の配信時刻のまま埋め込まれているため、
