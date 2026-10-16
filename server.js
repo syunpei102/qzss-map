@@ -364,8 +364,9 @@ function notificationBodyDetail(report) {
   if (report.disaster_category_no === 6) {
     // azarashiはcat6のtsunamigenic_potential/coastal_region/heightを英語
     // (_en)でしか提供しない(外国沿岸向け情報のため日本語定義が無い)。
-    // public/main.jsのpotJaと同じ対応表(0は解除でここまで来ない)
+    // public/main.jsのpotJaと同じ対応表(0も解除通知の本文に使う)
     const potJa = {
+      0: "津波発生の可能性なし",
       1: "全海域にわたる破壊的な津波が発生する可能性",
       2: "広い範囲にわたる破壊的な津波が発生する可能性",
       3: "震源の近傍で破壊的な津波が発生する可能性",
@@ -545,13 +546,22 @@ function sendPushNotifications(report) {
   // グループ内に複数の独立した対象が並存する想定ではないため、
   // 従来通りキー全体をリセットする
   if (isEndSignal(report)) {
+    const body = notificationBodyFor(report);
+    // 北西太平洋津波の「可能性なし」は同じ発表時刻の電文が繰り返し届く．
+    // 発表側の通知済み記録を消しても，この解除通知自体は別キーで覚える．
+    if (report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0) {
+      const endKey = `${key}|resolved`;
+      const endToken = `${report.report_time || ""}|${body}`;
+      if (!unitFreshlyNotifiable(endKey, endToken, now)) return;
+      rememberNotifiedUnit(endKey, endToken, now);
+    }
     const units = notificationUnits(report);
     if (units && key !== null) {
       for (const u of units) forgetNotifiedUnit(key, u.token);
     } else if (key !== null) {
       notifiedUnitsByKey.delete(key);
     }
-    dispatchPush(report, notificationBodyFor(report));
+    dispatchPush(report, body);
     return;
   }
 
