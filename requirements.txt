@@ -1,2 +1,2 @@
-azarashi
+azarashi==0.16.4
 pyserial
