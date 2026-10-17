@@ -208,8 +208,10 @@ u-bloxのGNSS受信機をUSB接続し、クラウドを使わず同じマシン�
 
 ```bash
 cd map
+# 初回のみトークンを生成し，安全な場所に保管する
 INGEST_TOKEN=$(openssl rand -hex 16) ./deploy_gcloud.sh [サービス名] [リージョン]
-# 例: INGEST_TOKEN=$(openssl rand -hex 16) ./deploy_gcloud.sh qzss-map asia-northeast1
+# 以後の再デプロイでは既存のトークン・通知鍵・Discord鍵を維持する
+./deploy_gcloud.sh [サービス名] [リージョン]
 ```
 
 `Dockerfile` を使って `gcloud run deploy --source .` でビルド・デプロイする。
@@ -220,6 +222,8 @@ INGEST_TOKEN=$(openssl rand -hex 16) ./deploy_gcloud.sh [サービス名] [リ�
 必要はない。いずれにせよ`INGEST_TOKEN`は誰でも`/ingest`にデータを送れて
 しまわないための秘密情報なので、安全な場所(パスワードマネージャー等)に
 控えておくこと。
+再デプロイのたびに新しい`INGEST_TOKEN`を生成すると，旧トークンで送信する端末は
+認証に失敗する．`deploy_gcloud.sh`は省略した既存の環境変数を維持し，指定した値だけ更新する．
 
 デバイス管理・拠点ごとの地域設定機能(次節)を使う場合は、あわせて以下も必要:
 
