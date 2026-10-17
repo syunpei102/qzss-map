@@ -30,30 +30,28 @@ function nowTimeString() {
 // 1. ブラウザ⇔サーバーのWebSocket接続(wsState)
 // 2. 現地の受信機(ラズパイ/PC + アンテナ)からのハートビート
 //    (read_legacy.py が30秒おきに送ってくる。45秒途絶えたらオフライン扱い)
-// ハートビートが一度も来ていない場合はWebSocket接続の状態だけで判定する
-// (ローカルのテストデータのみで使う場合など、受信機を使わない用途に配慮)
+// 公開サイトではWebSocket接続だけで受信機をオンラインと判定しない．
+// ローカルのテスト表示のみ，受信機がなくてもWebSocket接続を表示できる．
 const HEARTBEAT_TIMEOUT_MS = 45000;
 let wsState = 'offline'; // 'online' | 'reconnecting' | 'offline'
 let lastHeartbeatTime = null;
+let wsConnectedAt = null;
 
 function updateConnectionStatus(state) {
   wsState = state;
   refreshStatusPill();
 }
 
-// 直近に実際の通報(DCR/DCX)を送ってきた衛星。ハートビートには衛星情報が
-// 無いため、オンライン/オフライン判定とは別に、通報を受信するたびに更新する。
-// 「今どの衛星が日本上空にいるか」ではなく「最後に受信した通報がどの衛星
-// からのものだったか」を表示する(該当カテゴリの通報が来ない限り更新
-// されないので、その場合は受信時刻が古いままになる=それ自体が情報になる)
-let lastSatelliteInfo = null; // { satelliteId, satellitePrn, receivedAt }
+// 受信機が最後に確認した衛星．ハートビートには対象外カテゴリも含む
+// 直近の衛星IDが載るため，各防災情報カードの送信衛星とは異なり得る．
+// 防災情報の再送で上書きせず，実際の衛星受信時刻を持たないため時刻も表示しない．
+let lastSatelliteInfo = null; // { satelliteId, satellitePrn }
 
 function noteSatelliteReceived(report) {
   if (typeof report.satellite_id !== 'number') return;
   lastSatelliteInfo = {
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
-    receivedAt: Date.now(),
   };
   refreshStatusPill();
 }
@@ -73,13 +71,20 @@ function refreshStatusPill() {
     if (satelliteEl) satelliteEl.textContent = '';
     return;
   }
+  if (!IS_LOCAL_KIOSK && lastHeartbeatTime === null) {
+    const timedOut = wsConnectedAt !== null && Date.now() - wsConnectedAt > HEARTBEAT_TIMEOUT_MS;
+    statusEl.textContent = timedOut ? '🔴 受信機オフライン' : '🟡 受信確認待ち';
+    statusEl.className = timedOut ? 'status-pill status-offline' : 'status-pill status-reconnecting';
+    if (satelliteEl) satelliteEl.textContent = '';
+    return;
+  }
   // wsState === 'online' の場合、ハートビートの途絶もオフライン扱いにする
   if (lastHeartbeatTime !== null && Date.now() - lastHeartbeatTime > HEARTBEAT_TIMEOUT_MS) {
-    if (statusEl.textContent !== '🔴 オフライン') {
+    if (statusEl.textContent !== '🔴 受信機オフライン') {
       const sec = Math.round((Date.now() - lastHeartbeatTime) / 1000);
       console.log(`🔴 ハートビート途絶によりオフライン表示に切り替え(最終受信から${sec}秒経過、閾値${HEARTBEAT_TIMEOUT_MS / 1000}秒)`);
     }
-    statusEl.textContent = '🔴 オフライン';
+    statusEl.textContent = '🔴 受信機オフライン';
     statusEl.className = 'status-pill status-offline';
     if (satelliteEl) satelliteEl.textContent = '';
     return;
@@ -92,11 +97,9 @@ function refreshStatusPill() {
   if (satelliteEl) {
     if (lastSatelliteInfo) {
       const name = SATELLITE_NAMES[lastSatelliteInfo.satelliteId] || `PRN${lastSatelliteInfo.satellitePrn}`;
-      const time = new Date(lastSatelliteInfo.receivedAt);
-      const pad = (n) => String(n).padStart(2, '0');
-      satelliteEl.textContent = `🛰️ ${name}から最終受信 ${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`;
+      satelliteEl.textContent = `🛰️ 受信機が最後に確認した衛星: ${name}`;
     } else {
-      satelliteEl.textContent = '🛰️ まだ通報を受信していません';
+      satelliteEl.textContent = '🛰️ 衛星情報をまだ受信していません';
     }
   }
 }
@@ -4822,6 +4825,7 @@ function connectWebSocket() {
   socket.addEventListener('open', () => {
     console.log('✅ WebSocket接続できました');
     reconnectDelay = WS_RECONNECT_MIN_MS; // 次回切断時にまた素早く再接続できるよう戻す
+    wsConnectedAt = Date.now();
     updateConnectionStatus('online');
     clearAllActiveEvents();
     // ページを開いて最初の接続の時だけ、既存のアクティブな通報が
@@ -4908,8 +4912,6 @@ function connectWebSocket() {
       }
       return;
     }
-
-    noteSatelliteReceived(report);
 
     await mapReady;
     renderReport(report);
