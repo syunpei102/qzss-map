@@ -2,6 +2,8 @@
   "name": "qzss-map",
   "private": true,
   "scripts": {
+    "release:sync": "node scripts/sync-release.js",
+    "release:check": "node scripts/sync-release.js --check",
     "start": "node server.js",
     "test": "node --test --test-timeout=60000 test/*.test.js"
   },

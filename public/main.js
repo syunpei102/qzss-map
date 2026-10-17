@@ -29,13 +29,14 @@ function nowTimeString() {
 // 時計横のピルは2つの状態を合わせて表示する:
 // 1. ブラウザ⇔サーバーのWebSocket接続(wsState)
 // 2. 現地の受信機(ラズパイ/PC + アンテナ)からのハートビート
-//    (read_legacy.py が30秒おきに送ってくる。45秒途絶えたらオフライン扱い)
+//    (read_legacy.py が30秒おきに送ってくる。90秒途絶えたらオフライン扱い)
 // 公開サイトではWebSocket接続だけで受信機をオンラインと判定しない．
 // ローカルのテスト表示のみ，受信機がなくてもWebSocket接続を表示できる．
-const HEARTBEAT_TIMEOUT_MS = 45000;
+const HEARTBEAT_TIMEOUT_MS = 90000;
 let wsState = 'offline'; // 'online' | 'reconnecting' | 'offline'
 let lastHeartbeatTime = null;
 let wsConnectedAt = null;
+let receiverSerialConnected = null;
 
 function updateConnectionStatus(state) {
   wsState = state;
@@ -53,6 +54,14 @@ function noteSatelliteReceived(report) {
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
   };
+  refreshStatusPill();
+}
+
+function noteReceiverHeartbeat(report, ageMs = 0) {
+  if (!Number.isFinite(ageMs) || ageMs < 0) return;
+  lastHeartbeatTime = Date.now() - ageMs;
+  receiverSerialConnected = report.serial_connected !== false;
+  noteSatelliteReceived(report);
   refreshStatusPill();
 }
 
@@ -85,6 +94,12 @@ function refreshStatusPill() {
       console.log(`🔴 ハートビート途絶によりオフライン表示に切り替え(最終受信から${sec}秒経過、閾値${HEARTBEAT_TIMEOUT_MS / 1000}秒)`);
     }
     statusEl.textContent = '🔴 受信機オフライン';
+    statusEl.className = 'status-pill status-offline';
+    if (satelliteEl) satelliteEl.textContent = '';
+    return;
+  }
+  if (receiverSerialConnected === false) {
+    statusEl.textContent = '🔴 受信機の接続を確認できません';
     statusEl.className = 'status-pill status-offline';
     if (satelliteEl) satelliteEl.textContent = '';
     return;
@@ -4874,10 +4889,8 @@ function connectWebSocket() {
       return;
     }
 
-    if (report.type === 'Heartbeat') {
-      lastHeartbeatTime = Date.now();
-      noteSatelliteReceived(report);
-      refreshStatusPill();
+    if (report.type === 'ReceiverStatus' || report.type === 'Heartbeat') {
+      noteReceiverHeartbeat(report, report.type === 'ReceiverStatus' ? report.ageMs : 0);
       return;
     }
 

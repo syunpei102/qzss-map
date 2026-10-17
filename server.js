@@ -107,6 +107,7 @@ const pushSubscriptions = new Map(); // endpoint -> subscription object
 const PUSH_SUBSCRIPTIONS_STATE_FILE = "push_subscriptions.json";
 const MAX_PUSH_SUBSCRIPTIONS = Number(process.env.MAX_PUSH_SUBSCRIPTIONS) || 5000;
 const pushSubscribeLimiter = guards.createRateLimiter({ windowMs: 60 * 1000, max: 10 });
+const pushTestLimiter = guards.createRateLimiter({ windowMs: 60 * 60 * 1000, max: 1 });
 
 async function loadPushSubscriptions() {
   const restored = await loadPersistedJson(PUSH_SUBSCRIPTIONS_STATE_FILE);
@@ -143,6 +144,39 @@ app.post("/push/unsubscribe", (req, res) => {
 
 app.get("/push/vapid-public-key", (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY, enabled: PUSH_ENABLED });
+});
+
+// 運用者が明示的に実行した場合のみ，全購読端末へ災害情報と区別できる試験通知を1回送る．
+app.post("/admin/push-test", async (req, res) => {
+  const supplied = req.get("X-Api-Key") || "";
+  const expected = Buffer.from(INGEST_TOKEN);
+  const actual = Buffer.from(supplied);
+  if (!INGEST_TOKEN || expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  if (!PUSH_ENABLED) return res.status(503).json({ error: "push is disabled" });
+  if (!pushTestLimiter("all")) return res.status(429).json({ error: "try again later" });
+  const payload = JSON.stringify({
+    title: "【テスト通知】QZSSマップ",
+    body: "本番環境からの配信確認です．災害情報ではありません．",
+    tag: "qzss-push-test",
+  });
+  const result = { subscriptions: pushSubscriptions.size, accepted: 0, failed: 0 };
+  for (const [endpoint, sub] of pushSubscriptions) {
+    try {
+      await webpush.sendNotification(sub, payload);
+      result.accepted++;
+    } catch (err) {
+      result.failed++;
+      if (err.statusCode === 404 || err.statusCode === 410) {
+        pushSubscriptions.delete(endpoint);
+        persistPushSubscriptions();
+      }
+      console.error("⚠️ テスト通知の送信に失敗しました:", err.statusCode || err.message);
+    }
+  }
+  console.log(`🔔 テスト通知: 購読${result.subscriptions}件，送信受理${result.accepted}件，失敗${result.failed}件`);
+  res.json(result);
 });
 
 // 地図に表示している対象(緊急地震速報・震源・震度速報・津波・
@@ -735,6 +769,7 @@ function handleIncomingLine(line) {
 
   // ハートビートは接続状態の指標なので、重複判定の対象にせず必ず流す
   if (report && report.type === "Heartbeat") {
+    lastReceiverHeartbeat = { report, receivedAt: Date.now() };
     broadcast(line);
     return;
   }
@@ -1711,9 +1746,22 @@ Promise.all([
 });
 
 const wss = new WebSocket.Server({ server });
+let lastReceiverHeartbeat = null;
 
 wss.on("connection", (ws) => {
   console.log("WebSocket クライアント接続");
+  // 新規閲覧者にも直近の受信状態を即時に渡す．古い情報を新着として扱わないよう
+  // サーバーが測った経過時間を渡し，ブラウザ側で残りの有効時間を計算する．
+  if (lastReceiverHeartbeat) {
+    const { report, receivedAt } = lastReceiverHeartbeat;
+    ws.send(JSON.stringify({
+      type: "ReceiverStatus",
+      ageMs: Date.now() - receivedAt,
+      serial_connected: report.serial_connected,
+      satellite_id: report.satellite_id,
+      satellite_prn: report.satellite_prn,
+    }));
+  }
   // Cloud Runではアイドル中にタイマーが動かないことがあるため，再接続時にも
   // TTLを確認する．期限切れのEEWを再送するとブラウザ側の表示期限が
   // 接続時刻から延び，取消が届いていない速報が再び表示されてしまう．
