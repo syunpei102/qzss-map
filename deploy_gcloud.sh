@@ -3,8 +3,7 @@
 # 事前に `gcloud auth login` と `gcloud config set project <プロジェクトID>` を
 # 済ませておくこと。実行するとその場でデプロイが走るので、内容を確認してから実行してください。
 #
-# 使い方:
-#   INGEST_TOKEN=好きな秘密文字列 ./deploy_gcloud.sh [サービス名] [リージョン]
+# 初回デプロイ時はINGEST_TOKENが必要。再デプロイ時は省略して既存設定を維持できる。
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,33 +12,31 @@ cd "$DIR"
 SERVICE_NAME="${1:-qzss-map}"
 REGION="${2:-asia-northeast1}"
 
-if [ -z "$INGEST_TOKEN" ]; then
-  echo "❌ INGEST_TOKEN が未設定です。ラズパイからの送信を認証する秘密トークンを決めて指定してください。"
-  echo "   例: INGEST_TOKEN=\$(openssl rand -hex 16) ./deploy_gcloud.sh"
+if [ -z "${INGEST_TOKEN:-}" ] && ! gcloud run services describe "$SERVICE_NAME" --region "$REGION" >/dev/null 2>&1; then
+  echo "❌ 初回デプロイにはINGEST_TOKENが必要です。例: INGEST_TOKEN=\$(openssl rand -hex 16) ./deploy_gcloud.sh"
   exit 1
 fi
 
-ENV_VARS="INGEST_TOKEN=$INGEST_TOKEN"
-if [ -n "$VAPID_PUBLIC_KEY" ] && [ -n "$VAPID_PRIVATE_KEY" ]; then
-  ENV_VARS="$ENV_VARS,VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY,VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY"
-else
-  echo "ℹ️  VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY が未設定のため、プッシュ通知は無効のままデプロイします。"
+# --set-env-varsは既存設定を丸ごと置換し，通知・Discordの鍵を消してしまう。
+# 指定した変数だけ更新し，省略された既存設定はそのまま維持する。
+ENV_VARS=()
+[ -n "${INGEST_TOKEN:-}" ] && ENV_VARS+=("INGEST_TOKEN=$INGEST_TOKEN")
+if [ -n "${VAPID_PUBLIC_KEY:-}" ] || [ -n "${VAPID_PRIVATE_KEY:-}" ]; then
+  if [ -z "${VAPID_PUBLIC_KEY:-}" ] || [ -z "${VAPID_PRIVATE_KEY:-}" ]; then
+    echo "❌ VAPID鍵は公開鍵と秘密鍵を両方指定してください。"
+    exit 1
+  fi
+  ENV_VARS+=("VAPID_PUBLIC_KEY=$VAPID_PUBLIC_KEY" "VAPID_PRIVATE_KEY=$VAPID_PRIVATE_KEY")
 fi
+[ -n "${DISCORD_PUBLIC_KEY:-}" ] && ENV_VARS+=("DISCORD_PUBLIC_KEY=$DISCORD_PUBLIC_KEY")
+[ -n "${DISCORD_ADMIN_USER_ID:-}" ] && ENV_VARS+=("DISCORD_ADMIN_USER_ID=$DISCORD_ADMIN_USER_ID")
 
-# このスクリプトは --set-env-vars (置き換え)を使うため、渡さなかった
-# 環境変数は次回デプロイ時に無言で消える。デバイス操作は現在Discord
-# Botに一本化しているため、通常はDISCORD_PUBLIC_KEY/DISCORD_ADMIN_USER_ID
-# だけを設定する(Web管理画面用のADMIN_EMAIL等は、意図的に復活させたい
-# 時だけENABLE_WEB_ADMIN=trueとあわせて指定する)
-if [ -n "$DISCORD_PUBLIC_KEY" ]; then
-  ENV_VARS="$ENV_VARS,DISCORD_PUBLIC_KEY=$DISCORD_PUBLIC_KEY"
-  [ -n "$DISCORD_ADMIN_USER_ID" ] && ENV_VARS="$ENV_VARS,DISCORD_ADMIN_USER_ID=$DISCORD_ADMIN_USER_ID"
-else
-  echo "ℹ️  DISCORD_PUBLIC_KEY が未設定のため、/discord/interactions は署名検証に失敗し続けます(Discordコマンドが使えません)。"
-fi
-
-if [ "$ENABLE_WEB_ADMIN" = "true" ] && [ -n "$ADMIN_EMAIL" ] && [ -n "$ADMIN_PASSWORD_HASH" ] && [ -n "$SESSION_SECRET" ]; then
-  ENV_VARS="$ENV_VARS,ENABLE_WEB_ADMIN=true,ADMIN_EMAIL=$ADMIN_EMAIL,ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH,SESSION_SECRET=$SESSION_SECRET"
+if [ "${ENABLE_WEB_ADMIN:-}" = "true" ]; then
+  if [ -z "${ADMIN_EMAIL:-}" ] || [ -z "${ADMIN_PASSWORD_HASH:-}" ] || [ -z "${SESSION_SECRET:-}" ]; then
+    echo "❌ Web管理画面を有効化する場合は管理者認証の環境変数をすべて指定してください。"
+    exit 1
+  fi
+  ENV_VARS+=("ENABLE_WEB_ADMIN=true" "ADMIN_EMAIL=$ADMIN_EMAIL" "ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH" "SESSION_SECRET=$SESSION_SECRET")
 fi
 
 # このサービスはWebSocket接続・activeReports・通知の重複抑止・デバイス状態を
@@ -50,19 +47,16 @@ fi
 MAX_INSTANCES=1
 CONCURRENCY="${CONCURRENCY:-80}"
 
-gcloud run deploy "$SERVICE_NAME" \
-  --source . \
-  --region "$REGION" \
-  --max-instances "$MAX_INSTANCES" \
-  --concurrency "$CONCURRENCY" \
-  --allow-unauthenticated \
-  --set-env-vars "$ENV_VARS"
+DEPLOY_ARGS=(--source . --region "$REGION" --max-instances "$MAX_INSTANCES" --concurrency "$CONCURRENCY" --allow-unauthenticated)
+if [ "${#ENV_VARS[@]}" -gt 0 ]; then
+  DEPLOY_ARGS+=(--update-env-vars "$(IFS=,; echo "${ENV_VARS[*]}")")
+fi
+gcloud run deploy "$SERVICE_NAME" "${DEPLOY_ARGS[@]}"
 
 URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')
 
 echo ""
 echo "✅ デプロイ完了: $URL"
 echo ""
-echo "ラズパイ側 (start_pi.sh) では以下を設定してください:"
-echo "  export QZSS_CLOUD_URL=\"$URL/ingest\""
-echo "  export QZSS_INGEST_TOKEN=\"$INGEST_TOKEN\""
+echo "ラズパイ側の送信先: $URL/ingest"
+echo "認証トークンは既存の安全な保管場所で確認してください。"
