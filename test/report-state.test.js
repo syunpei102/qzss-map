@@ -200,6 +200,7 @@ test('server and browser share one TTL table; prune boundaries', () => {
     [{ disaster_category_no: 1 }, 20 * 60 * 1000],
     [{ disaster_category_no: 8 }, 12 * H],
     [{ disaster_category_no: 5 }, 24 * H],
+    [{ disaster_category_no: 5, report_classification_no: 7 }, 3 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Duration < 6H' }, 6 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '6H <= Duration < 12H' }, 12 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '12H <= Duration < 24H' }, 24 * H],

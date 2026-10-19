@@ -797,7 +797,7 @@ function buildEventFromJAlert(report) {
   // 入ることがある(黄色に見えて誤解を招く)ため、Jアラートは常に最高度
   // (濃い赤)の色で表示する(市区町村ごとに深刻度が様々なLアラートとは
   // 扱いを分ける)
-  const color = JALERT_SEVERITY_COLOR.Extreme;
+  const color = report.a1_message_type === 'Test' ? '#7a4fd1' : JALERT_SEVERITY_COLOR.Extreme;
   // ミサイル発射等、対象地域が「全国」として一括で発表されることがある。
   // prefectures.geojsonには都道府県ごとの地物しか無く「全国」という
   // 地物は存在しないため、そのままではどこにも塗られず「対象地域なのに
@@ -821,7 +821,7 @@ function buildEventFromJAlert(report) {
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
     // 上のcolorと同じ理由でバッジも常にsev-emergency(濃い赤)固定
-    badgeClass: 'report-badge sev-emergency',
+    badgeClass: `report-badge ${report.a1_message_type === 'Test' ? 'sev-training' : 'sev-emergency'}`,
     // 災害種別名(例: ミサイル発射)は、丸角の見出しとして一番目立つ
     // 位置に表示する(気象警報カードと同じ見た目に統一)
     headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
@@ -3911,7 +3911,6 @@ function renderEventsPanel() {
 // 各TTLの値は public/report-ttl.js(サーバーと共有)が唯一の定義
 const TTL_EEW_MS = ReportTtl.TTL.EEW;
 const TTL_HYPOCENTER_INTENSITY_MS = ReportTtl.TTL.HYPOCENTER_INTENSITY;
-const TTL_TSUNAMI_MS = ReportTtl.TTL.TSUNAMI;
 const TTL_JALERT_MS = ReportTtl.TTL.JALERT;
 // 気象警報・注意報・Lアラート(継続時間不明の場合)の安全策TTL。
 // 以前は24時間だったが、実際には24時間も更新が無いまま居座ることは
@@ -3944,7 +3943,7 @@ const TTL_TEST_DATA_MS = ReportTtl.TTL.TEST_DATA;
 function ttlMsForReport(report) {
   if (report.is_test_data) return TTL_TEST_DATA_MS;
   if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
-  if (report.disaster_category_no === 5) return TTL_TSUNAMI_MS;
+  if (report.disaster_category_no === 5) return ReportTtl.ttlMsForReport(report);
   return null;
 }
 
@@ -3956,7 +3955,8 @@ function ttlMsForReport(report) {
 function handleCancellation(report) {
   let removedAny = false;
   for (const [id, record] of activeEvents) {
-    if (sameEarthquakeRecord(record, reportEarthquakeRecord(report))) {
+    if (TrainingReportFilter.sameDisplayScope(record, report)
+      && sameEarthquakeRecord(record, reportEarthquakeRecord(report))) {
       removeActiveEvent(id);
       removedAny = true;
     }
@@ -3969,8 +3969,9 @@ function handleCancellation(report) {
       satelliteId: report.satellite_id,
       satellitePrn: report.satellite_prn,
       badgeText: '取消',
-      badgeClass: 'report-badge sev-cancel',
-      title: `${report.disaster_category || report.type}(取消)`,
+      badgeClass: `report-badge ${TrainingReportFilter.isOfficialTraining(report) ? 'sev-training' : 'sev-cancel'}`,
+      title: `${TrainingReportFilter.isOfficialTraining(report) ? '[訓練] ' : ''}${report.disaster_category || report.type}(取消)`,
+      isTraining: TrainingReportFilter.isOfficialTraining(report),
       meta: `受信 ${nowTimeString()}`,
       rows: [['対象', report.seismic_epicenter || '']].filter(([, v]) => v),
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
@@ -3989,7 +3990,7 @@ function handleCancellation(report) {
 function handleTsunamiResolution(report) {
   let removedAny = false;
   for (const [id, record] of activeEvents) {
-    if (record.geo.tsunami.length) {
+    if (TrainingReportFilter.sameDisplayScope(record, report) && record.geo.tsunami.length) {
       removeActiveEvent(id);
       removedAny = true;
     }
@@ -4002,8 +4003,9 @@ function handleTsunamiResolution(report) {
       satelliteId: report.satellite_id,
       satellitePrn: report.satellite_prn,
       badgeText: report.tsunami_warning_code || '津波警報解除',
-      badgeClass: 'report-badge sev-resolved',
-      title: report.tsunami_warning_code || '津波警報解除',
+      badgeClass: `report-badge ${TrainingReportFilter.isOfficialTraining(report) ? 'sev-training' : 'sev-resolved'}`,
+      title: `${TrainingReportFilter.isOfficialTraining(report) ? '[訓練] ' : ''}${report.tsunami_warning_code || '津波警報解除'}`,
+      isTraining: TrainingReportFilter.isOfficialTraining(report),
       meta: `受信 ${nowTimeString()}`,
       rows: [],
       geo: { hypocenter: null, tsunami: [], prefectures: [] },
@@ -4093,6 +4095,7 @@ function renderReport(report) {
   // 各カテゴリの安全策TTLで自動的に消える
   const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === 'Test';
   if (isOfficialTrainingBroadcast && !showTrainingBroadcasts) return;
+  if (!TrainingReportFilter.shouldProcess(report)) return;
 
   if (report.type === 'DecodeError') {
     addActiveEvent({

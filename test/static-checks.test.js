@@ -28,7 +28,7 @@ test('lightweight idle view is a setting, never a constant false (Issue #21)', (
 test('shared browser modules are loaded, cached offline, and copied into the image', () => {
   const html = read('public/index.html');
   const sw = read('public/sw.js');
-  const shared = ['report-ttl.js', 'earthquake-identity.js', 'earthquake-fill.js'];
+  const shared = ['report-ttl.js', 'training-report-filter.js', 'earthquake-identity.js', 'earthquake-fill.js'];
   for (const f of shared) {
     assert.ok(html.indexOf(`src="${f}"`) !== -1 && html.indexOf(`src="${f}"`) < html.indexOf('src="main.js"'), `${f} before main.js`);
     assert.ok(sw.includes(`./${f}`), `${f} precached`);

@@ -1,5 +1,6 @@
 const express = require("express");
 const { reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const TrainingReportFilter = require("./public/training-report-filter");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -229,6 +230,7 @@ function shouldNotify(report) {
   // 全体設定(globalShowTrainingBroadcasts)を見る
   const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === "Test";
   if (isOfficialTrainingBroadcast && !globalShowTrainingBroadcasts) return false;
+  if (!TrainingReportFilter.shouldProcess(report)) return false;
   // 北西太平洋津波情報(6)は、沿岸域・高さ・到達予想時刻が全て「不明」だと
   // 地図にもパネルにも表示しない(public/main.jsのtsunamiInfoHasLocation
   // 参照)。表示しないのに通知だけ届くと、開いても何も確認できず紛らわしい
