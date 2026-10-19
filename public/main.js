@@ -2430,6 +2430,7 @@ function createIntensityBadgeMarkers(prefectures) {
     // 次に呼ばれた時にこの「本来の位置」から毎回計算し直す(でないと
     // 押しのけた位置がそのまま基準になり、呼ぶたびにどんどんズレていく)
     marker.__basePos = centroid;
+    marker.__prefectureId = p.id;
     markers.push(marker);
   }
   return markers;
@@ -2474,6 +2475,23 @@ function pushMarkerApart(moving, fixedOrOther, otherIsFixed) {
   }
 }
 
+// 同じ県に複数の地震の震度が残っている場合，最新の受信情報だけを表示する．
+// 古いマーカーは保持し，最新イベントが消えたら次の再配置で復帰させる．
+function latestIntensityBadgeMarkers(records) {
+  const latestByPrefecture = new Map();
+  for (const record of records) {
+    for (const marker of record.markers.intensityBadges) {
+      const id = marker.__prefectureId;
+      if (id == null) continue;
+      const previous = latestByPrefecture.get(id);
+      if (!previous || (record.updatedAt || 0) >= previous.updatedAt) {
+        latestByPrefecture.set(id, { marker, updatedAt: record.updatedAt || 0 });
+      }
+    }
+  }
+  return new Set([...latestByPrefecture.values()].map(({ marker }) => marker));
+}
+
 function resolveMarkerOverlaps() {
   if (!map) return;
   const scale = intensityBadgeScaleForZoom(map.getZoom());
@@ -2491,8 +2509,12 @@ function resolveMarkerOverlaps() {
   // 可動点(押しのけられる側): 全アクティブイベントの震度バッジ。
   // __basePos(都道府県重心、本来の位置)から毎回計算し直す
   const movable = [];
+  const visibleBadges = latestIntensityBadgeMarkers(activeEvents.values());
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) {
+      const visible = visibleBadges.has(marker);
+      marker.getElement().style.display = visible ? '' : 'none';
+      if (!visible) continue;
       if (!marker.__basePos) continue;
       movable.push({ marker, point: map.project(marker.__basePos), radius: badgeRadius });
     }
@@ -2572,13 +2594,8 @@ function addActiveEvent(eventData, ttlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    // 訓練放送はカメラを占有しない(巡回ズームを妨げないようにするため)。
-    // テストデータは動作確認用に本番と同様ズーム・巡回してほしいという
-    // 要望のため、通常通りカメラを動かす。interruptPatrolForNewEventが
-    // 気象警報の割り込みズームと同じ方針ですぐにズームし、その後は
-    // 巡回(patrolStep)に他のアクティブなイベントと一緒に含まれる
-    if (!record.isTraining) interruptPatrolForNewEvent(record.id);
-    else renderEventsPanel();
+    // 訓練放送も受信直後は対象地域へ寄せ，その後は通常の巡回に戻す．
+    interruptPatrolForNewEvent(record.id);
   }, CAMERA_ZOOM_DELAY_MS));
 }
 
@@ -2678,10 +2695,8 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // focusedEventIdsがまだ更新されておらず、パネルが空のまま表示
   // されてしまう)
   requestAnimationFrame(() => setTimeout(() => {
-    // 訓練放送はカメラを占有しない(巡回ズームを妨げないようにするため)。
-    // テストデータは通常通りカメラを動かす
-    if (!record.isTraining) interruptPatrolForNewEvent(record.id);
-    else renderEventsPanel();
+    // 続報でも訓練対象地域へ寄せ，表示後は通常の巡回に戻す．
+    interruptPatrolForNewEvent(record.id);
   }, CAMERA_ZOOM_DELAY_MS));
 }
 
@@ -3492,7 +3507,10 @@ function otherReportCard(rec) {
 }
 
 function buildReportCardHtml(record) {
-  const testBanner = record.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
+  const testBanner = record.isTestData && !record.isTraining ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
+  const trainingBanner = record.isTraining
+    ? `<div class="training-data-banner">${record.isTestData ? '訓練・試験放送（ローカルテスト）' : '訓練・試験放送'}</div>`
+    : '';
   const tsunamiBanner = record.tsunamiWarningActive
     ? `<div class="tsunami-alert-banner" style="background:${escapeHtml(record.tsunamiWarningColor || TSUNAMI_DEFAULT_COLOR)}">${escapeHtml(record.tsunamiWarningText)}</div>`
     : '';
@@ -3543,6 +3561,7 @@ function buildReportCardHtml(record) {
   return `
     <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}>
       ${testBanner}
+      ${trainingBanner}
       ${tsunamiBanner}
       ${headlineHtml}
       <div class="report-badge-row">
@@ -3647,6 +3666,7 @@ function mergedCardForRecords(records) {
   const badges = [...badgesByText.values()];
   return {
     isTestData: records.some((r) => r.isTestData),
+    isTraining: records.some((r) => r.isTraining),
     satelliteId: primary.satelliteId,
     satellitePrn: primary.satellitePrn,
     badges,
@@ -3672,6 +3692,8 @@ function clusterOverlappingRecords(records) {
     merged = false;
     outer: for (let i = 0; i < groups.length; i++) {
       for (let j = i + 1; j < groups.length; j++) {
+        if (!!groups[i][0].isTraining !== !!groups[j][0].isTraining
+          || !!groups[i][0].isTestData !== !!groups[j][0].isTestData) continue;
         if (groups[i].some((a) => groups[j].some((b) => recordsOverlapGeographically(a, b)))) {
           groups[i] = groups[i].concat(groups[j]);
           groups.splice(j, 1);
