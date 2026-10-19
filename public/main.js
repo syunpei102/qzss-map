@@ -1560,7 +1560,7 @@ function updateWeatherDisplay() {
   // 日本全体表示(idle)の間、ラズパイ実機(kiosk)なら重いポリゴン塗りを
   // やめてupdateIdleOverviewMarkersの軽量マーカーに任せる。Web版は
   // ポリゴンのまま(syncActiveEventLayersのidle対応と同じ考え方)
-  const codes = shouldUseLightweightIdleView() ? [] : [...weatherSites.keys()];
+  const codes = shouldUseLightweightIdleView() || hasVisibleEewFill() ? [] : [...weatherSites.keys()];
   if (!codes.length) {
     map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
     map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
@@ -1673,7 +1673,7 @@ function quakeLockRecords() {
   const records = [];
   for (const record of activeEvents.values()) {
     if (record.isTraining) continue;
-    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo)) continue;
+    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) && !isTsunamiRelatedRecord(record)) continue;
     if (!record.bounds) continue;
     records.push(record);
   }
@@ -1742,7 +1742,7 @@ function updateFocusOutline() {
   if (!map) return;
   if (map.getLayer('weather-focus-outline')) {
     // 都道府県単位の統合表示に合わせ、同じ都道府県の区域を全部強調する
-    const codes = currentPatrolCode !== null && weatherSites.has(currentPatrolCode)
+    const codes = !hasVisibleEewFill() && currentPatrolCode !== null && weatherSites.has(currentPatrolCode)
       ? weatherSitesForSamePrefecture(currentPatrolCode).map((s) => s.code)
       : [];
     map.setFilter('weather-focus-outline', ['in', ['get', 'code'], ['literal', codes]]);
@@ -1907,6 +1907,11 @@ function patrolStep() {
 // 見せ終わったら通常の巡回に戻る(codes配列内での位置を追跡し直し、
 // 他の地域を飛ばしたり、同じ地域をすぐ繰り返したりしないようにする)
 function interruptPatrolForNewRegion(code, manual = false) {
+  // EEWの予測範囲を表示中は，気象警報の自動ズームで画面を奪わない．
+  if (!manual && hasVisibleEewFill()) {
+    showQuakeLockView();
+    return;
+  }
   // 初回読み込み直後(サーバーから既存のアクティブな通報がまとめて
   // 再送されてくる間)は、地震・津波以外の情報でカメラを動かさず、
   // 日本全体表示のまま始める。パネルは通常通り更新するので情報自体は
@@ -1951,7 +1956,11 @@ function interruptPatrolForNewRegion(code, manual = false) {
 // ものを再度見せることになっても安全側に倒す)に戻る
 function interruptPatrolForNewEvent(id, manual = false) {
   const record = activeEvents.get(id);
-  const isQuakeCategory = !!record && QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo);
+  const isQuakeCategory = !!record && (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) || isTsunamiRelatedRecord(record));
+  if (!manual && !isQuakeCategory && hasVisibleEewFill()) {
+    showQuakeLockView();
+    return;
+  }
   // 地震・津波ロック対象のイベントが自動的に割り込んだ場合(余震の続報等)
   // は、この1件だけでなく現在アクティブな地震・津波を全部まとめた合成
   // ビューを見せる。ユーザーが地図上の特定の震源✕等を自分でタップした
@@ -2134,6 +2143,9 @@ function buildEventFromReport(report) {
     boundsList.push(JAPAN_MAINLAND_OVERVIEW_BOUNDS);
   }
 
+  const earthquakeFill = EarthquakeFill.fromReport(report, geo.prefectures);
+  if ([1, 3].includes(report.disaster_category_no)) geo.prefectures = earthquakeFill.prefectures;
+
   return {
     epicenterRaw: typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
@@ -2155,6 +2167,7 @@ function buildEventFromReport(report) {
     meta: `受信 ${nowTimeString()}`,
     rows: buildSummary(report),
     geo,
+    earthquakeFill,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
     // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
     // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
@@ -2194,6 +2207,104 @@ function getDefaultView() {
 
 let activeEvents = new Map();
 let nextEventId = 1;
+let retiredEarthquakes = [];
+
+function isRetiredEarthquake(report) {
+  const now = Date.now();
+  retiredEarthquakes = retiredEarthquakes.filter((entry) => now - entry.at < TTL_HYPOCENTER_INTENSITY_MS);
+  return retiredEarthquakes.some((entry) =>
+    entry.isTestData === !!report.is_test_data
+    && entry.isTraining === (report.report_classification_no === 7)
+    && EarthquakeIdentity.sameEarthquake(
+      { epicenter: entry.epicenterRaw, time: entry.occurrenceTime },
+      { epicenter: report.seismic_epicenter_raw, time: report.occurrence_time_of_earthquake },
+      { allowUnknown: false }
+    ));
+}
+
+function hasVisibleEewFill() {
+  return [...activeEvents.values()].some((record) =>
+    record.earthquakeFill?.phase === 'eew' && record.earthquakeFill.deadline > Date.now());
+}
+
+function isTsunamiRelatedRecord(record) {
+  return [5, 6].includes(record.disasterCategoryNo)
+    || !!record.geo?.tsunami?.length
+    || String(record.jalertKey || record.lalertKey || '').startsWith('Tsunami|');
+}
+
+function isEarthquakeOrTsunamiRecord(record) {
+  return [1, 2, 3].includes(record.disasterCategoryNo) || isTsunamiRelatedRecord(record);
+}
+
+function scheduleEewFillExpiry(record) {
+  clearTimeout(record.eewFillTimer);
+  record.eewFillTimer = null;
+  const deadline = record.earthquakeFill?.deadline;
+  if (!deadline) return;
+  record.eewFillTimer = setTimeout(() => {
+    if (!activeEvents.has(record.id)) return;
+    record.earthquakeFill = EarthquakeFill.expire(record.earthquakeFill);
+    record.geo.prefectures = record.earthquakeFill.prefectures;
+    record.eewFillTimer = null;
+    syncActiveEventLayers();
+    updateWeatherDisplay();
+    renderEventsPanel();
+  }, Math.max(0, deadline - Date.now()));
+}
+
+function tsunamiSnapshotForEvent(eventData) {
+  return {
+    ...eventData,
+    geo: { ...eventData.geo, hypocenter: null, prefectures: [] },
+  };
+}
+
+// 別の地震のEEWが来たときは前の震度表示だけを退ける．
+// 統合カードに津波が含まれる場合は津波部分を独立したカードとして残す．
+function retirePreviousEarthquakes(incomingEvent) {
+  for (const [id, record] of [...activeEvents]) {
+    if (![1, 2, 3].includes(record.disasterCategoryNo)) continue;
+    if (!!record.isTestData !== !!incomingEvent.isTestData || !!record.isTraining !== !!incomingEvent.isTraining) continue;
+    if (record.epicenterRaw != null || record.occurrenceTime) {
+      retiredEarthquakes.push({
+        epicenterRaw: record.epicenterRaw,
+        occurrenceTime: record.occurrenceTime,
+        isTestData: !!record.isTestData,
+        isTraining: !!record.isTraining,
+        at: Date.now(),
+      });
+    }
+    if (!record.geo.tsunami.length && !record.tsunamiSnapshot) {
+      removeActiveEvent(id);
+      continue;
+    }
+    const tsunami = record.tsunamiSnapshot;
+    if (!tsunami) {
+      // 旧状態の再生など，津波の本文がない場合も沿岸の線は保持する．
+      record.geo.prefectures = [];
+      record.geo.hypocenter = null;
+      record.disasterCategoryNo = 5;
+      record.earthquakeFill = null;
+    } else {
+      Object.assign(record, {
+        ...tsunami,
+        id,
+        disasterCategoryNo: 5,
+        epicenterRaw: null,
+        occurrenceTime: null,
+        updatedAt: record.updatedAt,
+      });
+    }
+    clearTimeout(record.eewFillTimer);
+    record.eewFillTimer = null;
+    for (const marker of record.markers.intensityBadges) marker.remove();
+    record.markers.intensityBadges = [];
+  }
+  syncActiveEventLayers();
+  updateWeatherDisplay();
+  renderEventsPanel();
+}
 
 // 2つの範囲がおおむね近い(重なる、またはmarginDeg度以内)かどうか。
 // 手がかり(震央コード/発生時刻)を持たない通報(津波警報など)を
@@ -2238,6 +2349,7 @@ function findMatchingGroup(report, eventData) {
   if (epicenterRaw != null || occurrenceTime != null) {
     for (const record of activeEvents.values()) {
       if (record.isTransientNotice) continue; // 取消・解除などの短時間通知カードには統合しない
+      if (!!record.isTestData !== !!eventData.isTestData || !!record.isTraining !== !!eventData.isTraining) continue;
       if (sameEarthquakeRecord(record, { epicenterRaw, occurrenceTime })) return record;
     }
     return null;
@@ -2431,8 +2543,11 @@ function addActiveEvent(eventData, ttlMs = null) {
     markers: { hypocenter: null, hypocenterLabel: null, intensityBadges: [] },
   };
 
+  if (eventData.disasterCategoryNo === 5) record.tsunamiSnapshot = tsunamiSnapshotForEvent(eventData);
+
   record.timer = ttlMs ? setTimeout(() => removeActiveEvent(id), ttlMs) : null;
   activeEvents.set(id, record);
+  scheduleEewFillExpiry(record);
   // 地震・津波・Jアラート・Lアラート等が発生した場合、地図はそちらに
   // ズームするため、それまで気象警報の巡回で表示していた地域の
   // カード/輪郭強調は(カメラが実際にはもうそこを見ていないので)消す
@@ -2490,12 +2605,18 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // 赤塗りが残り続けるのを防ぐため、新しい情報を持つ通報が来たら
   // 都道府県リストはその内容で丸ごと置き換える(情報を持たない
   // 通報、例えば震源に関する情報は何もしない=前の表示を維持する)
-  const prefecturesChanged = !!eventData.geo.prefectures.length;
-  if (prefecturesChanged) record.geo.prefectures = eventData.geo.prefectures;
+  let prefecturesChanged = !!eventData.geo.prefectures.length;
+  if ([1, 3].includes(report.disaster_category_no)) {
+    record.earthquakeFill = EarthquakeFill.merge(record.earthquakeFill, eventData.earthquakeFill);
+    record.geo.prefectures = record.earthquakeFill.prefectures;
+    prefecturesChanged = true; // 震度の対象県が空でも赤塗りを全解除する
+    scheduleEewFillExpiry(record);
+  } else if (prefecturesChanged) record.geo.prefectures = eventData.geo.prefectures;
 
   if (eventData.geo.tsunami.length) {
     record.geo.tsunami = eventData.geo.tsunami;
   }
+  if (report.disaster_category_no === 5) record.tsunamiSnapshot = tsunamiSnapshotForEvent(eventData);
 
   if (eventData.geo.floodRivers && eventData.geo.floodRivers.length) {
     record.geo.floodRivers = eventData.geo.floodRivers;
@@ -2537,6 +2658,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 
   record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
   syncActiveEventLayers(); // 震源✕はこの中の updateEpicenterLayer() で最新化される
+  updateWeatherDisplay();
   // 塗りつぶしを反映した後で、変化があった分だけ震度バッジ(DOM)を作り直す
   if (prefecturesChanged) {
     for (const marker of record.markers.intensityBadges) marker.remove();
@@ -2566,9 +2688,11 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 function removeActiveEvent(id) {
   const record = activeEvents.get(id);
   if (!record) return;
+  clearTimeout(record.eewFillTimer);
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
   syncActiveEventLayers(); // 削除後に updateEpicenterLayer() が震源✕からも取り除く
+  updateWeatherDisplay(); // EEW終了時に一時的に隠していた気象警報を戻す
   resolveMarkerOverlaps(); // 消えたことで残りの震度バッジの重なり回避が緩む場合がある
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
@@ -2789,7 +2913,7 @@ function updateIdleOverviewMarkers() {
   const token = ++idleMarkerBuildToken;
 
   const candidates = [];
-  for (const site of weatherSites.values()) {
+  for (const site of hasVisibleEewFill() ? [] : weatherSites.values()) {
     const point = representativePointForWeatherSite(site);
     if (!point) continue;
     const cls = extractSevClass(weatherSeverityBadgeClass(worstSubCategory(site.subCategories)));
@@ -2797,6 +2921,7 @@ function updateIdleOverviewMarkers() {
   }
   for (const record of activeEvents.values()) {
     if (record.isTraining) continue;
+    if (hasVisibleEewFill() && !isEarthquakeOrTsunamiRecord(record)) continue;
     const point = representativePointForRecord(record);
     if (!point) continue;
     const cls = cardSeverityClass(recordBadges(record));
@@ -2860,10 +2985,14 @@ function syncActiveEventLayers() {
   // (実際には常にgeo.prefectures/tsunami/floodRiversが空なので実害は無い。
   // 流路データがある洪水の河川はactiveEvents側でfloodRiverKeyを持つ
   // 「実イベント」として扱われる。handleFloodReport参照)
-  for (const record of [...activeEvents.values(), ...otherReports.values()]) {
+  const eewPriority = hasVisibleEewFill();
+  for (const record of [...activeEvents.values(), ...(eewPriority ? [] : otherReports.values())]) {
+    if (eewPriority && !isEarthquakeOrTsunamiRecord(record)) continue;
     const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
-    for (const p of record.geo.prefectures) setIfMoreSevere(prefColorById, p.id, p.color, rank);
+    const prefectures = record.earthquakeFill?.phase === 'eew' && record.earthquakeFill.deadline <= Date.now()
+      ? [] : record.geo.prefectures;
+    for (const p of prefectures) setIfMoreSevere(prefColorById, p.id, p.color, rank);
     if (record.geo.floodRivers) {
       for (const r of record.geo.floodRivers) setIfMoreSevere(floodRiverColorByCode, r.code, r.color, rank);
     }
@@ -3678,7 +3807,14 @@ function renderEventsPanel() {
   const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
-  if (focusedWeatherSite) {
+  if (hasVisibleEewFill()) {
+    // 速報の赤塗りを表示中は，竜巻など他の警報カードも一時的に退ける．
+    // 津波は沿岸線とカードの両方を引き続き表示する．
+    visibleRecords = [
+      ...groupOverlappingRecords([...activeEvents.values()].filter(isEarthquakeOrTsunamiRecord)),
+      ...(otherReports.has(6) ? [otherReportCard(otherReports.get(6))] : []),
+    ];
+  } else if (focusedWeatherSite) {
     // 巡回ズーム・タップされた地域と同じ都道府県の区域を1枚に統合する
     visibleRecords = [weatherPrefectureCard(weatherSitesForSamePrefecture(currentPatrolCode))];
   } else if (focusedTrainingEvent) {
@@ -4192,6 +4328,9 @@ function renderReport(report) {
     return;
   }
 
+  // 新しい余震のEEWで退けた古い地震の遅延通報を再描画しない．
+  if ([1, 2, 3].includes(report.disaster_category_no) && isRetiredEarthquake(report)) return;
+
   // 津波警報の解除・「津波なし」は危険な状況が収束したサインなので、
   // 画面をリセットする(取消と同様、絞り込みの影響を受けない)
   if (report.disaster_category_no === 5 && [1, 2].includes(report.tsunami_warning_code_raw)) {
@@ -4212,13 +4351,15 @@ function renderReport(report) {
   // グループ、または地理的に近い既存の地震イベントは一旦取り下げて、
   // 最新の緊急地震速報の表示に切り替える
   if (report.disaster_category_no === 1) {
-    for (const [id, record] of [...activeEvents]) {
-      if (![1, 2, 3].includes(record.disasterCategoryNo)) continue;
-      const sameGroup = sameEarthquakeRecord(record, reportEarthquakeRecord(report));
-      const near = event.bounds && record.bounds && boundsAreNear(event.bounds, record.bounds);
-      if (sameGroup || near) removeActiveEvent(id);
+    const match = event.epicenterRaw != null || event.occurrenceTime
+      ? findMatchingGroup(report, event) : null;
+    if (match && [1, 2, 3].includes(match.disasterCategoryNo)) {
+      mergeIntoActiveEvent(match, event, report, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
+    } else {
+      retirePreviousEarthquakes(event);
+      addActiveEvent(event, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
     }
-    addActiveEvent(event, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
+    updateWeatherDisplay();
     return;
   }
 

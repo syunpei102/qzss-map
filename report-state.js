@@ -111,10 +111,24 @@ function sameStorage(a, b) {
   return key !== null && key === storageKey(b);
 }
 
+function isSupersededEarthquakeReport(entries, report) {
+  if (!isEarthquake(report)) return false;
+  const incomingTime = Date.parse(report.occurrence_time_of_earthquake || '');
+  if (!Number.isFinite(incomingTime)) return false;
+  return entries.some(entry => {
+    const active = entry.report;
+    if (active.disaster_category_no !== 1 || reportScope(active) !== reportScope(report)) return false;
+    if (sameEarthquake(active, report)) return false;
+    const activeTime = Date.parse(active.occurrence_time_of_earthquake || '');
+    return Number.isFinite(activeTime) && activeTime > incomingTime;
+  });
+}
+
 function updateActiveReports(entries, report, receivedAt, isEnd) {
   // 旧形式の永続データも最初の更新時に地域単位へ展開する．
   let result = entries.flatMap(entry => splitReport(entry.report).map(part => ({ ...entry, report: part })));
   for (const part of splitReport(report)) {
+    if (!isEnd && isSupersededEarthquakeReport(result, part)) continue;
     const group = reportGroupKey(part);
     if (isEnd) {
       if (group !== null) result = result.filter(entry => {
@@ -126,6 +140,15 @@ function updateActiveReports(entries, report, receivedAt, isEnd) {
         return !sameGroup(entry.report, part);
       });
     } else {
+      if (part.disaster_category_no === 1) {
+        // 新しい地震のEEWが始まったら，前の地震の震度・震源・EEWを
+        // 再接続時に再生しない．津波通報は別カテゴリなので保持する．
+        result = result.filter(entry => !(
+          isEarthquake(entry.report)
+          && reportScope(entry.report) === reportScope(part)
+          && !sameEarthquake(entry.report, part)
+        ));
+      }
       if (storageKey(part) !== null) result = result.filter(entry => !sameStorage(entry.report, part));
       result.push({ report: part, receivedAt });
     }
@@ -138,4 +161,4 @@ function pruneExpiredReports(entries, now) {
   return entries.filter(entry => now - entry.receivedAt < ttlMsForReport(entry.report));
 }
 
-module.exports = { pruneExpiredReports, sameEarthquake, sameGroup, reportGroupKey, splitReport, storageKey, updateActiveReports };
+module.exports = { isSupersededEarthquakeReport, pruneExpiredReports, sameEarthquake, sameGroup, reportGroupKey, splitReport, storageKey, updateActiveReports };
