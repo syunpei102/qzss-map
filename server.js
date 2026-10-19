@@ -1,5 +1,5 @@
 const express = require("express");
-const { reportGroupKey, updateActiveReports, pruneExpiredReports } = require("./report-state");
+const { reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -784,6 +784,11 @@ function handleIncomingLine(line) {
   if (!(report && report.is_test_data) && isDuplicateReport(report)) {
     return;
   }
+
+  // 余震の速報後に，前の地震の遅延通報が届いても配信・保存しない．
+  // 取消は別途処理し，津波は地震の発生時刻では抑制しない．
+  pruneStaleActiveReports();
+  if (report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report)) return;
 
   if (isEndSignal(report) || isReplayable(report)) {
     activeReports = updateActiveReports(activeReports, report, Date.now(), isEndSignal(report));
@@ -1774,7 +1779,9 @@ wss.on("connection", (ws) => {
   // 異常値として確認)。再送分はレイテンシ計測の対象外にする
   for (const entry of activeReports) {
     const { client_timestamps, ...report } = entry.report;
-    ws.send(JSON.stringify(report));
+    // EEWの赤い予測範囲は元の受信から5分で消す．再接続時に
+    // ブラウザの接続時刻から5分を数え直さないよう，保存時刻からの経過を渡す．
+    ws.send(JSON.stringify({ ...report, replay_age_ms: Math.max(0, Date.now() - entry.receivedAt) }));
   }
 });
 
