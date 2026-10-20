@@ -1560,7 +1560,8 @@ function updateWeatherDisplay() {
   // 日本全体表示(idle)の間、ラズパイ実機(kiosk)なら重いポリゴン塗りを
   // やめてupdateIdleOverviewMarkersの軽量マーカーに任せる。Web版は
   // ポリゴンのまま(syncActiveEventLayersのidle対応と同じ考え方)
-  const codes = shouldUseLightweightIdleView() || hasVisibleEewFill() ? [] : [...weatherSites.keys()];
+  const codes = shouldUseLightweightIdleView() || isQuakeLockActive() || hasVisibleEewFill()
+    ? [] : [...weatherSites.keys()];
   if (!codes.length) {
     map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
     map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
@@ -1654,50 +1655,61 @@ let isInitialLoad = true;
 // ==================================================
 // 地震・津波情報の優先ロック
 //
-// 緊急地震速報(1)・震源(2)・震度速報(3)・津波警報(5)・北西太平洋津波
-// 情報(6)のいずれかが1件でもアクティブな間は、気象警報等の通常巡回を
-// 一切進めず、地震・津波の情報だけを表示し続ける(固定時間ではなく、
-// 該当イベントが無くなるまでずっと)。複数同時にアクティブな場合は、
-// 全部が1画面に収まるようにズームをまとめる(津波の複数地域を
-// unionBoundsでまとめている既存の考え方と同じ)。
-//
-// タイマーで状態を持たず、「今アクティブな地震・津波イベントがあるか」を
-// 毎回activeEventsから直接判定する(古い状態が残って不整合になる心配が無い)
+// 最後の地震・津波情報から10分間は，最新の事象とその対象地域を優先する．
+// 別地域の警報や古い地震が画面に混ざらないよう，描画もこの1件に絞る．
 const QUAKE_LOCK_CATEGORY_NOS = new Set([1, 2, 3, 5, 6]);
-// ロック中に地震・津波以外の新しい情報(気象警報など)が割り込んだ場合、
-// 通常のPATROL_DWELL_MS(40秒)ではなく、これだけ見せたら地震・津波の
-// 表示に戻す
-const QUAKE_LOCK_INTERRUPT_PEEK_MS = 15 * 1000;
+const QUAKE_FOCUS_HOLD_MS = 10 * 60 * 1000;
 
 function quakeLockRecords() {
-  const records = [];
+  let latest = null;
   for (const record of activeEvents.values()) {
-    if (record.isTraining) continue;
     if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) && !isTsunamiRelatedRecord(record)) continue;
     if (!record.bounds) continue;
-    records.push(record);
+    const receivedAt = record.quakeFocusAt || record.updatedAt;
+    if (!receivedAt || Date.now() - receivedAt >= QUAKE_FOCUS_HOLD_MS) continue;
+    // 同時に本番情報が有効なら，後から来た訓練や手動テストで覆わない．
+    const priority = !record.isTraining && !record.isTestData ? 1 : 0;
+    const latestPriority = latest && !latest.isTraining && !latest.isTestData ? 1 : 0;
+    if (!latest || priority > latestPriority
+      || (priority === latestPriority && receivedAt >= (latest.quakeFocusAt || latest.updatedAt))) latest = record;
   }
-  return records;
+  return latest ? [latest] : [];
 }
 
 function isQuakeLockActive() {
   return quakeLockRecords().length > 0;
 }
 
-// 地震・津波の合成ビュー(複数アクティブなら全部が入るズーム)を表示する。
-// 巡回状態は全て解除し、パネルは「アクティブなイベントを並べる」通常の
-// idle表示と同じ扱いにする(groupOverlappingRecordsが地震どうし・
-// 無関係などうしを適切に分けて別カードにしてくれる)
+function earthquakeDisplayBounds(record) {
+  const bounds = [];
+  for (const p of record.geo.prefectures || []) {
+    const feature = prefectureFeaturesById.get(p.id);
+    if (feature) bounds.push(mainLandBounds(feature.geometry));
+  }
+  for (const t of record.geo.tsunami || []) {
+    const feature = tsunamiFeaturesByCode.get(t.code);
+    if (feature) bounds.push(geometryBounds(feature.geometry));
+  }
+  if (!bounds.length && record.geo.hypocenter) {
+    const { lon, lat } = record.geo.hypocenter;
+    bounds.push([lon, lat, lon, lat]);
+  }
+  return bounds.length ? unionBounds(bounds) : record.bounds;
+}
+
+// 最新の地震・津波1件の全対象地域を画面内に収める．
 function showQuakeLockView() {
   const records = quakeLockRecords();
   if (!records.length) return false;
+  const record = records[0];
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
-  flyToBounds(unionBounds(records.map((r) => r.bounds)), 24);
-  focusedEventIds = new Set(records.map((r) => r.id));
+  flyToBounds(earthquakeDisplayBounds(record), 24, record.boundsMaxZoom ?? null);
+  focusedEventIds = new Set([record.id]);
   syncActiveEventLayers();
   updateWeatherDisplay();
+  resolveMarkerOverlaps();
   updateFocusOutline();
   renderEventsPanel();
   return true;
@@ -1727,7 +1739,8 @@ function zoomToWeatherCode(code) {
 function zoomToTrainingEvent(id) {
   const record = activeEvents.get(id);
   if (!record || !record.bounds) return;
-  flyToBounds(record.bounds, 40, null, true); // 気象警報の巡回と同じく瞬時ジャンプ
+  flyToBounds(isEarthquakeOrTsunamiRecord(record) ? earthquakeDisplayBounds(record) : record.bounds,
+    40, record.boundsMaxZoom ?? null, true);
 }
 
 function trainingPatrolTargetIds() {
@@ -1796,12 +1809,22 @@ function returnToWholeJapanSafely() {
   // マスクのCSSトランジション(フェードイン)が実際に1フレーム分適用
   // されてから重いカメラ移動に入るよう、1フレーム分だけ間を空ける
   requestAnimationFrame(() => {
+    if (isQuakeLockActive()) {
+      if (mask) mask.classList.remove('is-active');
+      showQuakeLockView();
+      return;
+    }
     const view = getDefaultView();
     map.jumpTo({ center: view.center, zoom: view.zoom });
     let settled = false;
     const finishTransition = () => {
       if (settled) return;
       settled = true;
+      if (isQuakeLockActive()) {
+        if (mask) mask.classList.remove('is-active');
+        showQuakeLockView();
+        return;
+      }
       updateFocusOutline();
       focusedEventIds = new Set();
       renderEventsPanel();
@@ -1813,12 +1836,13 @@ function returnToWholeJapanSafely() {
 }
 
 function patrolStep() {
-  // 地震・津波ロック中は、通常の巡回リストを一切進めず、合成ビューを
-  // (念のため)立て直したうえでそのまま見せ続ける。該当イベントが
-  // 1件も無くなっていれば自動的に下の通常巡回へ抜ける
-  if (isQuakeLockActive()) {
+  // 受信後10分間は最新の地震・津波だけを表示し，通常巡回を止める．
+  // 期限または取消で対象が無くなれば通常巡回へ戻る．
+  const focusedQuake = quakeLockRecords()[0];
+  if (focusedQuake) {
     showQuakeLockView();
-    schedulePatrolNext(PATROL_DWELL_MS);
+    const remaining = QUAKE_FOCUS_HOLD_MS - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
+    schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
     return;
   }
   // 初回読み込み中(WebSocket接続直後、既存のアクティブな通報が
@@ -1907,8 +1931,8 @@ function patrolStep() {
 // 見せ終わったら通常の巡回に戻る(codes配列内での位置を追跡し直し、
 // 他の地域を飛ばしたり、同じ地域をすぐ繰り返したりしないようにする)
 function interruptPatrolForNewRegion(code, manual = false) {
-  // EEWの予測範囲を表示中は，気象警報の自動ズームで画面を奪わない．
-  if (!manual && hasVisibleEewFill()) {
+  // 地震・津波を優先表示している間は，別地域の気象警報に切り替えない．
+  if (!manual && isQuakeLockActive()) {
     showQuakeLockView();
     return;
   }
@@ -1923,16 +1947,7 @@ function interruptPatrolForNewRegion(code, manual = false) {
     renderEventsPanel();
     return;
   }
-  // 津波警報などの重要イベントが表示中でも、新しく発表された気象警報は
-  // 一度割り込んでズーム表示する。「新しく発表された情報を必ず見せる」
-  // という方針をイベント種別によらず一貫させるため。
-  // ただし地震・津波ロックが有効な状態で自動的に割り込んだ場合だけは、
-  // 通常のPATROL_DWELL_MS(40秒)ではなくQUAKE_LOCK_INTERRUPT_PEEK_MS
-  // (15秒)だけ見せて地震・津波の表示に戻す(次のpatrolStepが
-  // isQuakeLockActive()を見て自動的に戻す)。ユーザーが自分でタップして
-  // 見ている場合(manual=true)は、選んだ情報を勝手に短時間で切り上げない
-  // よう対象外にする
-  const wasQuakeLocked = !manual && isQuakeLockActive();
+  // 集中表示中ではないため，通常の気象巡回へ割り込む．
   const codes = [...weatherSites.keys()];
   const idx = codes.indexOf(code);
   if (idx === -1) return;
@@ -1946,7 +1961,7 @@ function interruptPatrolForNewRegion(code, manual = false) {
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
-  schedulePatrolNext(wasQuakeLocked ? QUAKE_LOCK_INTERRUPT_PEEK_MS : PATROL_DWELL_MS);
+  schedulePatrolNext(PATROL_DWELL_MS);
 }
 
 // 巡回中(または休止中)に新しい/更新された本物のイベントが届いた場合、
@@ -1957,17 +1972,11 @@ function interruptPatrolForNewRegion(code, manual = false) {
 function interruptPatrolForNewEvent(id, manual = false) {
   const record = activeEvents.get(id);
   const isQuakeCategory = !!record && (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) || isTsunamiRelatedRecord(record));
-  if (!manual && !isQuakeCategory && hasVisibleEewFill()) {
+  const focusedQuake = !manual && quakeLockRecords()[0];
+  if (focusedQuake) {
     showQuakeLockView();
-    return;
-  }
-  // 地震・津波ロック対象のイベントが自動的に割り込んだ場合(余震の続報等)
-  // は、この1件だけでなく現在アクティブな地震・津波を全部まとめた合成
-  // ビューを見せる。ユーザーが地図上の特定の震源✕等を自分でタップした
-  // 場合(manual=true)は、選んだその1件をそのまま単独表示する(合成
-  // ビューに引き戻すと「その1件だけ見たい」というタップの意図に反するため)
-  if (!manual && isQuakeCategory && showQuakeLockView()) {
-    schedulePatrolNext(PATROL_DWELL_MS);
+    const remaining = QUAKE_FOCUS_HOLD_MS - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
+    schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
     return;
   }
   // 初回読み込み直後は、地震・津波以外の情報でカメラを動かさず、日本
@@ -1979,11 +1988,7 @@ function interruptPatrolForNewEvent(id, manual = false) {
     renderEventsPanel();
     return;
   }
-  // 地震・津波ロックが有効な状態で、それ以外の新しいイベント(Lアラート・
-  // 洪水・火山等)が自動的に割り込んだ場合は、15秒だけ見せて地震・津波の
-  // 表示に戻す。ユーザーが自分でタップして見ている場合(manual=true)は、
-  // 選んだ情報を勝手に短時間で切り上げないよう対象外にする
-  const wasQuakeLocked = !manual && isQuakeLockActive();
+  // 集中表示中ではないため，通常のイベント巡回へ割り込む．
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = id;
@@ -1995,7 +2000,7 @@ function interruptPatrolForNewEvent(id, manual = false) {
   updateWeatherDisplay();
   updateFocusOutline();
   renderEventsPanel();
-  schedulePatrolNext(wasQuakeLocked ? QUAKE_LOCK_INTERRUPT_PEEK_MS : PATROL_DWELL_MS);
+  schedulePatrolNext(PATROL_DWELL_MS);
 }
 
 // otherReports(降灰など)の楕円をタップしたとき用。これらは巡回/フォーカスの
@@ -2149,6 +2154,8 @@ function buildEventFromReport(report) {
   return {
     epicenterRaw: typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
+    quakeFocusAt: Number.isFinite(Date.parse(report.timestamp))
+      ? Math.min(Date.now(), Date.parse(report.timestamp)) : Date.now(),
     occurrenceTime: report.occurrence_time_of_earthquake || null,
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,
@@ -2399,7 +2406,9 @@ function findMatchingGroup(report, eventData) {
 function updateEpicenterLayer() {
   if (!map || !map.getSource('epicenters')) return;
   const features = [];
+  const focusedQuake = quakeLockRecords()[0];
   for (const record of activeEvents.values()) {
+    if (focusedQuake && record.id !== focusedQuake.id) continue;
     const h = record.geo && record.geo.hypocenter;
     if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
       features.push({
@@ -2494,12 +2503,14 @@ function latestIntensityBadgeMarkers(records) {
 
 function resolveMarkerOverlaps() {
   if (!map) return;
+  const focusedQuake = quakeLockRecords()[0];
   const scale = intensityBadgeScaleForZoom(map.getZoom());
   const badgeRadius = INTENSITY_BADGE_BASE_RADIUS_PX * scale;
 
   // 固定点(押しのけられない側): 全アクティブイベントの震源✕
   const anchors = [];
   for (const record of activeEvents.values()) {
+    if (focusedQuake && record.id !== focusedQuake.id) continue;
     const h = record.geo && record.geo.hypocenter;
     if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
       anchors.push({ point: map.project([h.lon, h.lat]), radius: EPICENTER_CROSS_RADIUS_PX });
@@ -2509,7 +2520,7 @@ function resolveMarkerOverlaps() {
   // 可動点(押しのけられる側): 全アクティブイベントの震度バッジ。
   // __basePos(都道府県重心、本来の位置)から毎回計算し直す
   const movable = [];
-  const visibleBadges = latestIntensityBadgeMarkers(activeEvents.values());
+  const visibleBadges = latestIntensityBadgeMarkers(focusedQuake ? [focusedQuake] : activeEvents.values());
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) {
       const visible = visibleBadges.has(marker);
@@ -2669,6 +2680,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   record.satellitePrn = eventData.satellitePrn;
   record.isTestData = record.isTestData || eventData.isTestData;
   record.isTraining = record.isTraining || eventData.isTraining;
+  if (isEarthquakeOrTsunamiRecord(record)) record.quakeFocusAt = eventData.quakeFocusAt || Date.now();
   if (typeof report.seismic_epicenter_raw === 'number') record.epicenterRaw = report.seismic_epicenter_raw;
   if (report.occurrence_time_of_earthquake) record.occurrenceTime = report.occurrence_time_of_earthquake;
   record.updatedAt = Date.now();
@@ -2986,7 +2998,8 @@ function syncActiveEventLayers() {
   // 非力なハードウェアの制約が無いためポリゴンのまま出し続ける。
   // 津波(tsunami-line)だけは対象数が元々少なく命に関わる重要度が
   // 高いため、kiosk/idleでも通常通り描画する(意図的に対象外)
-  const idle = shouldUseLightweightIdleView();
+  const focusedQuake = quakeLockRecords()[0];
+  const idle = shouldUseLightweightIdleView() && !focusedQuake;
 
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
@@ -3001,7 +3014,8 @@ function syncActiveEventLayers() {
   // 流路データがある洪水の河川はactiveEvents側でfloodRiverKeyを持つ
   // 「実イベント」として扱われる。handleFloodReport参照)
   const eewPriority = hasVisibleEewFill();
-  for (const record of [...activeEvents.values(), ...(eewPriority ? [] : otherReports.values())]) {
+  for (const record of [...activeEvents.values(), ...(eewPriority || focusedQuake ? [] : otherReports.values())]) {
+    if (focusedQuake && record.id !== focusedQuake.id) continue;
     if (eewPriority && !isEarthquakeOrTsunamiRecord(record)) continue;
     const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
@@ -3111,11 +3125,6 @@ function syncActiveEventLayers() {
 // renderEventsPanelがこれを見て表示するカードを絞り込む
 let focusedEventIds = new Set();
 
-// 都道府県全体ではなく、実際に警報が出ている沿岸そのものを見せた方が
-// 分かりやすいが、寄りすぎると逆にどこの県か分からなくなるため、
-// 通常のprefecture単位より少し狭いが県の形は分かる程度の上限にする
-const TSUNAMI_FOCUS_MAX_ZOOM = 7.5;
-
 function updateCameraForActiveEvents(preferredRecord) {
   if (!map) return;
 
@@ -3126,11 +3135,8 @@ function updateCameraForActiveEvents(preferredRecord) {
   // 保留から同時に解決した時に、日本全体を映す中途半端なズームになって
   // しまう(実際に発生を確認して修正した)。
   //
-  // 以前は「津波警報が1件でもあれば無条件で最優先」という扱いだったが、
-  // それだと津波警報が出っぱなしの間、後から発表された無関係の警報や
-  // Lアラートがいつまでもズームされない不具合になっていた。津波警報も
-  // 他のイベントと同じく「一番新しいものを優先」の対象にし、それが
-  // たまたま津波警報だった場合だけ、沿岸に寄った見せ方をする
+  // 震度と津波が同じ事象にまとまっている場合は，両方の対象地域を
+  // earthquakeDisplayBoundsで合成し，全域が入るようにする．
   if (!preferredRecord) {
     // 訓練放送はカメラを占有しない方針(addActiveEvent/mergeIntoActiveEvent
     // の呼び出し元では既に除外しているが、removeActiveEvent等から
@@ -3147,21 +3153,10 @@ function updateCameraForActiveEvents(preferredRecord) {
     preferredRecord = latest;
   }
 
-  if (preferredRecord && preferredRecord.tsunamiWarningActive) {
-    const tsunamiBoundsList = [];
-    for (const t of preferredRecord.geo.tsunami) {
-      const feature = tsunamiFeaturesByCode.get(t.code);
-      if (feature) tsunamiBoundsList.push(geometryBounds(feature.geometry));
-    }
-    if (tsunamiBoundsList.length) {
-      flyToBounds(unionBounds(tsunamiBoundsList), 24, TSUNAMI_FOCUS_MAX_ZOOM);
-      focusedEventIds = new Set([preferredRecord.id]);
-      return;
-    }
-  }
-
   if (preferredRecord && preferredRecord.bounds) {
-    flyToBounds(preferredRecord.bounds, 24, preferredRecord.boundsMaxZoom ?? null);
+    const bounds = isEarthquakeOrTsunamiRecord(preferredRecord)
+      ? earthquakeDisplayBounds(preferredRecord) : preferredRecord.bounds;
+    flyToBounds(bounds, 24, preferredRecord.boundsMaxZoom ?? null);
     focusedEventIds = new Set([preferredRecord.id]);
     return;
   }
@@ -3829,7 +3824,10 @@ function renderEventsPanel() {
   const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
-  if (hasVisibleEewFill()) {
+  const focusedQuake = quakeLockRecords()[0];
+  if (focusedQuake) {
+    visibleRecords = [focusedQuake];
+  } else if (hasVisibleEewFill()) {
     // 速報の赤塗りを表示中は，竜巻など他の警報カードも一時的に退ける．
     // 津波は沿岸線とカードの両方を引き続き表示する．
     visibleRecords = [
