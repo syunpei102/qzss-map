@@ -1413,7 +1413,7 @@ function resolveShowTrainingBroadcasts(deviceId) {
 // Discordの/set_lalertで、deviceを指定すればその拠点だけ、指定しなければ
 // 全体(=上書きしていない拠点すべて)の設定を変更できる。
 // ==================================================
-let globalLalertEnabled = true;
+let globalLalertEnabled = false;
 const deviceLalertOverrides = new Map(); // device_id -> boolean
 const LALERT_ENABLED_STATE_FILE = "lalert_enabled_settings.json";
 
