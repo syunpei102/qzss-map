@@ -904,6 +904,55 @@ app.get("/api/latency-history", (req, res) => {
 // 状態報告(5分おき)で自然に復元されるので実運用上問題ない)．
 // ==================================================
 const deviceStatus = new Map(); // device_id -> 最新の状態報告
+const MONITORED_DEVICE_ID = (process.env.MONITORED_DEVICE_ID || "qzss01").trim();
+const RECEIVER_STATUS_STATE_FILE = "receiver_monitor_status.json";
+const RECEIVER_STALE_MS = 15 * 60 * 1000;
+const DISCORD_ALERT_WEBHOOK_URL = (process.env.DISCORD_ALERT_WEBHOOK_URL || "").trim();
+const MONITOR_RELAY_TOKEN = (process.env.MONITOR_RELAY_TOKEN || "").trim();
+
+// Cloud Runのインスタンスが入れ替わっても接続断を検知できるよう，状態はGCSに保持する．
+// この監視はラズパイ上のタイマーには依存しない．
+app.get("/receiver-health", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const status = await loadPersistedJson(RECEIVER_STATUS_STATE_FILE);
+  const receivedAt = Number(status?.receivedAt);
+  const online = status?.deviceId === MONITORED_DEVICE_ID
+    && Number.isFinite(receivedAt)
+    && receivedAt > 0
+    && Date.now() - receivedAt < RECEIVER_STALE_MS;
+  res.status(online ? 200 : 503).json({ ok: online, deviceId: MONITORED_DEVICE_ID });
+});
+
+// Cloud Monitoringの通知をDiscordの形式に変換する．共有トークンなしでは拒否する．
+app.post("/monitoring/discord", async (req, res) => {
+  const supplied = String(req.query.token || "");
+  const expected = Buffer.from(MONITOR_RELAY_TOKEN);
+  const actual = Buffer.from(supplied);
+  if (!MONITOR_RELAY_TOKEN || expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+    return res.status(403).end();
+  }
+  if (!DISCORD_ALERT_WEBHOOK_URL) return res.status(503).end();
+  const incident = req.body?.incident;
+  if (!incident || typeof incident !== "object" || !["open", "closed"].includes(incident.state)) {
+    return res.status(400).end();
+  }
+  const message = incident.state === "open"
+    ? `🚨 QZSS受信機 ${MONITORED_DEVICE_ID} の状態報告が15分以上途絶えています．電源・ネットワーク・受信サービスを確認してください．`
+    : `✅ QZSS受信機 ${MONITORED_DEVICE_ID} の状態報告が復旧しました．`;
+  try {
+    const response = await fetch(DISCORD_ALERT_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: message }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`Discord HTTP ${response.status}`);
+    res.status(204).end();
+  } catch (err) {
+    console.error("⚠️ 接続断アラームのDiscord送信に失敗しました:", err.message);
+    res.status(502).end();
+  }
+});
 // 配送状態(pending/delivered/acked/expired等)はdevice-commands.jsで管理し，
 // 再起動をまたぐようGCS/ローカルへ永続化する(Issue #18)
 const deviceCommands = new DeviceCommandQueue();
@@ -1080,7 +1129,7 @@ if (ENABLE_WEB_ADMIN) {
 // 同じリクエストへの応答で、保留中のコマンド(reboot等)も一緒に返す
 // (ラズパイ側から見れば「状態を送ったら、ついでにやることが無いか
 // 教えてもらえる」という1往復で完結する設計)
-app.post("/device/status", (req, res) => {
+app.post("/device/status", async (req, res) => {
   const auth = requireDeviceToken(req, res);
   if (!auth.ok) return;
   // 拠点ごとのトークンで認証できていればそちらを正とする(本文の
@@ -1092,6 +1141,9 @@ app.post("/device/status", (req, res) => {
     deviceId,
     receivedAt: Date.now(),
   });
+  if (deviceId === MONITORED_DEVICE_ID) {
+    await persistJson(RECEIVER_STATUS_STATE_FILE, { deviceId, receivedAt: Date.now() });
+  }
   // supports_ack:true の端末にはackされるまで再配信する(応答喪失・再起動対策)．
   // 旧端末は再配信でreboot連発しないよう従来どおり1回だけ渡す．
   const before = JSON.stringify(deviceCommands.list(deviceId));
