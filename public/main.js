@@ -4024,9 +4024,7 @@ function renderEventsPanel() {
 // 事実情報でそもそも取消の仕組みが無いため「最後の更新から」の猶予、
 // 津波・警報系は安全側に倒して長めに設定している。
 // 各TTLの値は public/report-ttl.js(サーバーと共有)が唯一の定義
-const TTL_EEW_MS = ReportTtl.TTL.EEW;
 const TTL_HYPOCENTER_INTENSITY_MS = ReportTtl.TTL.HYPOCENTER_INTENSITY;
-const TTL_JALERT_MS = ReportTtl.TTL.JALERT;
 // 気象警報・注意報・Lアラート(継続時間不明の場合)の安全策TTL。
 // 以前は24時間だったが、実際には24時間も更新が無いまま居座ることは
 // 珍しくなく「長すぎる」との指摘を受けて3時間に短縮した
@@ -4053,12 +4051,10 @@ function lalertTtlMs(report) {
 
 // テストデータ(is_test_data)は動作確認用の一時的な表示なので、
 // 本物の警報と同じ長いTTLを待たず、短時間(1分)で自動的に消す
-const TTL_TEST_DATA_MS = ReportTtl.TTL.TEST_DATA;
-
 function ttlMsForReport(report) {
-  if (report.is_test_data) return TTL_TEST_DATA_MS;
-  if (report.disaster_category_no === 2 || report.disaster_category_no === 3) return TTL_HYPOCENTER_INTENSITY_MS;
-  if (report.disaster_category_no === 5) return ReportTtl.ttlMsForReport(report);
+  if (report.is_test_data || [2, 3, 5].includes(report.disaster_category_no)) {
+    return ReportTtl.remainingTtlMsForReport(report);
+  }
   return null;
 }
 
@@ -4196,6 +4192,8 @@ function applyTrainingLabel(event, report) {
 }
 
 function renderReport(report) {
+  // 再接続時の再送は元の受信からの経過時間を差し引く．
+  if (Number.isFinite(report.replay_age_ms) && ReportTtl.remainingTtlMsForReport(report) <= 0) return;
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
   // (月2回程度、DCR=気象庁形式)。DCX(LアラートJアラート)には
   // report_classification_noという概念自体が無く、代わりにa1_message_type
@@ -4236,7 +4234,7 @@ function renderReport(report) {
       return;
     }
     const event = applyTrainingLabel(buildEventFromJAlert(report), report);
-    if (isRelevantToTargetRegion(event)) addActiveEvent(event, TTL_JALERT_MS);
+    if (isRelevantToTargetRegion(event)) addActiveEvent(event, ReportTtl.remainingTtlMsForReport(report));
     return;
   }
 
@@ -4472,10 +4470,10 @@ function renderReport(report) {
     const match = event.epicenterRaw != null || event.occurrenceTime
       ? findMatchingGroup(report, event) : null;
     if (match && [1, 2, 3].includes(match.disasterCategoryNo)) {
-      mergeIntoActiveEvent(match, event, report, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
+      mergeIntoActiveEvent(match, event, report, ReportTtl.remainingTtlMsForReport(report));
     } else {
       retirePreviousEarthquakes(event);
-      addActiveEvent(event, report.is_test_data ? TTL_TEST_DATA_MS : TTL_EEW_MS);
+      addActiveEvent(event, ReportTtl.remainingTtlMsForReport(report));
     }
     updateWeatherDisplay();
     return;
