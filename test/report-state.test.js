@@ -194,19 +194,23 @@ test('earthquake compares every field present on both sides; missing fields fall
 });
 test('server and browser share one TTL table; prune boundaries', () => {
   const { pruneExpiredReports } = require('../report-state');
-  const { ttlMsForReport, TTL } = require('../public/report-ttl');
+  const { ttlMsForReport, remainingTtlMsForReport, TTL } = require('../public/report-ttl');
   const H = 3600 * 1000;
   const cases = [
     [{ disaster_category_no: 1 }, 20 * 60 * 1000],
     [{ disaster_category_no: 8 }, 12 * H],
     [{ disaster_category_no: 5 }, 24 * H],
-    [{ disaster_category_no: 5, report_classification_no: 7 }, 3 * H],
+    [{ disaster_category_no: 5, report_classification_no: 7 }, 20 * 60 * 1000],
+    [{ disaster_category_no: 1, report_classification_no: 7 }, 20 * 60 * 1000],
+    [{ type: 'QzssDcxJAlert', a1_message_type: 'Test' }, 20 * 60 * 1000],
+    [{ type: 'QzssDcxJAlert', a1_message_type: 'Alert' }, 24 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Duration < 6H' }, 6 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '6H <= Duration < 12H' }, 12 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '12H <= Duration < 24H' }, 24 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Unknown' }, TTL.LALERT_UNKNOWN],
     [{ type: 'QzssDcxLAlert' }, 3 * H],
     [{ disaster_category_no: 1, is_test_data: true }, 60 * 1000],
+    [{ type: 'QzssDcxJAlert', a1_message_type: 'Test', is_test_data: true }, 60 * 1000],
   ];
   for (const [report, ttl] of cases) {
     assert.equal(ttlMsForReport(report), ttl, JSON.stringify(report));
@@ -214,4 +218,8 @@ test('server and browser share one TTL table; prune boundaries', () => {
     assert.equal(pruneExpiredReports(entries, 1000 + ttl - 1).length, 1, 'just before TTL');
     assert.equal(pruneExpiredReports(entries, 1000 + ttl).length, 0, 'at TTL');
   }
+  const trainingReplay = { type: 'QzssDcxJAlert', a1_message_type: 'Test', replay_age_ms: 19 * 60 * 1000 };
+  assert.equal(remainingTtlMsForReport(trainingReplay), 60 * 1000);
+  assert.equal(remainingTtlMsForReport({ ...trainingReplay, replay_age_ms: 20 * 60 * 1000 }), 0);
+  assert.equal(remainingTtlMsForReport({ ...trainingReplay, replay_age_ms: 0 }), 20 * 60 * 1000);
 });

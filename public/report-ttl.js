@@ -11,7 +11,7 @@
     EEW: 20 * 60 * 1000,
     HYPOCENTER_INTENSITY: 20 * 60 * 1000,
     TSUNAMI: 24 * H,
-    TRAINING_TSUNAMI: 3 * H,
+    OFFICIAL_TRAINING: 20 * 60 * 1000,
     TSUNAMI_INFO: 3 * H,
     JALERT: 24 * H,
     WEATHER: 3 * H,
@@ -29,7 +29,7 @@
   function ttlMsForReport(report) {
     if (!report) return TTL.OTHER;
     if (report.is_test_data) return TTL.TEST_DATA;
-    if (report.report_classification_no === 7 && report.disaster_category_no === 5) return TTL.TRAINING_TSUNAMI;
+    if (report.report_classification_no === 7 || report.a1_message_type === 'Test') return TTL.OFFICIAL_TRAINING;
     if (report.type === 'QzssDcxJAlert') return TTL.JALERT;
     if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
       return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL.LALERT_UNKNOWN;
@@ -45,5 +45,10 @@
     }
   }
 
-  return { TTL, LALERT_DURATION_TTL_MS, ttlMsForReport };
+  function remainingTtlMsForReport(report) {
+    const age = Number(report?.replay_age_ms);
+    return Math.max(0, ttlMsForReport(report) - (Number.isFinite(age) && age > 0 ? age : 0));
+  }
+
+  return { TTL, LALERT_DURATION_TTL_MS, ttlMsForReport, remainingTtlMsForReport };
 });
