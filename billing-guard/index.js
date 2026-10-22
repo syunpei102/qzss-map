@@ -16,7 +16,11 @@ exports.stopBillingOnBudgetExceeded = async (cloudEvent) => {
     // 丸ごとログに残しておく
     console.log('cloudEvent受信(生データ):', JSON.stringify(cloudEvent));
 
-    const base64Data = cloudEvent?.data?.message?.data ?? cloudEvent?.data?.data;
+    // Eventarc標準のCloudEvent形式に加え，実環境ではPub/Subメッセージ
+    // ({ attributes, data: "base64", message_id }) が直接渡される場合がある．
+    const base64Data = typeof cloudEvent?.data === 'string'
+      ? cloudEvent.data
+      : cloudEvent?.data?.message?.data ?? cloudEvent?.data?.data;
     if (!base64Data) {
       console.error('⚠️ Pub/Subメッセージの中身(data)が見つかりませんでした。cloudEventの構造が想定と違う可能性があります。上のログを確認してください。');
       return;
