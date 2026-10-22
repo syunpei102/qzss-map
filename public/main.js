@@ -587,6 +587,33 @@ function summarizeList(list) {
   return list.join('、');
 }
 
+// スマホで都道府県名を省スペース化する．地方の全県が列挙されている場合だけ
+// 「関東」等に置き換え，一部だけの場合は対象を広く見せないよう元の名前を残す．
+function compactCompleteRegions(value) {
+  const names = String(value || '').split('、');
+  if (names.length < 2) return value;
+  const ids = new Set(names.map((name) => prefectureFeaturesByName.get(name)?.properties?.id).filter(Boolean));
+  if (!ids.size) return value;
+  const groups = [...new Map([...ids].map((id) => {
+    const group = prefectureIdToRegion.get(id);
+    return group ? [group.id, group] : [null, null];
+  }).filter(([id]) => id)).values()].filter((g) => g.prefectureIds.length > 1 && g.prefectureIds.every((id) => ids.has(id)));
+  if (!groups.length) return value;
+  const consumed = new Set();
+  const result = [];
+  for (const name of names) {
+    const id = prefectureFeaturesByName.get(name)?.properties?.id;
+    const group = groups.find((g) => g.prefectureIds.includes(id));
+    if (group) {
+      if (!consumed.has(group.id)) result.push(group.name);
+      consumed.add(group.id);
+    } else {
+      result.push(name);
+    }
+  }
+  return result.join('、');
+}
+
 function severityClass(report) {
   if (report.type === 'DecodeError') return 'sev-error';
   if (report.report_classification_no === 7) return 'sev-training';
@@ -3502,8 +3529,12 @@ function otherReportCard(rec) {
 }
 
 function buildReportCardHtml(record) {
+  const headlineList = Array.isArray(record.headline) ? record.headline : (record.headline ? [record.headline] : []);
+  // Jアラートの試験電文では見出しの「Test alert(訓練)」だけで試験と分かる．
+  // 訓練ラベルと種別バッジを重ねると，狭いスマホ画面を占有してしまう．
+  const isJAlertTest = headlineList.some((h) => /^Test alert/i.test(h));
   const testBanner = record.isTestData && !record.isTraining ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
-  const trainingBanner = record.isTraining
+  const trainingBanner = record.isTraining && !isJAlertTest
     ? `<div class="training-data-banner">${record.isTestData ? '訓練・試験放送（ローカルテスト）' : '訓練・試験放送'}</div>`
     : '';
   const tsunamiBanner = record.tsunamiWarningActive
@@ -3515,11 +3546,15 @@ function buildReportCardHtml(record) {
   // headline(見出し)が種別名を既に大きく表示している場合、同じ文言の
   // バッジを重ねて出す必要は無い(weatherSiteCard参照)。showBadges===false
   // の時だけ非表示にし、badges自体はcardSeverityClassの深刻度判定に引き続き使う
-  const badgesHtml = record.showBadges === false ? '' : (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
+  const badgesHtml = record.showBadges === false || isJAlertTest ? '' : (record.badges || [{ text: record.badgeText, class: record.badgeClass }])
     .map((b) => `<div class="${escapeHtml(b.class)}">${escapeHtml(b.text)}</div>`)
     .join('');
+  const mobileRows = typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches;
   const rowsHtml = record.rows
-    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+    .map(([k, v]) => {
+      const shown = mobileRows && ['対象', '対象地域', '予報地域'].includes(k) ? compactCompleteRegions(v) : v;
+      return `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(shown)}</dd>`;
+    })
     .join('');
   const cardClass = cardSeverityClass(record.badges || [{ class: record.badgeClass }]);
   // 見出し(丸角の四角): 「記録的短時間大雨情報」等、バッジの丸ピルには
@@ -3532,7 +3567,6 @@ function buildReportCardHtml(record) {
   // なっていることがあるため、両方に対応する。それぞれ同じ色(cardClass=
   // 統合後の最高深刻度)の丸角四角形として並べ、「地震 + ミサイル発射」の
   // ような1本の文字列への結合はしない
-  const headlineList = Array.isArray(record.headline) ? record.headline : (record.headline ? [record.headline] : []);
   const headlineHtml = (headlineList.length && !tsunamiBanner)
     ? headlineList.map((h) => `<div class="report-headline ${escapeHtml(cardClass)}">${escapeHtml(h)}</div>`).join('')
     : '';
@@ -3552,6 +3586,9 @@ function buildReportCardHtml(record) {
   // 未エスケープで渡すことは無い)
   const customBodyHtml = record.customBodyHtml || '';
   const titleHtml = record.title ? `<div class="report-title">${escapeHtml(record.title)}</div>` : '';
+  const groupIndicator = record.panelGroupCount > 1
+    ? `<button class="panel-group-next" type="button" data-group-next="${escapeHtml(record.panelGroupKey)}" aria-label="同じ災害種別の次の地域を表示">同種の情報 ${record.panelGroupIndex + 1}/${record.panelGroupCount} ›</button>`
+    : '';
   const cardKeyAttr = record.cardKey ? ` data-card-key="${escapeHtml(record.cardKey)}"` : '';
   return `
     <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}>
@@ -3568,12 +3605,12 @@ function buildReportCardHtml(record) {
       ${messageHtml}
       ${customBodyHtml}
       <dl class="report-summary">${rowsHtml}</dl>
+      ${groupIndicator}
     </div>`;
 }
 
-// パネルに一度に出すカード数の上限。それを超える分は、Web版はCSSの
-// スクロール(#events_containerのmax-height)に任せ、キオスクはスクロール
-// 操作ができないためJSでページを切り替えて巡回表示する
+// デスクトップWeb版はスクロール可能．スマホは1件ずつ，キオスクは3件ずつ
+// 自動でページを切り替える．
 const PANEL_MAX_CARDS = 3;
 const PANEL_PAGE_ROTATE_MS = 10000;
 let panelPageIndex = 0;
@@ -3587,6 +3624,42 @@ function recordBadges(record) {
 
 function recordSeverityRank(record) {
   return SEVERITY_RANK[cardSeverityClass(recordBadges(record))] ?? 0;
+}
+
+// 同じ種別の通報は，全国の対象地域を1枚のパネルで順番に見せる．
+// 内容を1件に混ぜると震源・時刻・深刻度が別地域の値と誤って結び付くため，
+// 元のカードを保持し，パネル内の表示対象だけ切り替える．
+const panelGroupSlideIndices = new Map();
+function groupSameTypePanelCards(cards) {
+  const groups = new Map();
+  for (const card of cards) {
+    const headlines = Array.isArray(card.headline) ? card.headline : (card.headline ? [card.headline] : []);
+    // 複数種別を含む統合カードや専用HTMLを持つカードは分解しない．
+    if (headlines.length !== 1 || card.customBodyHtml) continue;
+    const key = `${card.isTraining ? 'training' : 'live'}|${card.isTestData ? 'test' : 'official'}|${headlines[0]}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(card);
+  }
+  const inserted = new Set();
+  return cards.flatMap((card) => {
+    const headlines = Array.isArray(card.headline) ? card.headline : (card.headline ? [card.headline] : []);
+    if (headlines.length !== 1 || card.customBodyHtml) return [card];
+    const key = `${card.isTraining ? 'training' : 'live'}|${card.isTestData ? 'test' : 'official'}|${headlines[0]}`;
+    const members = groups.get(key);
+    if (!members || members.length < 2) return [card];
+    if (inserted.has(key)) return [];
+    inserted.add(key);
+    members.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    return [{ ...members[0], panelGroupKey: key, panelGroupRecords: members,
+      updatedAt: members[0].updatedAt }];
+  });
+}
+
+function panelRecordForDisplay(record) {
+  if (!record.panelGroupRecords) return record;
+  const index = (panelGroupSlideIndices.get(record.panelGroupKey) || 0) % record.panelGroupRecords.length;
+  return { ...record.panelGroupRecords[index], panelGroupKey: record.panelGroupKey,
+    panelGroupIndex: index, panelGroupCount: record.panelGroupRecords.length };
 }
 
 // 2つのactiveEventsレコードが同じ対象地域(都道府県・市区町村・津波区域の
@@ -3801,6 +3874,16 @@ function buildLalertNationwideCard(records) {
 function renderEventsPanel() {
   const container = document.getElementById('events_container');
   if (!container) return;
+  if (!container.__panelGroupClickInstalled) {
+    container.addEventListener('click', (event) => {
+      const button = event.target.closest?.('[data-group-next]');
+      if (!button) return;
+      const key = button.dataset.groupNext;
+      panelGroupSlideIndices.set(key, (panelGroupSlideIndices.get(key) || 0) + 1);
+      renderEventsPanel();
+    });
+    container.__panelGroupClickInstalled = true;
+  }
 
   // パネルの主役は「地図が今まさにズームして見せている対象」。
   // currentPatrolCode/currentPatrolTrainingIdが立っている間は巡回
@@ -3894,29 +3977,41 @@ function renderEventsPanel() {
     return;
   }
 
-  const sorted = [...visibleRecords].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); // 新しい順
+  const sorted = groupSameTypePanelCards(visibleRecords)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); // 新しい順
 
-  if (IS_LOCAL_KIOSK && sorted.length > PANEL_MAX_CARDS) {
-    // キオスクはスクロールできないので、PANEL_MAX_CARDS件ずつページを
-    // 切り替えて全件を順番に見せる
-    const pageCount = Math.ceil(sorted.length / PANEL_MAX_CARDS);
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 700px)').matches;
+  const cardsPerPage = isMobile ? 1 : PANEL_MAX_CARDS;
+  const hasGroup = sorted.some((r) => r.panelGroupRecords);
+  if ((IS_LOCAL_KIOSK || isMobile) && sorted.length > cardsPerPage) {
+    // スマホとキオスクではパネルを内部スクロールさせず，カードを順番に表示する．
+    const pageCount = Math.ceil(sorted.length / cardsPerPage);
     if (panelPageIndex >= pageCount) panelPageIndex = 0;
     const renderPage = () => {
-      const start = panelPageIndex * PANEL_MAX_CARDS;
-      const cardsHtml = sorted.slice(start, start + PANEL_MAX_CARDS).map(buildReportCardHtml).join('');
+      const start = panelPageIndex * cardsPerPage;
+      const cardsHtml = sorted.slice(start, start + cardsPerPage).map(panelRecordForDisplay).map(buildReportCardHtml).join('');
       const indicatorHtml = `<div class="panel-page-indicator">${panelPageIndex + 1} / ${pageCount}</div>`;
       container.innerHTML = cardsHtml + indicatorHtml;
     };
     renderPage();
     panelPageTimer = setInterval(() => {
+      for (const group of sorted.slice(panelPageIndex * cardsPerPage, (panelPageIndex + 1) * cardsPerPage)) {
+        if (group.panelGroupRecords) panelGroupSlideIndices.set(group.panelGroupKey, (panelGroupSlideIndices.get(group.panelGroupKey) || 0) + 1);
+      }
       panelPageIndex = (panelPageIndex + 1) % pageCount;
       renderPage();
     }, PANEL_PAGE_ROTATE_MS);
   } else {
-    // Web版は全件描画し、#events_containerのmax-height+overflow-yで
-    // 3件分を超えた分はスクロールさせる(CSS側、style.css参照)
+    // デスクトップWeb版は全件描画し，CSSでスクロールできる．
     panelPageIndex = 0;
-    container.innerHTML = sorted.map(buildReportCardHtml).join('');
+    const renderAll = () => { container.innerHTML = sorted.map(panelRecordForDisplay).map(buildReportCardHtml).join(''); };
+    renderAll();
+    if (hasGroup) panelPageTimer = setInterval(() => {
+      for (const group of sorted) {
+        if (group.panelGroupRecords) panelGroupSlideIndices.set(group.panelGroupKey, (panelGroupSlideIndices.get(group.panelGroupKey) || 0) + 1);
+      }
+      renderAll();
+    }, PANEL_PAGE_ROTATE_MS);
   }
 }
 

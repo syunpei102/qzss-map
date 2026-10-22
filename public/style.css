@@ -172,6 +172,19 @@ body.is-kiosk #events_container {
   padding: 6px 0 2px;
 }
 
+.panel-group-next {
+  display: block;
+  margin: 8px 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #d5dbe3;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 .report-card {
   padding: 14px 14px 14px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -466,26 +479,29 @@ body.is-kiosk #events_container {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
-/* ==================================================
-   スマホ(iPhone等)向けレイアウト
-   パネルを画面上部に幅いっぱいで固定し、高さを画面の
-   一部(35vh)に制限してスクロール可能にすることで、
-   地図が隠れすぎないようにする
-   ================================================== */
+/* スマホではOSの安全領域を避け，警報を1件ずつ表示する． */
 @media (max-width: 700px) {
   .panel {
-    top: 0;
-    left: 0;
-    right: 0;
+    /* 透明ステータスバーだった旧PWAやノッチ付き端末でも，OS領域を覆わない */
+    top: calc(env(safe-area-inset-top, 0px) + 4px);
+    left: env(safe-area-inset-left, 0px);
+    right: env(safe-area-inset-right, 0px);
     width: auto;
-    max-height: 30vh;
+    max-height: min(60dvh, calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 8px));
+    overflow: hidden;
     border-radius: 0 0 14px 14px;
   }
 
-  /* PWAとしてホーム画面から起動した際、ノッチ/ステータスバーに
-     パネルが隠れないようにする(通常のSafari表示では0になる) */
+  #events_container {
+    max-height: none;
+    overflow: hidden;
+  }
+
+  .satellite-info { padding: 3px 12px 0; }
+  .panel-page-indicator { padding: 3px 0; }
+
   .panel-header {
-    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    padding: 8px 12px;
   }
 
   .clock {
@@ -499,7 +515,7 @@ body.is-kiosk #events_container {
   }
 
   .report-card {
-    padding: 10px 12px;
+    padding: 7px 10px;
   }
 
   .test-data-banner {
@@ -534,8 +550,9 @@ body.is-kiosk #events_container {
 
   .report-message {
     font-size: 12px;
-    padding: 1px 0 1px 10px;
-    margin: 4px 0 6px;
+    line-height: 1.35;
+    padding: 0 0 0 8px;
+    margin: 3px 0 5px;
   }
 
   /* シンプル化: 受信時刻(上部の時計と重複する情報)は非表示にし、
@@ -546,7 +563,8 @@ body.is-kiosk #events_container {
 
   .report-summary {
     font-size: 12px;
-    row-gap: 4px;
+    line-height: 1.3;
+    row-gap: 3px;
     column-gap: 8px;
   }
 

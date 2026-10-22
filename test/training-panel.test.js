@@ -13,10 +13,11 @@ function loadFunction(name, nextMarker, context) {
 }
 
 test('earthquake and tsunami training cards visibly identify the exercise', () => {
-  const render = loadFunction('buildReportCardHtml', '// パネルに一度に出すカード数', {
+  const render = loadFunction('buildReportCardHtml', 'const PANEL_MAX_CARDS', {
     escapeHtml: (value) => String(value),
     cardSeverityClass: () => 'sev-training',
     TSUNAMI_DEFAULT_COLOR: '#ff2800',
+    SATELLITE_NAMES: { 56: 'みちびき2号機' },
   });
   const card = { isTraining: true, isTestData: false, tsunamiWarningActive: true,
     tsunamiWarningColor: '#ff2800', tsunamiWarningText: '津波警報 発表中',
@@ -30,6 +31,49 @@ test('earthquake and tsunami training cards visibly identify the exercise', () =
   assert.ok(localTrainingHtml.includes('訓練・試験放送（ローカルテスト）'));
   assert.ok(!localTrainingHtml.includes('🧪 テストデータ'));
   assert.equal((localTrainingHtml.match(/training-data-banner/g) || []).length, 1);
+});
+
+test('J-Alert Test alert uses only one test label', () => {
+  const render = loadFunction('buildReportCardHtml', 'const PANEL_MAX_CARDS', {
+    escapeHtml: (value) => String(value),
+    cardSeverityClass: () => 'sev-training',
+    TSUNAMI_DEFAULT_COLOR: '#ff2800',
+    SATELLITE_NAMES: { 56: 'みちびき2号機' },
+  });
+  const html = render({ isTraining: true, isTestData: false, jalertKey: 'Test|Tokyo',
+    satellitePrn: 184, satelliteId: 56, headline: 'Test alert(訓練)',
+    badges: [{ text: 'Jアラート', class: 'report-badge sev-training' }],
+    message: 'これは，Jアラートのテストです．', rows: [['対象', '東京都']], meta: '' });
+  assert.ok(html.includes('Test alert(訓練)'));
+  assert.ok(!html.includes('訓練・試験放送'));
+  assert.ok(!html.includes('>Jアラート</div>'));
+});
+
+test('mobile abbreviation requires every prefecture in a region', () => {
+  const names = new Map([['茨城県', 8], ['栃木県', 9], ['群馬県', 10], ['埼玉県', 11],
+    ['千葉県', 12], ['東京都', 13], ['神奈川県', 14]].map(([name, id]) => [name, { properties: { id } }]));
+  const region = { id: 'kanto', name: '関東', prefectureIds: [8, 9, 10, 11, 12, 13, 14] };
+  const groups = new Map(region.prefectureIds.map((id) => [id, region]));
+  const compact = loadFunction('compactCompleteRegions', 'function severityClass(', {
+    prefectureFeaturesByName: names, prefectureIdToRegion: groups,
+  });
+  assert.equal(compact([...names.keys()].join('、')), '関東');
+  assert.equal(compact('東京都、千葉県'), '東京都、千葉県');
+  assert.equal(compact('東京都千代田区、千葉県'), '東京都千代田区、千葉県');
+});
+
+test('same disaster type uses one nationwide card while keeping each region intact', () => {
+  const group = loadFunction('groupSameTypePanelCards', 'function panelRecordForDisplay(', {});
+  const tokyo = { headline: '大雨警報', title: '東京都', rows: [['対象', '東京都']], updatedAt: 20 };
+  const osaka = { headline: '大雨警報', title: '大阪府', rows: [['対象', '大阪府']], updatedAt: 10 };
+  const quake = { headline: '緊急地震速報', title: '千島列島', updatedAt: 15 };
+  const training = { ...tokyo, isTraining: true, title: '訓練' };
+  const result = group([tokyo, osaka, quake, training]);
+  assert.equal(result.length, 3);
+  const rain = result.find((card) => card.panelGroupRecords);
+  assert.equal(rain.panelGroupRecords.length, 2);
+  assert.equal(Array.from(rain.panelGroupRecords, (card) => card.title).join(','), '東京都,大阪府');
+  assert.equal(result.filter((card) => card.isTraining).length, 1);
 });
 
 test('a training report never merges into an overlapping live panel', () => {
