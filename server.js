@@ -1625,9 +1625,7 @@ app.get("/config", (req, res) => {
 // 生鍵の扱いを自前実装するリスクを避けて小さな専用ライブラリに頼る。
 // ==================================================
 const DISCORD_PUBLIC_KEY = (process.env.DISCORD_PUBLIC_KEY || "").trim();
-// 未設定の場合はコマンド実行者を制限しない(Discordサーバー側の権限設定
-// だけに頼る)。設定した場合はこのユーザーID以外の実行を拒否する
-// (Web管理画面が運用者1人限定だった方針を踏襲した二重の防御)
+// 管理者IDが未設定ならDiscord操作は全て拒否する(署名だけでは利用者を限定できない)．
 const DISCORD_ADMIN_USER_ID = (process.env.DISCORD_ADMIN_USER_ID || "").trim();
 
 function ephemeralReply(content) {
@@ -1652,6 +1650,9 @@ function findFocusedOption(options) {
 // デバイスIDや都道府県名の打ち間違いで無言のエラーになりやすいため、
 // 既存データ(deviceStatus/PREFECTURE_LIST)から候補を絞り込んで返す
 function handleAutocomplete(interaction) {
+  if (!guards.isAuthorizedDiscordUser(interaction, DISCORD_ADMIN_USER_ID)) {
+    return { type: InteractionResponseType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT, data: { choices: [] } };
+  }
   const focused = findFocusedOption(interaction.data.options);
   const query = String((focused && focused.value) || "").toLowerCase();
   let choices = [];
@@ -1675,9 +1676,7 @@ function handleAutocomplete(interaction) {
 }
 
 function handleCommand(interaction) {
-  const invokerId = (interaction.member && interaction.member.user && interaction.member.user.id) ||
-    (interaction.user && interaction.user.id);
-  if (DISCORD_ADMIN_USER_ID && invokerId !== DISCORD_ADMIN_USER_ID) {
+  if (!guards.isAuthorizedDiscordUser(interaction, DISCORD_ADMIN_USER_ID)) {
     return ephemeralReply("⛔ このコマンドを実行する権限がありません。");
   }
   const options = {};

@@ -87,6 +87,17 @@ test('tokenless requests are accepted only from loopback unless explicitly allow
   assert.equal(g.mayBypassAuth('192.168.1.20', { QZSS_ALLOW_INSECURE_LAN: 'true' }), true);
 });
 
+test('Discord management commands fail closed and identify the actual invoker', () => {
+  const guild = { member: { user: { id: '123456789012345678' } } };
+  const direct = { user: { id: '123456789012345678' } };
+  for (const interaction of [guild, direct]) {
+    assert.equal(g.isAuthorizedDiscordUser(interaction, ''), false);
+    assert.equal(g.isAuthorizedDiscordUser(interaction, '999999999999999999'), false);
+    assert.equal(g.isAuthorizedDiscordUser(interaction, '123456789012345678'), true);
+  }
+  assert.equal(g.isAuthorizedDiscordUser({}, '123456789012345678'), false);
+});
+
 test('rate limiter blocks over the limit and recovers after the window', () => {
   let now = 0;
   const allow = g.createRateLimiter({ windowMs: 1000, max: 2, now: () => now });
