@@ -227,8 +227,9 @@ INGEST_TOKEN=$(openssl rand -hex 16) ./deploy_gcloud.sh [サービス名] [リ�
 
 デバイス管理・拠点ごとの地域設定機能(次節)を使う場合は、あわせて以下も必要:
 
-- Discordコマンド(`/reboot`等)を使うため `DISCORD_PUBLIC_KEY`(必須)・
-  `DISCORD_ADMIN_USER_ID`(推奨)を環境変数に設定する。手順は
+- Discordコマンド(`/reboot`等)を使うため `DISCORD_PUBLIC_KEY`・
+  `DISCORD_ADMIN_USER_ID`(操作を許可するユーザーのID)を環境変数に設定する．
+  `DISCORD_ADMIN_USER_ID`が未設定なら，署名が正しくてもコマンドと候補表示を拒否する．手順は
   `qzss_pi_package/DISCORD_SETUP.md` 参照
 - 拠点の地域設定・拠点別トークン・管理者パスワードを永続化するGCSバケット
   を作成しておく(既定バケット名`qzss-map-state`。
@@ -382,9 +383,9 @@ Cloud Run自体は使った分だけの従量課金だが、想定外の高ト�
   **本番(Cloud Run)では`ENABLE_WEB_ADMIN`を設定していないため、このルート自体が
   無効(存在しない)**。デバイス操作は`/discord/interactions`(後述)に一本化している。
 - `/discord/interactions` はDiscordからのリクエストであることをEd25519署名
-  (`DISCORD_PUBLIC_KEY`)で検証する(`discord-interactions`パッケージ使用)。
-  検証を通らないリクエストは401で拒否する。`DISCORD_ADMIN_USER_ID`を設定すると、
-  そのDiscordユーザー以外のコマンド実行も拒否する(二重の防御)。
+  (`DISCORD_PUBLIC_KEY`)で検証する(`discord-interactions`パッケージ使用)．
+  検証を通らないリクエストは401で拒否する．`DISCORD_ADMIN_USER_ID`が未設定なら
+  操作を全て拒否し，設定されていてもそのユーザー以外の実行を拒否する．
 - `INGEST_TOKEN` / `DISCORD_PUBLIC_KEY` / `ADMIN_PASSWORD_HASH` はすべてCloud Runの
   環境変数としてのみ保持し、**このリポジトリは公開リポジトリなので、コード・
   スクリプト・ドキュメントのどこにも実際の値を書かないこと。** ローカルで試す場合も、

@@ -106,6 +106,9 @@ const commands = [
   },
 ];
 
+// Discord側でも既定はサーバー管理者のみにする．サーバー側のユーザーID検証も必須．
+for (const command of commands) command.default_member_permissions = "0";
+
 async function main() {
   const res = await fetch(
     `https://discord.com/api/v10/applications/${APPLICATION_ID}/guilds/${GUILD_ID}/commands`,

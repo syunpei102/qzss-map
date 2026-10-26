@@ -31,6 +31,14 @@ function mayBypassAuth(remoteAddress, env) {
   return isLoopbackAddress(remoteAddress) || (env.QZSS_ALLOW_INSECURE_LAN || "").trim() === "true";
 }
 
+// Discordの署名は送信元を証明するだけで，コマンド実行者の権限は証明しない．
+// 管理者IDが未設定なら閉じる．Autocompleteにも同じ判定を使う．
+function isAuthorizedDiscordUser(interaction, adminUserId) {
+  if (!adminUserId) return false;
+  const userId = interaction?.member?.user?.id || interaction?.user?.id;
+  return userId === adminUserId;
+}
+
 // ---- レート制限 (Issue #14) ----
 function createRateLimiter({ windowMs, max, maxKeys = 10000, now = Date.now }) {
   const hits = new Map(); // key -> { start, count }
@@ -133,4 +141,4 @@ function earthquakeNotificationKey(report) {
   return `n:eq${parts.length ? `|${parts.join("|")}` : ""}`;
 }
 
-module.exports = { isLoopbackAddress, resolveListenConfig, mayBypassAuth, createRateLimiter, validatePushSubscription, validateClientTiming, notificationTag, earthquakeNotificationKey };
+module.exports = { isLoopbackAddress, resolveListenConfig, mayBypassAuth, isAuthorizedDiscordUser, createRateLimiter, validatePushSubscription, validateClientTiming, notificationTag, earthquakeNotificationKey };
