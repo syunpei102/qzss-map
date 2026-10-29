@@ -239,6 +239,37 @@ body.is-kiosk #events_container {
   margin-bottom: 8px;
 }
 
+.report-heading-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.report-heading-type {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.report-heading-row .training-data-banner {
+  flex: none;
+  margin: 2px 0 0;
+  white-space: nowrap;
+}
+
+.report-heading-row .report-headline,
+.report-heading-row .tsunami-alert-banner {
+  margin: 0;
+}
+
+.report-heading-row .tsunami-alert-banner {
+  flex: 1;
+  min-width: 0;
+}
+
 .tsunami-alert-banner {
   font-size: 15px;
   font-weight: bold;
