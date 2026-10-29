@@ -3503,6 +3503,7 @@ function weatherSiteCard(site) {
   if (site.reportTime) rows.push(['発表時刻', formatDateTime(site.reportTime)]);
   return {
     isTestData: site.isTestData,
+    isTraining: site.isTraining,
     satelliteId: site.satelliteId,
     satellitePrn: site.satellitePrn,
     // 「記録的短時間大雨情報」等、丸ピルのバッジには収まりきらない長さの
@@ -3522,6 +3523,7 @@ function otherReportCard(rec) {
   return {
     cardKey: rec.id,
     isTestData: rec.isTestData,
+    isTraining: rec.isTraining,
     satelliteId: rec.satelliteId,
     satellitePrn: rec.satellitePrn,
     badges: [{ text: rec.badgeText, class: rec.badgeClass }],
@@ -3577,6 +3579,9 @@ function buildReportCardHtml(record) {
   const headlineHtml = (headlineList.length && !tsunamiBanner)
     ? headlineList.map((h) => `<div class="report-headline ${escapeHtml(cardClass)}">${escapeHtml(h)}</div>`).join('')
     : '';
+  const headingHtml = trainingBanner && (tsunamiBanner || headlineHtml)
+    ? `<div class="report-heading-row"><div class="report-heading-type">${tsunamiBanner}${headlineHtml}</div>${trainingBanner}</div>`
+    : `${trainingBanner}${tsunamiBanner}${headlineHtml}`;
   // メッセージ(指示・案内文): 「河口から離れてください」のような自由文を
   // dt/ddの1行に埋もれさせず、独立したブロックとして目立たせる。吹き出し
   // (コメント)っぽく見えないようアイコン・背景ボックスは無し。カード
@@ -3600,9 +3605,7 @@ function buildReportCardHtml(record) {
   return `
     <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}>
       ${testBanner}
-      ${trainingBanner}
-      ${tsunamiBanner}
-      ${headlineHtml}
+      ${headingHtml}
       <div class="report-badge-row">
         <div class="badges-list">${badgesHtml}</div>
         ${satelliteTag}
