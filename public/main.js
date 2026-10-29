@@ -2203,6 +2203,16 @@ function buildEventFromReport(report) {
   const earthquakeFill = EarthquakeFill.fromReport(report, geo.prefectures);
   if ([1, 3].includes(report.disaster_category_no)) geo.prefectures = earthquakeFill.prefectures;
 
+  const tsunamiCoasts = report.disaster_category_no === 5
+    ? (report.tsunami_forecast_regions_raw || []).map((code, i) => ({
+      code,
+      name: report.tsunami_forecast_regions?.[i],
+      height: report.tsunami_heights?.[i],
+      warningCode: report.tsunami_warning_code_raw,
+      warningText: report.tsunami_warning_code,
+      color: TSUNAMI_COLORS[report.tsunami_warning_code_raw] || TSUNAMI_DEFAULT_COLOR,
+    })) : [];
+
   return {
     epicenterRaw: typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
@@ -2217,6 +2227,7 @@ function buildEventFromReport(report) {
     tsunamiWarningText: report.tsunami_warning_code || null,
     tsunamiWarningActive: report.tsunami_warning_code_raw != null && ![1, 2].includes(report.tsunami_warning_code_raw),
     tsunamiWarningColor: TSUNAMI_COLORS[report.tsunami_warning_code_raw] || null,
+    tsunamiCoasts,
     badgeText: report.disaster_category || report.type,
     badgeClass: 'report-badge ' + severityClass(report),
     // 見出しとバッジが同じ文言(災害種別名)になるため、バッジは非表示にする
@@ -2317,6 +2328,25 @@ function tsunamiSnapshotForEvent(eventData) {
     ...eventData,
     geo: { ...eventData.geo, hypocenter: null, prefectures: [] },
   };
+}
+
+// サーバーは津波情報を沿岸ごとに保存・再送する．同じ地震のカードへ
+// 続報を統合するときも，別沿岸を消さず，同じ沿岸だけを更新する．
+function mergeTsunamiCoasts(current, incoming) {
+  const byCode = new Map();
+  for (const coast of [...(current || []), ...(incoming || [])]) {
+    if (coast?.code != null) byCode.set(coast.code, coast);
+  }
+  return [...byCode.values()];
+}
+
+function tsunamiRowsWithCoasts(rows, coasts) {
+  const merged = new Map(rows || []);
+  const names = [...new Set(coasts.map((coast) => coast.name).filter(Boolean))];
+  const heights = [...new Set(coasts.map((coast) => coast.height).filter(Boolean))];
+  if (names.length) merged.set('対象沿岸', summarizeList(names));
+  if (heights.length) merged.set('津波の高さ', summarizeList(heights));
+  return [...merged.entries()];
 }
 
 // 別の地震のEEWが来たときは前の震度表示だけを退ける．
@@ -2693,10 +2723,23 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     scheduleEewFillExpiry(record);
   } else if (prefecturesChanged) record.geo.prefectures = eventData.geo.prefectures;
 
-  if (eventData.geo.tsunami.length) {
+  let mergedTsunamiCoasts = null;
+  if (report.disaster_category_no === 5 && eventData.tsunamiCoasts?.length) {
+    mergedTsunamiCoasts = mergeTsunamiCoasts(record.tsunamiCoasts, eventData.tsunamiCoasts);
+    record.tsunamiCoasts = mergedTsunamiCoasts;
+    record.geo.tsunami = mergedTsunamiCoasts.map(({ code, color }) => ({ code, color }));
+    const snapshotRows = tsunamiRowsWithCoasts(eventData.rows, mergedTsunamiCoasts);
+    const oldBounds = record.tsunamiSnapshot?.bounds;
+    record.tsunamiSnapshot = tsunamiSnapshotForEvent({
+      ...eventData,
+      tsunamiCoasts: mergedTsunamiCoasts,
+      rows: snapshotRows,
+      geo: { ...eventData.geo, tsunami: record.geo.tsunami },
+      bounds: oldBounds && eventData.bounds ? unionBounds([oldBounds, eventData.bounds]) : (eventData.bounds || oldBounds),
+    });
+  } else if (eventData.geo.tsunami.length) {
     record.geo.tsunami = eventData.geo.tsunami;
   }
-  if (report.disaster_category_no === 5) record.tsunamiSnapshot = tsunamiSnapshotForEvent(eventData);
 
   if (eventData.geo.floodRivers && eventData.geo.floodRivers.length) {
     record.geo.floodRivers = eventData.geo.floodRivers;
@@ -2721,10 +2764,20 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // 詳細項目(rows)を統合。同じ項目名は最新の値で上書きし、新しい項目は追加する
   const rowsMap = new Map(record.rows);
   for (const [k, v] of eventData.rows) rowsMap.set(k, v);
+  if (mergedTsunamiCoasts) {
+    for (const [k, v] of tsunamiRowsWithCoasts([], mergedTsunamiCoasts)) rowsMap.set(k, v);
+  }
   record.rows = [...rowsMap.entries()];
 
   record.title = eventData.title;
   record.headline = eventData.headline;
+  if (mergedTsunamiCoasts) {
+    const priority = (coast) => [4, 5].includes(coast.warningCode) ? 3 : coast.warningCode === 3 ? 2 : 1;
+    const strongest = mergedTsunamiCoasts.reduce((best, coast) => priority(coast) > priority(best) ? coast : best);
+    record.headline = strongest.warningText || record.headline;
+    record.tsunamiWarningText = strongest.warningText || record.tsunamiWarningText;
+    record.tsunamiWarningColor = strongest.color;
+  }
   record.showBadges = eventData.showBadges;
   record.message = eventData.message;
   record.meta = eventData.meta;
