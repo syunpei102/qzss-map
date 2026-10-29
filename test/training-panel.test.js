@@ -25,12 +25,16 @@ test('earthquake and tsunami training cards visibly identify the exercise', () =
     headline: '津波警報', title: '', meta: '受信 10:05', rows: [] };
   const html = render(card);
   assert.ok(html.includes('訓練・試験放送'));
-  assert.ok(html.indexOf('訓練・試験放送') < html.indexOf('津波警報 発表中'));
+  assert.match(html, /report-heading-row[\s\S]*津波警報 発表中[\s\S]*訓練・試験放送[\s\S]*<\/div>/);
+  assert.ok(html.indexOf('津波警報 発表中') < html.indexOf('訓練・試験放送'));
   assert.ok(!render({ ...card, isTraining: false }).includes('訓練・試験放送'));
   const localTrainingHtml = render({ ...card, isTestData: true });
   assert.ok(localTrainingHtml.includes('訓練・試験放送（ローカルテスト）'));
   assert.ok(!localTrainingHtml.includes('🧪 テストデータ'));
   assert.equal((localTrainingHtml.match(/training-data-banner/g) || []).length, 1);
+  const eewHtml = render({ ...card, tsunamiWarningActive: false, headline: '緊急地震速報' });
+  assert.ok(eewHtml.indexOf('緊急地震速報') < eewHtml.indexOf('訓練・試験放送'));
+  assert.equal((eewHtml.match(/training-data-banner/g) || []).length, 1);
 });
 
 test('J-Alert Test alert uses only one test label', () => {
@@ -47,6 +51,23 @@ test('J-Alert Test alert uses only one test label', () => {
   assert.ok(html.includes('Test alert(訓練)'));
   assert.ok(!html.includes('訓練・試験放送'));
   assert.ok(!html.includes('>Jアラート</div>'));
+});
+
+test('other category training keeps its training indicator on the card', () => {
+  const card = loadFunction('otherReportCard', 'function buildReportCardHtml', {})({
+    id: 'ash:test:桜島', isTraining: true, isTestData: false,
+    badgeText: '降灰', badgeClass: 'sev-training', headline: '降灰',
+    rows: [],
+  });
+  const render = loadFunction('buildReportCardHtml', 'const PANEL_MAX_CARDS', {
+    escapeHtml: (value) => String(value),
+    cardSeverityClass: () => 'sev-training',
+    TSUNAMI_DEFAULT_COLOR: '#ff2800',
+    SATELLITE_NAMES: {},
+  });
+  const html = render(card);
+  assert.ok(html.indexOf('降灰') < html.indexOf('訓練・試験放送'));
+  assert.equal((html.match(/training-data-banner/g) || []).length, 1);
 });
 
 test('mobile abbreviation requires every prefecture in a region', () => {
