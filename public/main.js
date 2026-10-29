@@ -1170,9 +1170,7 @@ function handleVolcanoReport(report) {
     for (const [id, record] of activeEvents) {
       if (record.volcanoKey === name) removeActiveEvent(id);
     }
-    const existing = otherReports.get(fallbackKey);
-    if (existing && existing.timer) clearTimeout(existing.timer);
-    otherReports.delete(fallbackKey);
+    removeVolcanoFallback(fallbackKey);
     syncActiveEventLayers();
     return;
   }
@@ -1190,6 +1188,9 @@ function handleVolcanoReport(report) {
   const severityClass = volcanoSeverityClass(report.volcanic_warning_code_raw);
   const coord = name ? volcanoesByName.get(name) : null;
   if (coord) {
+    // 座標の遅延読込前に作った文字だけのカードを円のイベントに置き換える．
+    // 残すと同じ火山がotherReportsとactiveEventsの両方に描画される．
+    removeVolcanoFallback(fallbackKey);
     // 地図の円とパネルの帯・見出しが違う色に見えないよう、両方とも
     // severityClassから導く(洪水で一度踏んだ失敗と同じにしない)
     const color = VOLCANO_SEVERITY_COLOR[severityClass];
@@ -1248,6 +1249,12 @@ function handleVolcanoReport(report) {
     otherReports.set(fallbackKey, event);
   }
   syncActiveEventLayers();
+}
+
+function removeVolcanoFallback(key) {
+  const existing = otherReports.get(key);
+  if (existing?.timer) clearTimeout(existing.timer);
+  otherReports.delete(key);
 }
 
 // 降灰(9)の対象地域の中で最も重い降灰種別の塗り色を返す
