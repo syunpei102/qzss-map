@@ -688,6 +688,24 @@ function buildTitle(report) {
   return base;
 }
 
+// 津波の長い定型文は，警報区分に応じた短い行動案内に置き換える．
+// 文字列とコードの双方を確認し，未知の区分は警報と決めつけない．
+function tsunamiGuidance(report) {
+  if (report.disaster_category_no !== 5 || report.information_type_no === 2
+      || ['解除', '取消'].includes(report.information_type)
+      || [1, 2].includes(report.tsunami_warning_code_raw)) return null;
+
+  const warning = String(report.tsunami_warning_code || '');
+  if ([4, 5].includes(report.tsunami_warning_code_raw) || warning.includes('大津波警報')
+      || report.tsunami_warning_code_raw === 3 || warning.includes('津波警報')) {
+    return '沿岸部・川沿いにいる方は，直ちに高台や避難ビルへ避難してください．警報解除まで戻らないでください．';
+  }
+  if (warning.includes('津波注意報')) {
+    return '海から上がり，海岸から離れてください．注意報解除まで海岸に近づかないでください．';
+  }
+  return '海岸や川沿いに近づかず，最新の津波情報を確認してください．';
+}
+
 function buildSummary(report) {
   const rows = [];
   const push = (k, v) => { if (v !== undefined && v !== null && v !== '') rows.push([k, v]); };
@@ -721,10 +739,10 @@ function buildSummary(report) {
     push('津波の高さ', summarizeList([...new Set(report.tsunami_heights)]));
   }
 
-  // 「強い揺れに警戒してください。」等、JMAが付加する定型の注意喚起文。
-  // 震央・マグニチュード等の項目が既にあっても、安全に関わる重要な
-  // 文言なので常に表示する(「なし」は情報が無いことを示すだけなので除外)
-  if (Array.isArray(report.notifications_on_disaster_prevention) && report.notifications_on_disaster_prevention.length) {
+  const tsunamiNotice = tsunamiGuidance(report);
+  if (tsunamiNotice) push('お知らせ', tsunamiNotice);
+  // 津波以外は従来どおり受信した注意喚起文を表示する．
+  if (report.disaster_category_no !== 5 && Array.isArray(report.notifications_on_disaster_prevention) && report.notifications_on_disaster_prevention.length) {
     const messages = report.notifications_on_disaster_prevention.filter((m) => m && m !== 'なし');
     if (messages.length) push('お知らせ', messages.join(' '));
   }
