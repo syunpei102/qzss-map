@@ -74,6 +74,8 @@ test('newer ash issue replaces old forecast; stale replay and cancellation are h
   accept(ash([46482], '2026-10-28T04:21:00'));
   accept(ash([46201]));
   assert.deepEqual([...([...otherReports.values()][0].report.local_governments_raw)], [46482]);
+  accept(ash([], '2026-10-28T03:21:00', { information_type_no: 2 }));
+  assert.equal(otherReports.size, 1, 'old cancellation must not remove the newer forecast');
   accept(ash([], '2026-10-28T04:21:00', { information_type_no: 2 }));
   assert.equal(otherReports.size, 0);
 });

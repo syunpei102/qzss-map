@@ -4530,6 +4530,12 @@ function renderReport(report) {
       : report.disaster_category_no;
     const existing = otherReports.get(otherKey);
     if (isCancel) {
+      if (report.disaster_category_no === 9 && existing && report.activity_time && report.report_time) {
+        const oldStamp = [existing.ashActivityTime || '', existing.ashReportTime || ''];
+        const cancelStamp = [report.activity_time || '', report.report_time || ''];
+        if (cancelStamp[0].localeCompare(oldStamp[0]) < 0 ||
+            (cancelStamp[0] === oldStamp[0] && cancelStamp[1].localeCompare(oldStamp[1]) < 0)) return;
+      }
       if (existing?.timer) clearTimeout(existing.timer);
       otherReports.delete(otherKey);
     } else {
