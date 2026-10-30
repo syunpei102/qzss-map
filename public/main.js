@@ -1388,6 +1388,41 @@ function tsunamiInfoHasLocation(report) {
     || (report.expected_tsunami_arrival_times || []).some(Boolean);
 }
 
+// 分割電文を結合した降灰予報でも，パネルには要点だけを表示する．
+function ashSummaryRows(report) {
+  const rows = [];
+  const shortNames = { 1: '少量', 2: 'やや多量', 3: '多量', 4: '小さな噴石', 7: 'その他' };
+  const warnings = new Map();
+  const raw = report.ash_fall_warning_codes_raw || [];
+  const labels = report.ash_fall_warning_codes || [];
+  for (let i = 0; i < Math.max(raw.length, labels.length); i++) {
+    const code = raw[i];
+    const label = shortNames[code] || labels[i];
+    if (label) warnings.set(code ?? label, { label, rank: code === 4 ? 4 : (ASH_FALL_SEVERITY[code] ?? 0) });
+  }
+  const ordered = [...warnings.values()].sort((a, b) => b.rank - a.rank).map((w) => w.label);
+  if (ordered.length) rows.push(['降灰', ordered.slice(0, 2).join('・') + (ordered.length > 2 ? `ほか${ordered.length - 2}種` : '')]);
+
+  const areas = new Map();
+  const areaCodes = report.local_governments_raw?.length ? report.local_governments_raw : (report.local_governments || []);
+  areaCodes.forEach((code, i) => {
+    const name = (report.local_governments || [])[i];
+    areas.set(code, name || '');
+  });
+  if (areas.size) {
+    const first = [...areas.values()].find(Boolean);
+    const summary = first ? first + (areas.size > 1 ? `ほか${areas.size - 1}地域` : '') : `${areas.size}地域`;
+    rows.push(['対象', summary]);
+  }
+
+  const hours = (report.expected_ash_fall_times || []).filter((n) => n !== null && n !== undefined && n !== '').map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+  if (hours.length) {
+    const min = Math.min(...hours), max = Math.max(...hours);
+    rows.push(['予想', `基点から${min === max ? min : `${min}～${max}`}時間後`]);
+  }
+  return rows;
+}
+
 // 洪水(11)は専用のhandleFloodReport/buildEventFromFloodRiverで扱う。
 // 火山(8)も専用のhandleVolcanoReportで扱うため、ここでは
 // 南海トラフ地震(4)・降灰(9)だけを対象にする
@@ -1439,33 +1474,13 @@ function buildEventFromOtherCategory(report) {
       updatedAt: Date.now(),
     };
   }
-  // 降灰(9): azarashiのdescriptionは市区町村の数だけ「基点時刻からの
-  // 時間」「現象」ラベルをそのまま繰り返す生テキスト(local_governments/
-  // ash_fall_warning_codes/expected_ash_fall_timesという並行配列を人間
-  // 向けに直訳しただけ)なので、そのまま出すと同じラベルが何度も並んで
-  // 読みにくい。同じ「現象+時間」の地域は「・」でまとめ、1行1件に
-  // 整理してから見せる
-  if (report.volcano_name) rows.push(['火山', report.volcano_name]);
-  if (report.activity_time) rows.push(['発生時刻', formatDateTime(report.activity_time)]);
-  if (Array.isArray(report.local_governments) && report.local_governments.length) {
-    const groups = new Map(); // key: `時間|現象` -> 地域名の配列
-    report.local_governments.forEach((gov, i) => {
-      const hours = report.expected_ash_fall_times ? report.expected_ash_fall_times[i] : null;
-      const code = report.ash_fall_warning_codes ? report.ash_fall_warning_codes[i] : '';
-      const key = `${hours}|${code}`;
-      if (!groups.has(key)) groups.set(key, { hours, code, governments: [] });
-      groups.get(key).governments.push(gov);
-    });
-    for (const { hours, code, governments } of groups.values()) {
-      rows.push([code || '降灰', `${governments.join('・')}${hours ? `(基点時刻から${hours}時間後)` : ''}`]);
-    }
-  } else if (Array.isArray(report.ash_fall_warning_codes) && report.ash_fall_warning_codes.length) {
-    rows.push(['降灰', [...new Set(report.ash_fall_warning_codes)].join('、')]);
+  if (report.disaster_category_no === 9) {
+    rows.push(...ashSummaryRows(report));
   } else {
-    // 降灰以外(南海トラフ等)は従来通り、整形済みの生テキストをそのまま見せる
+    // 降灰以外(南海トラフ等)は整形済みの生テキストを見せる
     cleanedMessage = cleanDescriptionMessage(report.description);
+    if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
   }
-  if (report.report_time) rows.push(['発表時刻', formatDateTime(report.report_time)]);
 
   // 降灰(9)を地図に「楕円」で表示する。以前はWeb版限定(kioskはクラッシュ
   // 対策のためパネルのテキストのみ)だったが、ユーザーの指示によりkioskも
@@ -1496,7 +1511,9 @@ function buildEventFromOtherCategory(report) {
     badgeClass: otherBadgeClassForReport(report),
     // 見出しとバッジが同じ文言(災害種別名)になるため、バッジは非表示にする
     showBadges: false,
-    headline: report.disaster_category
+    headline: report.disaster_category_no === 9
+      ? `${report.volcano_name ? `${report.volcano_name} ` : ''}降灰予報`
+      : report.disaster_category
       ? `${report.disaster_category}${report.information_type && report.information_type !== '発表' ? `(${report.information_type})` : ''}`
       : report.type,
     title: '',
