@@ -1,6 +1,7 @@
 const express = require("express");
 const { reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
 const TrainingReportFilter = require("./public/training-report-filter");
+const { ashIssueKey, ashNotificationBody } = require("./ash-notification");
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -392,10 +393,7 @@ function notificationBodyDetail(report) {
     return name || code || "アプリを開いて確認してください。";
   }
   if (report.disaster_category_no === 9) {
-    const name = report.volcano_name || "";
-    const codes = [...new Set(report.ash_fall_warning_codes || [])].join("・");
-    if (name && codes) return `${name} ${codes}`;
-    return name || codes || "アプリを開いて確認してください。";
+    return ashNotificationBody(report);
   }
   if (report.disaster_category_no === 6) {
     // azarashiはcat6のtsunamigenic_potential/coastal_region/heightを英語
@@ -464,12 +462,8 @@ function notificationUnits(report) {
     return (report.flood_forecast_regions || []).map((r, i) => ({ token: `f:${r}|${levels[i] || ""}`, label: `${r} ${levels[i] || ""}`.trim() }));
   }
   if (report.disaster_category_no === 9) {
-    const name = report.volcano_name || "";
-    const govs = report.local_governments || [];
-    const codes = report.ash_fall_warning_codes || [];
-    // 同じ市区町村に複数の降灰種別が並ぶことがあるため、地域名+降灰種別で
-    // トークン化する(「鹿児島市 やや多量」と「鹿児島市 少量」は別扱い)
-    return govs.map((g, i) => ({ token: `a:${name}|${g}|${codes[i] || ""}`, label: `${g}${codes[i] ? `(${codes[i]})` : ""}` }));
+    // 分割電文の地域差では再通知しない．新しい発表だけ別キーになる．
+    return [{ token: 'forecast', label: ashNotificationBody(report) }];
   }
   return null;
 }
@@ -485,7 +479,7 @@ function notificationGroupKey(report) {
   if (report.disaster_category_no === 5) return "n:tsunami";
   if (report.disaster_category_no === 10) return "n:weather";
   if (report.disaster_category_no === 11) return "n:flood";
-  if (report.disaster_category_no === 9) return "n:ashfall";
+  if (report.disaster_category_no === 9) return ashIssueKey(report);
   if ([1, 2, 3].includes(report.disaster_category_no)) {
     return guards.earthquakeNotificationKey(report);
   }
@@ -583,6 +577,14 @@ function sendPushNotifications(report) {
   // 従来通りキー全体をリセットする
   if (isEndSignal(report)) {
     const body = notificationBodyFor(report);
+    if (report.disaster_category_no === 9) {
+      // 同じ取消電文の再送でも解除通知を重ねない．
+      if (!unitFreshlyNotifiable(key, 'ended', now)) return;
+      rememberNotifiedUnit(key, 'ended', now);
+      forgetNotifiedUnit(key, 'forecast');
+      dispatchPush(report, body);
+      return;
+    }
     // 北西太平洋津波の「可能性なし」は同じ発表時刻の電文が繰り返し届く．
     // 発表側の通知済み記録を消しても，この解除通知自体は別キーで覚える．
     if (report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0) {
