@@ -1034,7 +1034,7 @@ function buildEventFromLAlert(report) {
 // まとめて扱う。
 // ==================================================
 let weatherSites = new Map(); // key: 地域コード -> {code, name, subCategories:[...], bounds, ...}
-let otherReports = new Map(); // key: disaster_category_no(4,8,9,11) -> {...}
+let otherReports = new Map(); // category key, or ash:<test/live>:<volcano> for combined ash forecasts
 
 const OTHER_CATEGORY_BADGE_CLASS = {
   4: 'sev-warning',  // 南海トラフ地震
@@ -1282,6 +1282,46 @@ function ashFallWorstColor(report) {
     rank = Math.max(rank, ASH_FALL_SEVERITY[raw] ?? 1);
   }
   return ASH_FALL_COLORS[rank] || ASH_FALL_COLORS[1];
+}
+
+// 降灰予報は1回の発表が複数電文に分かれる．火山ごとに最新の発表だけを
+// 保持し，市区町村と予想時間を重複なく結合してからカードと楕円を作る．
+function ashDisplayKey(report) {
+  const scope = report.is_test_data ? 'test' : report.report_classification_no === 7 ? 'training' : 'live';
+  return `ash:${scope}:${report.volcano_name_raw ?? report.volcano_name ?? 'unknown'}`;
+}
+
+function ashFragmentKey(report) {
+  return JSON.stringify((report.local_governments_raw || []).map((code, i) => [
+    code, (report.expected_ash_fall_times || [])[i] ?? null,
+  ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+}
+
+function combineAshFragments(fragments) {
+  const reports = [...fragments.values()];
+  const combined = { ...reports[reports.length - 1] };
+  const areas = new Map();
+  for (const report of reports) {
+    (report.local_governments_raw || []).forEach((code, i) => {
+      const hours = (report.expected_ash_fall_times || [])[i] ?? null;
+      const key = JSON.stringify([code, hours]);
+      const warningRaw = (report.ash_fall_warning_codes_raw || [])[i];
+      const previous = areas.get(key);
+      if (previous && (ASH_FALL_SEVERITY[previous.warningRaw] ?? 0) > (ASH_FALL_SEVERITY[warningRaw] ?? 0)) return;
+      areas.set(key, {
+        code, hours, warningRaw,
+        name: (report.local_governments || [])[i],
+        warning: (report.ash_fall_warning_codes || [])[i],
+      });
+    });
+  }
+  const values = [...areas.values()];
+  combined.local_governments_raw = values.map((area) => area.code);
+  combined.local_governments = values.map((area) => area.name || String(area.code));
+  combined.expected_ash_fall_times = values.map((area) => area.hours);
+  combined.ash_fall_warning_codes_raw = values.map((area) => area.warningRaw);
+  combined.ash_fall_warning_codes = values.map((area) => area.warning);
+  return combined;
 }
 
 // 降灰(9)を地図に「楕円」で表示するためのジオメトリを計算する(Web版のみ)。
@@ -4470,7 +4510,7 @@ function renderReport(report) {
     return;
   }
 
-  // 南海トラフ地震(4)・北西太平洋津波(6)・降灰(9): カテゴリごとに1枚
+  // 南海トラフ地震(4)・北西太平洋津波(6)・降灰(9)
   if ([4, 6, 9].includes(report.disaster_category_no)) {
     // 北西太平洋津波(6)は「取消(情報形態=取消)」による解除だけでなく、
     // JMAが状況を再評価して tsunamigenic_potential=0「津波発生の可能性なし」
@@ -4485,24 +4525,40 @@ function renderReport(report) {
     // 既存カードを片付ける必要があるので対象外にする)。既存カードに
     // 実際の位置情報が入っていた場合、そのカードは触らずそのまま残す
     if (!isCancel && report.disaster_category_no === 6 && !tsunamiInfoHasLocation(report)) return;
-    const ashPrefix = `ash:${report.volcano_name_raw ?? report.volcano_name ?? 'unknown'}|`;
     const otherKey = report.disaster_category_no === 9
-      ? ashPrefix + JSON.stringify([...(report.local_governments_raw || [])].sort())
+      ? ashDisplayKey(report)
       : report.disaster_category_no;
     const existing = otherReports.get(otherKey);
-    if (existing && existing.timer) clearTimeout(existing.timer);
     if (isCancel) {
-      if (report.disaster_category_no === 9) {
-        for (const [key, record] of otherReports) {
-          if (String(key).startsWith(ashPrefix)) {
-            if (record.timer) clearTimeout(record.timer);
-            otherReports.delete(key);
-          }
-        }
-      } else otherReports.delete(otherKey);
+      if (existing?.timer) clearTimeout(existing.timer);
+      otherReports.delete(otherKey);
     } else {
-      const event = applyTrainingLabel(buildEventFromOtherCategory(report), report);
+      let displayReport = report;
+      let fragments = null;
+      if (report.disaster_category_no === 9) {
+        const activityTime = report.activity_time || '';
+        const reportTime = report.report_time || '';
+        // 同じ火山の新しい噴火・発表は古い予報を置き換える．再接続時に
+        // 古い電文が後から再送されても描画を巻き戻さない．
+        if (existing) {
+          const oldStamp = [existing.ashActivityTime || '', existing.ashReportTime || ''];
+          const newStamp = [activityTime, reportTime];
+          const comparison = newStamp[0].localeCompare(oldStamp[0]) || newStamp[1].localeCompare(oldStamp[1]);
+          if (comparison < 0) return;
+          if (comparison === 0) fragments = new Map(existing.ashFragments);
+        }
+        if (!fragments) fragments = new Map();
+        fragments.set(ashFragmentKey(report), report);
+        displayReport = combineAshFragments(fragments);
+      }
+      if (existing?.timer) clearTimeout(existing.timer);
+      const event = applyTrainingLabel(buildEventFromOtherCategory(displayReport), displayReport);
       event.id = `other:${otherKey}`;
+      if (fragments) {
+        event.ashFragments = fragments;
+        event.ashActivityTime = report.activity_time || '';
+        event.ashReportTime = report.report_time || '';
+      }
       // 解除信号が届かなかった場合の安全策。更新の度にリセットされる
       const ttl = report.disaster_category_no === 6 ? TTL_TSUNAMI_INFO_MS : TTL_OTHER_CATEGORY_MS;
       event.timer = setTimeout(() => {
@@ -4512,8 +4568,7 @@ function renderReport(report) {
       }, ttl);
       otherReports.set(otherKey, event);
     }
-    // 降灰(9)はWeb版で対象市区町村を地図に塗る(buildEventFromOtherCategory参照)
-    // ため、パネルだけでなくレイヤーも更新する。取消時も塗りを消すため呼ぶ
+    // 降灰の統合楕円を更新する．取消時も描画を消す．
     syncActiveEventLayers();
     renderEventsPanel();
     return;
