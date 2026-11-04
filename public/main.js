@@ -2557,7 +2557,8 @@ function updateEpicenterLayer() {
       });
     }
   }
-  map.getSource('epicenters').setData({ type: 'FeatureCollection', features });
+  const source = map.getSource('epicenters');
+  MapSourceCache.setDataIfChanged(source, JSON.stringify(features), { type: 'FeatureCollection', features });
 }
 
 function createIntensityBadgeMarkers(prefectures) {
@@ -3205,26 +3206,27 @@ function syncActiveEventLayers() {
       const matchExpr = ['match', ['get', 'code10']];
       for (const [code10, entry] of floodRiverColorByCode) matchExpr.push(code10, entry.color);
       matchExpr.push(FLOOD_WARNING_LEVEL_COLOR[2]);
-      map.setFilter('flood-river-line', ['in', ['get', 'code10'], ['literal', [...floodRiverColorByCode.keys()]]]);
-      map.setPaintProperty('flood-river-line', 'line-color', matchExpr);
+      MapSourceCache.setFilterIfChanged(map, 'flood-river-line', ['in', ['get', 'code10'], ['literal', [...floodRiverColorByCode.keys()]]]);
+      MapSourceCache.setPaintIfChanged(map, 'flood-river-line', 'line-color', matchExpr);
     } else {
-      map.setFilter('flood-river-line', ['in', ['get', 'code10'], ['literal', []]]);
+      MapSourceCache.setFilterIfChanged(map, 'flood-river-line', ['in', ['get', 'code10'], ['literal', []]]);
     }
   }
 
   if (map.getSource('lalert-ellipses')) {
-    map.getSource('lalert-ellipses').setData({ type: 'FeatureCollection', features: idle ? [] : ellipseFeatures });
+    const data = { type: 'FeatureCollection', features: idle ? [] : ellipseFeatures };
+    MapSourceCache.setDataIfChanged(map.getSource('lalert-ellipses'), JSON.stringify(data), data);
   }
 
   if (tsunamiColorByCode.size) {
     const matchExpr = ['match', ['get', 'code']];
     for (const [code, entry] of tsunamiColorByCode) matchExpr.push(code, entry.color);
     matchExpr.push(TSUNAMI_DEFAULT_COLOR);
-    map.setFilter('tsunami-line', ['in', ['get', 'code'], ['literal', [...tsunamiColorByCode.keys()]]]);
-    map.setPaintProperty('tsunami-line', 'line-color', matchExpr);
+    MapSourceCache.setFilterIfChanged(map, 'tsunami-line', ['in', ['get', 'code'], ['literal', [...tsunamiColorByCode.keys()]]]);
+    MapSourceCache.setPaintIfChanged(map, 'tsunami-line', 'line-color', matchExpr);
     if (tsunamiActive) startTsunamiBlink(); else stopTsunamiBlink();
   } else {
-    map.setFilter('tsunami-line', ['in', ['get', 'code'], ['literal', []]]);
+    MapSourceCache.setFilterIfChanged(map, 'tsunami-line', ['in', ['get', 'code'], ['literal', []]]);
     stopTsunamiBlink();
   }
 
@@ -3232,12 +3234,12 @@ function syncActiveEventLayers() {
     const matchExpr = ['match', ['get', 'id']];
     for (const [id, entry] of prefColorById) matchExpr.push(id, entry.color);
     matchExpr.push('rgba(0,0,0,0)');
-    map.setFilter('prefecture-fill', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
-    map.setFilter('prefecture-outline', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
-    map.setPaintProperty('prefecture-fill', 'fill-color', matchExpr);
+    MapSourceCache.setFilterIfChanged(map, 'prefecture-fill', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
+    MapSourceCache.setFilterIfChanged(map, 'prefecture-outline', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
+    MapSourceCache.setPaintIfChanged(map, 'prefecture-fill', 'fill-color', matchExpr);
   } else {
-    map.setFilter('prefecture-fill', ['in', ['get', 'id'], ['literal', []]]);
-    map.setFilter('prefecture-outline', ['in', ['get', 'id'], ['literal', []]]);
+    MapSourceCache.setFilterIfChanged(map, 'prefecture-fill', ['in', ['get', 'id'], ['literal', []]]);
+    MapSourceCache.setFilterIfChanged(map, 'prefecture-outline', ['in', ['get', 'id'], ['literal', []]]);
   }
 
   // 市区町村ポリゴン(約1900件、一番重いレイヤー)はkiosk表示の初期
@@ -3248,24 +3250,24 @@ function syncActiveEventLayers() {
   if (map.getLayer('municipality-fill')) {
     // ソースには今アクティブな市区町村の分だけを入れる(全国約1900件を
     // 常時保持しない。詳細はensureMunicipalityLayer参照)
-    const activeFeatures = idle ? [] : [...municipalityColorByCode.keys()]
-      .map((code) => municipalityFeaturesByCode.get(code))
-      .filter(Boolean);
-    map.getSource('municipality-regions').setData({ type: 'FeatureCollection', features: activeFeatures });
+    const codes = idle ? [] : [...municipalityColorByCode.keys()];
+    MapSourceCache.setDataIfChanged(map.getSource('municipality-regions'), JSON.stringify(codes), () => ({
+      type: 'FeatureCollection',
+      features: codes.map((code) => municipalityFeaturesByCode.get(code)).filter(Boolean),
+    }));
     // レイヤー作成時のフィルターは(まだ何もアクティブでない)空リストの
     // ままなので、ここで実際に塗るべきコードに更新しないと永久に何も
     // 描画されない(weather-fill/weather-outlineのupdateWeatherDisplayと
     // 同じパターンだが、こちらは元々setFilterの呼び出し自体が無く、
     // 市区町村単位のLアラートが常に「対象地域は文字では出るのに地図には
     // 一切塗られない」状態になっていた)
-    const codes = idle ? [] : [...municipalityColorByCode.keys()];
-    map.setFilter('municipality-fill', ['in', ['get', 'code'], ['literal', codes]]);
-    map.setFilter('municipality-outline', ['in', ['get', 'code'], ['literal', codes]]);
+    MapSourceCache.setFilterIfChanged(map, 'municipality-fill', ['in', ['get', 'code'], ['literal', codes]]);
+    MapSourceCache.setFilterIfChanged(map, 'municipality-outline', ['in', ['get', 'code'], ['literal', codes]]);
     if (!idle && municipalityColorByCode.size) {
       const matchExpr = ['match', ['get', 'code']];
       for (const [code, entry] of municipalityColorByCode) matchExpr.push(code, entry.color);
       matchExpr.push('rgba(0,0,0,0)');
-      map.setPaintProperty('municipality-fill', 'fill-color', matchExpr);
+      MapSourceCache.setPaintIfChanged(map, 'municipality-fill', 'fill-color', matchExpr);
     }
   }
 
