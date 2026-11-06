@@ -169,3 +169,43 @@ test('earthquake zoom contains every current intensity prefecture and tsunami co
   } });
   assert.deepEqual([...result], [136, 34, 142, 37]);
 });
+
+test('offshore hypocenter view contains the nearest coast without intensity data', () => {
+  const square = { type: 'Polygon', coordinates: [[
+    [130, 30], [131, 30], [131, 31], [130, 31], [130, 30],
+  ]] };
+  const prefectureFeaturesById = new Map([[1, { geometry: square }]]);
+  const nearestCoastPoint = loadFunction('nearestCoastPoint', 'function earthquakeDisplayBounds(', {
+    prefectureFeaturesById,
+    pointInPolygonGeometry: ([lon, lat]) => lon >= 130 && lon <= 131 && lat >= 30 && lat <= 31,
+    Math,
+  });
+  const earthquakeDisplayBounds = loadFunction('earthquakeDisplayBounds', '// 最新の地震・津波1件', {
+    prefectureFeaturesById,
+    tsunamiFeaturesByCode: new Map(),
+    nearestCoastPoint,
+    unionBounds: (items) => [Math.min(...items.map((v) => v[0])), Math.min(...items.map((v) => v[1])),
+      Math.max(...items.map((v) => v[2])), Math.max(...items.map((v) => v[3]))],
+  });
+  const record = (lon, lat, bounds = [lon, lat, lon, lat]) => ({ bounds, geo: {
+    prefectures: [], tsunami: [], hypocenter: { lon, lat },
+  } });
+  assert.deepEqual([...earthquakeDisplayBounds(record(132, 30.5))], [131, 30.5, 132, 30.5]);
+  assert.deepEqual([...earthquakeDisplayBounds(record(130.5, 30.5))], [130.5, 30.5, 130.5, 30.5]);
+  assert.deepEqual([...earthquakeDisplayBounds(record(160, 30.5, [129, 30, 160, 45]))], [129, 30, 160, 45]);
+});
+
+test('off Sanriku hypocenter uses an actual Japanese coastline point', () => {
+  const geojson = JSON.parse(fs.readFileSync(path.join(__dirname, '../public/data/prefectures.geojson'), 'utf8'));
+  const prefectureFeaturesById = new Map(geojson.features.map((feature) => [feature.properties.id, feature]));
+  const pointInPolygonGeometry = vm.runInNewContext(`${source.slice(
+    source.indexOf('function pointInRing('), source.indexOf('// Lアラートの楕円(', source.indexOf('function pointInRing(')),
+  )}; pointInPolygonGeometry`);
+  const nearestCoastPoint = loadFunction('nearestCoastPoint', 'function earthquakeDisplayBounds(', {
+    prefectureFeaturesById, pointInPolygonGeometry, Math,
+  });
+  const coast = nearestCoastPoint(143, 39);
+  assert.ok(coast, '三陸沖の震源から近い海岸が見つかる');
+  assert.ok(coast[0] < 143 && coast[0] > 140);
+  assert.ok(coast[1] > 37 && coast[1] < 41);
+});
