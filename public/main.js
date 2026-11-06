@@ -3,7 +3,7 @@
 // 非表示だけでなく、地図の操作ハンドラ自体を無効化する判定にも使う
 // ?web-preview=1 はローカルで公開Web版の操作感を確認するための指定．
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
-  && !(location.port === '8768' && new URLSearchParams(location.search).get('web-preview') === '1');
+  && !(location.port !== '8080' && new URLSearchParams(location.search).get('web-preview') === '1');
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
 
 // ==================================================
@@ -1800,6 +1800,7 @@ function nearestCoastPoint(lon, lat) {
 
   const xScale = Math.max(0.1, Math.cos(lat * Math.PI / 180));
   let nearest = null;
+  let nearestRings = null;
   let minDistanceSq = Infinity;
   for (const feature of features) {
     const geometry = feature.geometry;
@@ -1820,12 +1821,14 @@ function nearestCoastPoint(lon, lat) {
         if (distanceSq < minDistanceSq) {
           minDistanceSq = distanceSq;
           nearest = [x, y];
+          nearestRings = rings;
         }
       }
     }
   }
   // 日本から非常に遠い場合は，既存の日本全体を含む範囲を使う．
-  return minDistanceSq <= (500 / 111) ** 2 ? nearest : null;
+  return minDistanceSq <= (500 / 111) ** 2
+    ? { point: nearest, landBounds: geometryBounds({ type: 'Polygon', coordinates: nearestRings }) } : null;
 }
 
 function earthquakeDisplayBounds(record) {
@@ -1842,7 +1845,12 @@ function earthquakeDisplayBounds(record) {
     const { lon, lat } = record.geo.hypocenter;
     bounds.push([lon, lat, lon, lat]);
     const coast = nearestCoastPoint(lon, lat);
-    if (coast) bounds.push([coast[0], coast[1], coast[0], coast[1]]);
+    if (coast) {
+      bounds.push([coast.point[0], coast.point[1], coast.point[0], coast.point[1]]);
+      // スマホでは海岸の一点だけだと地形が画面端に追いやられる．
+      // 最寄りの陸地も含め，震源との位置関係が分かる画角にする．
+      if (isMobileLayout()) bounds.push(coast.landBounds);
+    }
     else if (record.bounds && (record.bounds[2] - record.bounds[0] > 5
       || record.bounds[3] - record.bounds[1] > 5)) bounds.push(record.bounds);
   }
@@ -1857,13 +1865,15 @@ function showQuakeLockView() {
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
-  flyToBounds(earthquakeDisplayBounds(record), 24, record.boundsMaxZoom ?? null);
   focusedEventIds = new Set([record.id]);
+  // fitBoundsが参照するスマホの上部パディングは実際のパネルの高さ．
+  // 新しいカードを描画してから測らないと，震源がカードの下に隠れる．
+  renderEventsPanel();
+  flyToBounds(earthquakeDisplayBounds(record), 24, record.boundsMaxZoom ?? null);
   syncActiveEventLayers();
   updateWeatherDisplay();
   resolveMarkerOverlaps();
   updateFocusOutline();
-  renderEventsPanel();
   return true;
 }
 
