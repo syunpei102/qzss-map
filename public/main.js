@@ -1,7 +1,9 @@
 // ラズパイ本体のkiosk表示(localhostでアクセス)では、操作する人が
 // その場にいない前提(マウス・タッチ操作は一切無い)。通知ボタンの
 // 非表示だけでなく、地図の操作ハンドラ自体を無効化する判定にも使う
-const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname);
+// ?web-preview=1 はローカルで公開Web版の操作感を確認するための指定．
+const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
+  && !(location.port === '8768' && new URLSearchParams(location.search).get('web-preview') === '1');
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
 
 // ==================================================
@@ -1789,6 +1791,43 @@ function isQuakeLockActive() {
   return quakeLockRecords().length > 0;
 }
 
+// 震源しかない海上の地震では，震源一点へのズームだと位置関係が分からない．
+// 既存の都道府県ポリゴンの外周から，震源に最も近い海岸上の点を探す．
+function nearestCoastPoint(lon, lat) {
+  const point = [lon, lat];
+  const features = [...prefectureFeaturesById.values()];
+  if (features.some((feature) => pointInPolygonGeometry(point, feature.geometry))) return null;
+
+  const xScale = Math.max(0.1, Math.cos(lat * Math.PI / 180));
+  let nearest = null;
+  let minDistanceSq = Infinity;
+  for (const feature of features) {
+    const geometry = feature.geometry;
+    const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+    for (const rings of polygons) {
+      const coast = rings[0];
+      for (let i = 1; i < coast.length; i++) {
+        const [ax, ay] = coast[i - 1];
+        const [bx, by] = coast[i];
+        const dx = (bx - ax) * xScale;
+        const dy = by - ay;
+        const lengthSq = dx * dx + dy * dy;
+        const t = lengthSq ? Math.max(0, Math.min(1,
+          (((lon - ax) * xScale * dx) + ((lat - ay) * dy)) / lengthSq)) : 0;
+        const x = ax + (bx - ax) * t;
+        const y = ay + (by - ay) * t;
+        const distanceSq = ((lon - x) * xScale) ** 2 + (lat - y) ** 2;
+        if (distanceSq < minDistanceSq) {
+          minDistanceSq = distanceSq;
+          nearest = [x, y];
+        }
+      }
+    }
+  }
+  // 日本から非常に遠い場合は，既存の日本全体を含む範囲を使う．
+  return minDistanceSq <= (500 / 111) ** 2 ? nearest : null;
+}
+
 function earthquakeDisplayBounds(record) {
   const bounds = [];
   for (const p of record.geo.prefectures || []) {
@@ -1802,6 +1841,10 @@ function earthquakeDisplayBounds(record) {
   if (!bounds.length && record.geo.hypocenter) {
     const { lon, lat } = record.geo.hypocenter;
     bounds.push([lon, lat, lon, lat]);
+    const coast = nearestCoastPoint(lon, lat);
+    if (coast) bounds.push([coast[0], coast[1], coast[0], coast[1]]);
+    else if (record.bounds && (record.bounds[2] - record.bounds[0] > 5
+      || record.bounds[3] - record.bounds[1] > 5)) bounds.push(record.bounds);
   }
   return bounds.length ? unionBounds(bounds) : record.bounds;
 }
@@ -2311,14 +2354,11 @@ function buildEventFromReport(report) {
 // 国土地理院ベクトルタイルが存在する下限(zoom4)より下は、
 // fallback-landmassレイヤー(prefectures.geojsonによる境界線だけの簡易
 // 表示)が肩代わりするため、この程度まで下げても真っ白にはならない。
-// 実際にはmaxBounds(日本周辺の範囲)が先に効いて、それ以上は
-// ズームアウトできなくなる(自動でクランプされる)
-const MAP_MIN_ZOOM = 3.0;
+// 広域プレビューでは地図の外側も見せ，元データの不足を確認する．
+const MAP_MIN_ZOOM = 2.5;
 
-const DEFAULT_VIEW = { center: [135.7671, 35.6812], zoom: 4.55 };
-// スマホは最大限ズームアウトした状態を初期値にする
-// (実際にはmaxBoundsの都合でMAP_MIN_ZOOMより少し高い値にクランプされる)
-const DEFAULT_VIEW_MOBILE = { center: [136.5, 35.5], zoom: MAP_MIN_ZOOM };
+const DEFAULT_VIEW = { center: [135.7671, 35.6812], zoom: 4.15 };
+const DEFAULT_VIEW_MOBILE = { center: [136.5, 35.5], zoom: 3.8 };
 
 // デバイスロックモード(?device=拠点ID、kiosk設置向け)で、拠点に割り
 // 当てられた地域が判明したら、アイドル時の既定表示をそこに固定する。
@@ -4677,7 +4717,6 @@ async function initMap() {
     return res.json();
   });
 
-  const bounds = [[JAPAN_VICINITY_BOUNDS[0], JAPAN_VICINITY_BOUNDS[1]], [JAPAN_VICINITY_BOUNDS[2], JAPAN_VICINITY_BOUNDS[3]]];
   const initialView = getDefaultView();
   map = new maplibregl.Map({
     container: 'map',
@@ -4688,7 +4727,6 @@ async function initMap() {
     // 対象地域の把握にそこまでの拡大は不要なため上限を下げる
     // (ローカルキオスク・公開Web版どちらも実機/実際の操作感で確認した値)
     maxZoom: 9,
-    maxBounds: bounds,
     // Pi 3等の非力なGPU向けの描画負荷軽減。見た目への影響はほぼ無い
     // (フェード遷移が無くなる程度)が、毎フレームの合成コストを削れる
     fadeDuration: 0,
