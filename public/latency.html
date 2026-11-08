@@ -76,12 +76,7 @@
 <body>
 <div class="wrap">
   <h1>⏱️ レイテンシダッシュボード</h1>
-  <p class="sub">信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)。5秒ごとに自動更新。</p>
-
-  <label class="toggle-row">
-    <input type="checkbox" id="hide-test-toggle" />
-    本番データのみ表示(手動テストデータ・訓練放送を除外)
-  </label>
+  <p class="sub">本番データのみ表示．信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)．5秒ごとに自動更新．</p>
 
   <div class="stats" id="stats"></div>
 
@@ -95,7 +90,7 @@
 
   <h2 class="section-title">直近の計測(新しい順)</h2>
   <div id="history_container"></div>
-  <div class="empty" id="empty-msg" style="display:none">まだ計測データがありません。通報を受信すると自動的に記録されます。</div>
+  <div class="empty" id="empty-msg" style="display:none">本番データの計測はまだありません．通報を受信すると自動的に記録されます．</div>
 </div>
 
 <script src="./latency-dedup.js"></script>
@@ -127,15 +122,13 @@ function formatSeconds(ms) {
 function renderStats(history) {
   const el = document.getElementById('stats');
   if (!history.length) { el.innerHTML = ''; return; }
-  const testCount = history.filter((h) => !isProductionEntry(h)).length;
   const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
   const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
   const max = totals[totals.length - 1];
-  const countSub = testCount ? `うちテスト・訓練 ${testCount}件` : 'すべて本番データ';
   const cards = [
-    { label: '件数', value: `${history.length}`, unit: '件', sub: countSub },
+    { label: '件数', value: `${history.length}`, unit: '件', sub: '本番データのみ' },
     { label: '平均', value: formatSeconds(avg), unit: 's' },
     { label: 'p50(中央値)', value: formatSeconds(p50), unit: 's' },
     { label: 'p95', value: formatSeconds(p95), unit: 's', warning: p95 > ANOMALY_THRESHOLD_MS },
@@ -380,7 +373,6 @@ function renderHistory(history) {
   container.innerHTML = recent.map((h) => {
     const r = h.reportSummary;
     const isAnomaly = h.totalMs > ANOMALY_THRESHOLD_MS;
-    const testBanner = h.isTestData ? '<div class="test-data-banner">🧪 テストデータ</div>' : '';
     const rowsHtml = reportRows(r).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
     const maxSeg = Math.max(h.totalMs, 1);
     const barHtml = LATENCY_SEGMENTS.map(([key, color]) =>
@@ -388,10 +380,9 @@ function renderHistory(history) {
     ).join('');
     return `
       <div class="report-card ${reportSeverityClass(r)} ${isAnomaly ? 'anomaly' : ''}">
-        ${testBanner}
         <div class="report-badge-row">
           <div class="badges-list"><div class="report-badge ${reportSeverityClass(r)}">${escapeHtml(reportBadgeText(r))}</div></div>
-          <span class="satellite-tag">${h.isTestData ? '🧪 テスト' : '📡 実データ'}</span>
+          <span class="satellite-tag">${latencySourceLabel(h)}</span>
         </div>
         <div class="report-title">${escapeHtml(reportTitle(r))}</div>
         <dl class="report-summary">${rowsHtml}</dl>
@@ -405,9 +396,7 @@ function renderHistory(history) {
   }).join('');
 }
 
-const hideTestToggle = document.getElementById('hide-test-toggle');
-
-// 「本番データのみ」= is_test_data(手動投入の検証データ)だけでなく、
+// 本番データのみを表示する．is_test_data(手動投入の検証データ)だけでなく，
 // 衛星から実際に配信される公式の訓練/試験放送(report_classification_no
 // ===7、またはLアラート/JアラートのDCXならa1_message_type==='Test')も
 // 除外する。以前はis_test_dataしか見ておらず、ラベルは「本番信号のみ」を
@@ -416,20 +405,29 @@ const hideTestToggle = document.getElementById('hide-test-toggle');
 function isProductionEntry(h) {
   if (h.isTestData) return false;
   const r = h.reportSummary;
-  const isOfficialTrainingBroadcast = r && (r.report_classification_no === 7 || r.a1_message_type === 'Test');
-  return !isOfficialTrainingBroadcast;
+  const isOfficialTrainingBroadcast = r && (r.is_test_data === true || r.report_classification_no === 7 || r.a1_message_type === 'Test');
+  // 過去の手動テスト履歴にはisTestDataが保存されていないものがある．
+  // 説明文・震央名が明示的なテスト表記の場合だけ補完する．
+  const isLegacyTestData = r && (
+    (typeof r.description === 'string' && /^test\d+$/i.test(r.description.trim())) ||
+    (typeof r.seismic_epicenter === 'string' && /^テスト震央/.test(r.seismic_epicenter))
+  );
+  return !isOfficialTrainingBroadcast && !isLegacyTestData;
+}
+
+function latencySourceLabel(h) {
+  return isProductionEntry(h) ? '📡 実データ' : '🧪 テストデータ';
 }
 
 async function refresh() {
   const all = await fetchHistory();
   const unique = deduplicateLatencyHistory(all);
-  const history = hideTestToggle.checked ? unique.filter(isProductionEntry) : unique;
+  const history = unique.filter(isProductionEntry);
   renderStats(history);
   renderChart(history);
   renderHistory(history);
 }
 
-hideTestToggle.addEventListener('change', refresh);
 refresh();
 setInterval(refresh, 5000);
 window.addEventListener('resize', refresh);

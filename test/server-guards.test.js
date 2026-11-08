@@ -170,8 +170,15 @@ test('client timing: browser report objects survive storage and dashboard render
     assert.notEqual(context.reportTitle(entry.reportSummary), '(内容なし)');
     assert.deepEqual(JSON.parse(JSON.stringify(context.reportRows(entry.reportSummary))),
       JSON.parse(JSON.stringify(context.reportRows(reportSummary))));
-    assert.equal(context.isProductionEntry(entry), !(reportSummary.a1_message_type === 'Test' || reportSummary.report_classification_no === 7));
+    const isProduction = !(reportSummary.is_test_data === true || reportSummary.a1_message_type === 'Test' || reportSummary.report_classification_no === 7);
+    assert.equal(context.isProductionEntry(entry), isProduction);
+    assert.equal(context.latencySourceLabel(entry), isProduction ? '📡 実データ' : '🧪 テストデータ');
   }
+  assert.equal(context.latencySourceLabel({ isTestData: true, reportSummary: null }), '🧪 テストデータ');
+  assert.equal(context.latencySourceLabel({ isTestData: false, reportSummary: { is_test_data: true } }), '🧪 テストデータ');
+  assert.equal(context.latencySourceLabel({ isTestData: false, reportSummary: { description: 'test1' } }), '🧪 テストデータ');
+  assert.equal(context.latencySourceLabel({ isTestData: false, reportSummary: { seismic_epicenter: 'テスト震央1' } }), '🧪 テストデータ');
+  assert.equal(context.latencySourceLabel({ isTestData: false, reportSummary: { description: 'test observations' } }), '📡 実データ');
 });
 
 test('client timing: summary rejects invalid types and bounds untrusted fields', () => {
