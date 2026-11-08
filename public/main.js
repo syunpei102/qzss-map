@@ -5,6 +5,10 @@
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
   && !(location.port !== '8080' && new URLSearchParams(location.search).get('web-preview') === '1');
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
+// 試作中の区域ID差分描画．URLで明示した場合だけ有効にし，現行方式と比較する．
+const USE_ALERT_MASK_STATE_ENGINE = new URLSearchParams(location.search).get('alertEngine') === 'state'
+  && typeof AlertMaskEngine !== 'undefined';
+let alertMaskEngine = null;
 
 // ==================================================
 // 時計表示
@@ -1673,20 +1677,25 @@ function updateWeatherDisplay() {
   // ポリゴンのまま(syncActiveEventLayersのidle対応と同じ考え方)
   const codes = shouldUseLightweightIdleView() || isQuakeLockActive() || hasVisibleEewFill()
     ? [] : [...weatherSites.keys()];
-  if (!codes.length) {
-    map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
-    map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
+  const filter = ['in', ['get', 'code'], ['literal', codes]];
+  MapSourceCache.setFilterIfChanged(map, 'weather-fill', filter);
+  MapSourceCache.setFilterIfChanged(map, 'weather-outline', filter);
+  if (alertMaskEngine) {
+    const colors = new Map(codes.map(code => [code,
+      weatherSeverityColor(worstSubCategory(weatherSites.get(code).subCategories))]));
+    alertMaskEngine.sync('weather-regions', colors);
     return;
   }
-  map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', codes]]);
-  map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', codes]]);
+  if (!codes.length) {
+    return;
+  }
   const matchExpr = ['match', ['get', 'code']];
   for (const [code, site] of weatherSites) {
     matchExpr.push(code, weatherSeverityColor(worstSubCategory(site.subCategories)));
   }
   matchExpr.push(WEATHER_WARNING_COLOR);
-  map.setPaintProperty('weather-fill', 'fill-color', matchExpr);
-  map.setPaintProperty('weather-outline', 'line-color', matchExpr);
+  MapSourceCache.setPaintIfChanged(map, 'weather-fill', 'fill-color', matchExpr);
+  MapSourceCache.setPaintIfChanged(map, 'weather-outline', 'line-color', matchExpr);
 }
 
 // 解除(取消)信号が届かないまま安全策のTTL(TTL_WEATHER_MS)が経過した
@@ -3280,13 +3289,19 @@ function syncActiveEventLayers() {
     stopTsunamiBlink();
   }
 
+  if (alertMaskEngine) {
+    const colors = new Map(idle ? [] : [...prefColorById].map(([id, entry]) => [id, entry.color]));
+    alertMaskEngine.sync('prefecture-regions', colors);
+  }
   if (!idle && prefColorById.size) {
-    const matchExpr = ['match', ['get', 'id']];
-    for (const [id, entry] of prefColorById) matchExpr.push(id, entry.color);
-    matchExpr.push('rgba(0,0,0,0)');
     MapSourceCache.setFilterIfChanged(map, 'prefecture-fill', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
     MapSourceCache.setFilterIfChanged(map, 'prefecture-outline', ['in', ['get', 'id'], ['literal', [...prefColorById.keys()]]]);
-    MapSourceCache.setPaintIfChanged(map, 'prefecture-fill', 'fill-color', matchExpr);
+    if (!alertMaskEngine) {
+      const matchExpr = ['match', ['get', 'id']];
+      for (const [id, entry] of prefColorById) matchExpr.push(id, entry.color);
+      matchExpr.push('rgba(0,0,0,0)');
+      MapSourceCache.setPaintIfChanged(map, 'prefecture-fill', 'fill-color', matchExpr);
+    }
   } else {
     MapSourceCache.setFilterIfChanged(map, 'prefecture-fill', ['in', ['get', 'id'], ['literal', []]]);
     MapSourceCache.setFilterIfChanged(map, 'prefecture-outline', ['in', ['get', 'id'], ['literal', []]]);
@@ -4749,6 +4764,7 @@ async function initMap() {
   });
 
   await new Promise(resolve => map.on('load', resolve));
+  if (USE_ALERT_MASK_STATE_ENGINE) alertMaskEngine = new AlertMaskEngine(map);
 
   // モバイルではアドレスバー/ツールバーの表示・非表示で実際のビューポート高さが
   // 変わるが、maplibre-glはコンテナのCSSサイズ変更を自動検知しないため、
@@ -4836,13 +4852,15 @@ async function initMap() {
   // 流路データ本体は表示後にバックグラウンドで取得し，空のソースへsetDataする
   map.addSource('flood-rivers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  map.addSource('prefecture-regions', { type: 'geojson', data: prefectureGeoJSON });
+  map.addSource('prefecture-regions', { type: 'geojson', data: prefectureGeoJSON,
+    ...(alertMaskEngine ? { promoteId: 'id' } : {}) });
   map.addLayer({
     id: 'prefecture-fill',
     type: 'fill',
     source: 'prefecture-regions',
     filter: ['in', ['get', 'id'], ['literal', []]],
-    paint: { 'fill-color': '#999999', 'fill-opacity': 0.6 },
+    paint: { 'fill-color': alertMaskEngine
+      ? ['to-color', ['feature-state', 'color'], '#999999'] : '#999999', 'fill-opacity': 0.6 },
   });
   map.addLayer({
     id: 'prefecture-outline',
@@ -4871,20 +4889,25 @@ async function initMap() {
   });
 
   // 気象警報・注意報の対象地域(一次細分区域)
-  map.addSource('weather-regions', { type: 'geojson', data: weatherRegionsGeoJSON });
+  map.addSource('weather-regions', { type: 'geojson', data: weatherRegionsGeoJSON,
+    ...(alertMaskEngine ? { promoteId: 'code' } : {}) });
   map.addLayer({
     id: 'weather-fill',
     type: 'fill',
     source: 'weather-regions',
     filter: ['in', ['get', 'code'], ['literal', []]],
-    paint: { 'fill-color': WEATHER_WARNING_COLOR, 'fill-opacity': 0.5 },
+    paint: { 'fill-color': alertMaskEngine
+      ? ['to-color', ['feature-state', 'color'], WEATHER_WARNING_COLOR] : WEATHER_WARNING_COLOR,
+      'fill-opacity': 0.5 },
   });
   map.addLayer({
     id: 'weather-outline',
     type: 'line',
     source: 'weather-regions',
     filter: ['in', ['get', 'code'], ['literal', []]],
-    paint: { 'line-color': WEATHER_WARNING_COLOR, 'line-width': 1.5 },
+    paint: { 'line-color': alertMaskEngine
+      ? ['to-color', ['feature-state', 'color'], WEATHER_WARNING_COLOR] : WEATHER_WARNING_COLOR,
+      'line-width': 1.5 },
   });
   // 巡回でズームインしている対象地域の輪郭を白い太線で強調する
   // (どこの話をしているのかが一目で分かるように)
