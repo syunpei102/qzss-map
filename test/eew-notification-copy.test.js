@@ -5,6 +5,13 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const titleStart = server.indexOf('function notificationTitleFor(report) {');
+const titleEnd = server.indexOf('function notificationBodyFor(report) {', titleStart);
+assert.ok(titleStart !== -1 && titleEnd > titleStart);
+const notificationTitleFor = vm.runInNewContext(
+  `${server.slice(titleStart, titleEnd)}; notificationTitleFor`,
+  { JALERT_HAZARD_JA: {}, LALERT_HAZARD_JA: {} },
+);
 const start = server.indexOf('function notificationBodyFor(report) {');
 const end = server.indexOf('function notificationBodyDetail(report) {', start);
 assert.ok(start !== -1 && end > start);
@@ -14,6 +21,7 @@ const notificationBodyFor = vm.runInNewContext(
 );
 
 test('EEW push names the epicenter and predicted upper intensity', () => {
+  assert.equal(notificationTitleFor({ disaster_category_no: 1 }), '緊急地震速報');
   assert.equal(notificationBodyFor({
     disaster_category_no: 1,
     seismic_epicenter: '千島列島',
@@ -31,6 +39,7 @@ test('EEW push does not mislabel the lower bound as the maximum', () => {
 });
 
 test('EEW push handles missing epicenter and cancellation', () => {
+  assert.equal(notificationTitleFor({ disaster_category_no: 1, information_type_no: 2 }), '緊急地震速報(取消)');
   assert.equal(notificationBodyFor({
     disaster_category_no: 1,
     seismic_intensity_upper_limit: '震度6強',

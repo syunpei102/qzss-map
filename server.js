@@ -338,7 +338,7 @@ function notificationTitleFor(report) {
     // 津波は警報レベル(大津波警報/津波警報/津波注意報)自体が既に具体的な
     // ので、総称の「津波情報」より優先してそのまま使う
     const base = report.tsunami_warning_code || titles[report.disaster_category_no] || report.disaster_category || "防災情報";
-    title = `${base}${statusSuffix}`;
+    title = `${base}${isCancel && report.disaster_category_no === 1 ? "(取消)" : statusSuffix}`;
   }
   if (report.is_test_data) return `[テスト]${title}`;
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
