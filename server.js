@@ -353,6 +353,17 @@ function notificationTitleFor(report) {
 // 対象地域・種別の詳細を組み立て、頭に「解除: 」を付けるだけにする
 function notificationBodyFor(report) {
   const isCancel = report.information_type_no === 2 || report.a1_message_type === "All Clear";
+  if (report.disaster_category_no === 1) {
+    const epicenter = typeof report.seismic_epicenter === "string" ? report.seismic_epicenter.trim() : "";
+    if (isCancel) return epicenter
+      ? `${epicenter}の緊急地震速報を取り消しました．`
+      : "緊急地震速報を取り消しました．";
+    const upper = typeof report.seismic_intensity_upper_limit === "string"
+      ? report.seismic_intensity_upper_limit.trim().replace(/^震度/, "") : "";
+    const intensity = upper && !/^(不明|未発表|N\/A|unknown)$/i.test(upper)
+      ? `予想最大震度${upper}．` : "";
+    return `${epicenter ? `${epicenter}で地震．` : "震源地を確認中．"}${intensity}`;
+  }
   const detail = notificationBodyDetail(report);
   return isCancel ? `解除: ${detail}` : detail;
 }
