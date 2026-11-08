@@ -134,13 +134,15 @@ test('push subscription: rejects malformed, oversized and internal endpoints', (
 
 test('client timing: valid input is computed, NaN/missing/out-of-range are dropped', () => {
   const ok = { t0_received_ms: 1000, t1_decoded_ms: 1010, t2_server_received_ms: 1050, t3_dispatched_ms: 1060, client_processing_ms: 30 };
-  assert.deepEqual(g.validateClientTiming(ok), { decodeMs: 10, networkMs: 40, dispatchPrepMs: 10, renderMs: 30, totalMs: 90, reportSummary: null, isTestData: false });
+  assert.deepEqual(g.validateClientTiming(ok), { decodeMs: 10, networkMs: 40, dispatchPrepMs: 10, renderMs: 30, totalMs: 90, reportSummary: null, isTestData: false, reportKey: null });
   for (const patch of [{ t0_received_ms: NaN }, { t1_decoded_ms: undefined }, { client_processing_ms: -1 }, { client_processing_ms: 1e12 },
     { t2_server_received_ms: 1e15 }, { t3_dispatched_ms: '5' }, { t0_received_ms: 0 }]) {
     assert.equal(g.validateClientTiming({ ...ok, ...patch }), null, JSON.stringify(patch));
   }
   assert.equal(g.validateClientTiming(null), null);
   assert.equal(g.validateClientTiming({ ...ok, reportSummary: 'x'.repeat(999) }).reportSummary, null);
+  assert.equal(g.validateClientTiming({ ...ok, reportKey: 'dcr:ab12:2' }).reportKey, 'dcr:ab12:2');
+  assert.equal(g.validateClientTiming({ ...ok, reportKey: 'dcr:../../bad:2' }).reportKey, null);
 });
 
 test('client timing: browser report objects survive storage and dashboard rendering', () => {

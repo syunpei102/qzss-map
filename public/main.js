@@ -5417,6 +5417,10 @@ function connectWebSocket() {
         ...report.client_timestamps,
         client_processing_ms: clientProcessingMs,
         isTestData: !!report.is_test_data,
+        // 同じ電文を複数ブラウザが描画しても，最初の計測だけを履歴へ残す．
+        // DCRのrawはプリアンブルと衛星番号を除いた内容なので再送でも一致する．
+        reportKey: typeof raw === 'string' && /^[0-9a-f]+$/i.test(raw)
+          ? `dcr:${raw.toLowerCase()}:${report.information_type_no ?? ''}` : null,
         reportSummary,
       };
       fetch('/client-timing', {
