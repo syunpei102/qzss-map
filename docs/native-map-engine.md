@@ -2,7 +2,7 @@
 
 ## 起動
 
-ローカルサーバーで `/?renderer=native&web-preview=1` を開く．`?renderer=native&mapPerf=1` ではCanvas要素の `data-base-frames`，`data-overlay-frames`，`data-total-ms` を記録する．URLを指定しない既存の表示はMapLibreのまま維持する．
+ローカルサーバーで `/?renderer=native&web-preview=1` を開く．`?renderer=native&mapPerf=1` ではCanvas要素の `data-base-frames`，`data-overlay-frames`，`data-total-ms` を記録する．公開Webは独自Canvasを既定とし，`?renderer=maplibre` で旧方式を開ける．ラズパイのlocalhost表示は，実機検証までMapLibreを既定とする．
 
 ## 構成
 
@@ -19,4 +19,17 @@
 
 ## 採用前に必要な検証
 
-ラズパイのキオスクで，起動から地図表示までの時間，連続通報時の描画時間，ChromiumのCPU・RSS，スワップ使用量を現行方式と同じ条件で比較する．地震・津波・気象・洪水・火山・Jアラートの再生と，スマホのタッチ操作も確認する．これらが終わるまで本番の既定描画エンジンは切り替えない．
+ラズパイのキオスクで，起動から地図表示までの時間，連続通報時の描画時間，ChromiumのCPU・RSS，スワップ使用量を現行方式と同じ条件で比較する．地震・津波・気象・洪水・火山・Jアラートの再生と，スマホのタッチ操作も確認する．公開Webの採用は実機性能の保証ではない．
+
+## 復旧手順
+
+個別の閲覧画面はURLに `?renderer=maplibre` を付けて再読み込みする．独自タイルが読み込めない場合は自動でこのURLへ遷移する．
+
+全体を戻す場合はCloud Runの直前リビジョンを確認し，次を実行する．イメージ再ビルドは不要．
+
+```sh
+gcloud run services describe qzss-map --region asia-northeast1 --format='value(status.traffic)'
+gcloud run services update-traffic qzss-map --region asia-northeast1 --to-revisions=＜直前の安定リビジョン＞=100
+```
+
+反映後に公開ページと `/api/latency-history` を確認する．サービスワーカーの旧キャッシュで一時的に新しい画面が残る場合は，画面を再読み込みする．

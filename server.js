@@ -844,11 +844,12 @@ app.post("/ingest", (req, res) => {
 const LATENCY_HISTORY_MAX_SIZE = 200;
 const LATENCY_HISTORY_STATE_FILE = "latency_history.json";
 const latencyHistory = [];
+const { identity: latencyIdentity, deduplicateLatencyHistory } = require('./public/latency-dedup');
 
 async function loadLatencyHistory() {
   const restored = await loadPersistedJson(LATENCY_HISTORY_STATE_FILE);
   if (Array.isArray(restored)) {
-    latencyHistory.push(...restored);
+    latencyHistory.push(...deduplicateLatencyHistory(restored).slice(-LATENCY_HISTORY_MAX_SIZE));
     console.log(`♻️  レイテンシ履歴を復元しました(${latencyHistory.length}件)`);
   }
 }
@@ -877,8 +878,12 @@ app.post("/client-timing", (req, res) => {
   if (timing) {
     // 同じ電文は複数ブラウザ・ラズパイ経由の転送で計測が重なる．
     // 最初の一件だけを残し，後続は履歴にもクラウド転送にも追加しない．
-    if (timing.reportKey && latencyHistory.some(h =>
-      h.reportKey === timing.reportKey && h.isTestData === timing.isTestData)) {
+    const key = latencyIdentity(timing);
+    if (key && latencyHistory.some(h => {
+      if (latencyIdentity(h) !== key) return false;
+      if (timing.reportSummary?.report_time) return true;
+      return Date.now() - h.recordedAt < 30 * 60 * 1000;
+    })) {
       return res.status(204).end();
     }
     const entry = { recordedAt: Date.now(), ...timing };

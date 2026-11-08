@@ -30,7 +30,12 @@
   <link rel="icon" href="./icons/icon-192.png">
 
   <script>
-    if (new URLSearchParams(location.search).get('renderer') !== 'native') {
+    // 公開Webは独自エンジンを既定にする．?renderer=maplibreで即座に旧方式へ戻せる．
+    // ラズパイのlocalhost表示は実機検証が終わるまで旧方式を維持する．
+    window.QZSS_NATIVE_RENDERER = new URLSearchParams(location.search).get('renderer') === 'native'
+      || (new URLSearchParams(location.search).get('renderer') !== 'maplibre'
+        && !['localhost', '127.0.0.1'].includes(location.hostname));
+    if (!window.QZSS_NATIVE_RENDERER) {
       document.write('<link href="./vendor/maplibre-gl.css" rel="stylesheet">');
     }
   </script>
@@ -130,7 +135,7 @@
 
   <script>
     // 独自CanvasモードではMapLibreとPMTilesのブラウザ実行コードを読み込まない．
-    if (new URLSearchParams(location.search).get('renderer') === 'native') {
+    if (window.QZSS_NATIVE_RENDERER) {
       document.write('<script src="./native-map.js"><\/script>');
     } else {
       document.write('<script src="./vendor/maplibre-gl.js"><\/script>');

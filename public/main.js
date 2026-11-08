@@ -5,7 +5,7 @@
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
   && !(location.port !== '8080' && new URLSearchParams(location.search).get('web-preview') === '1');
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
-const IS_NATIVE_RENDERER = new URLSearchParams(location.search).get('renderer') === 'native';
+const IS_NATIVE_RENDERER = window.QZSS_NATIVE_RENDERER;
 const MapMarker = IS_NATIVE_RENDERER ? QzssNativeMarker : maplibregl.Marker;
 
 // ==================================================
@@ -4750,6 +4750,13 @@ async function initMap() {
     // リスナー登録・ジェスチャー判定のオーバーヘッドを無くす。
     // 一般公開ページ(eq.shum10.com)の閲覧者には影響しない
     interactive: !IS_LOCAL_KIOSK,
+  });
+
+  // タイルの取得・形式に問題がある端末では，旧方式へ自動で切り替える．
+  if (IS_NATIVE_RENDERER) map.on('error', () => {
+    const fallback = new URL(location.href);
+    fallback.searchParams.set('renderer', 'maplibre');
+    location.replace(fallback.href);
   });
 
   await new Promise(resolve => map.on('load', resolve));
