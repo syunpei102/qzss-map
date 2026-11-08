@@ -49,7 +49,9 @@ test('EEW push handles missing epicenter and cancellation', () => {
     information_type_no: 2,
     seismic_epicenter: '千島列島',
     seismic_intensity_upper_limit: '震度7',
-  }), '千島列島の緊急地震速報を取り消しました．');
+  }), '緊急地震速報を取り消しました．');
+  assert.equal(notificationBodyFor({ disaster_category_no: 1, information_type_no: 2 }),
+    '緊急地震速報を取り消しました．');
 });
 
 test('other notification bodies retain their existing formatter', () => {
