@@ -29,10 +29,16 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="icon" href="./icons/icon-192.png">
 
-  <link
-    href="./vendor/maplibre-gl.css"
-    rel="stylesheet"
-  />
+  <script>
+    // 公開Webは独自エンジンを既定にする．?renderer=maplibreで即座に旧方式へ戻せる．
+    // ラズパイのlocalhost表示は実機検証が終わるまで旧方式を維持する．
+    window.QZSS_NATIVE_RENDERER = new URLSearchParams(location.search).get('renderer') === 'native'
+      || (new URLSearchParams(location.search).get('renderer') !== 'maplibre'
+        && !['localhost', '127.0.0.1'].includes(location.hostname));
+    if (!window.QZSS_NATIVE_RENDERER) {
+      document.write('<link href="./vendor/maplibre-gl.css" rel="stylesheet">');
+    }
+  </script>
   <style>
     /* iOSのPWA(ホーム画面に追加後)では height:100% だけだとホーム
        インジケーター分の余白が下に残ることがあるため、動的ビューポート
@@ -127,7 +133,14 @@
     })();
   </script>
 
-  <script src="./vendor/maplibre-gl.js"></script>
-  <script src="./vendor/pmtiles.js"></script>
+  <script>
+    // 独自CanvasモードではMapLibreとPMTilesのブラウザ実行コードを読み込まない．
+    if (window.QZSS_NATIVE_RENDERER) {
+      document.write('<script src="./native-map.js"><\/script>');
+    } else {
+      document.write('<script src="./vendor/maplibre-gl.js"><\/script>');
+      document.write('<script src="./vendor/pmtiles.js"><\/script>');
+    }
+  </script>
 </body>
 </html>

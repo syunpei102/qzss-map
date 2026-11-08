@@ -98,6 +98,7 @@
   <div class="empty" id="empty-msg" style="display:none">まだ計測データがありません。通報を受信すると自動的に記録されます。</div>
 </div>
 
+<script src="./latency-dedup.js"></script>
 <script>
 async function fetchHistory() {
   try {
@@ -108,19 +109,7 @@ async function fetchHistory() {
   }
 }
 
-// 過去の履歴には電文キーが無いため，その分だけ表示用の要約が同じカードを
-// まとめる．新しい履歴はraw由来のキーで判定し，内容更新を別件として残す．
-function deduplicateLatencyHistory(history) {
-  const seen = new Set();
-  return history.filter((h) => {
-    const identity = h.reportKey || (h.reportSummary ? `legacy:${JSON.stringify(h.reportSummary)}` : null);
-    if (!identity) return true;
-    const key = `${h.isTestData ? 'test' : 'live'}:${identity}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
+const { deduplicateLatencyHistory } = QzssLatencyDedup;
 
 function percentile(sorted, p) {
   if (!sorted.length) return 0;

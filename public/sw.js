@@ -4,7 +4,7 @@
 // WebSocketや /ingest への送信には一切関与しない(GET以外は素通し)。
 importScripts('./push-display.js');
 
-const CACHE_VERSION = 'qzss-map-v10';
+const CACHE_VERSION = 'qzss-map-v12';
 
 // インストール時に必ず事前キャッシュしておくファイル。以前はmaplibre-gl・
 // pmtilesのライブラリ本体やほとんどのgeojsonデータが含まれておらず、
@@ -21,6 +21,8 @@ const APP_SHELL = [
   './earthquake-identity.js',
   './earthquake-fill.js',
   './map-source-cache.js',
+  './native-map.js',
+  './latency-dedup.js',
   './push-display.js',
   './main.js',
   './style.css',
@@ -29,6 +31,7 @@ const APP_SHELL = [
   './vendor/maplibre-gl.js',
   './vendor/maplibre-gl.css',
   './vendor/pmtiles.js',
+  './data/native-base-tiles.bin',
   './data/epicenter_regions.geojson',
   './data/tsunami_regions.geojson',
   './data/prefectures.geojson',
@@ -49,6 +52,7 @@ const CACHE_FIRST_PATHS = new Set([
   '/vendor/maplibre-gl.js',
   '/vendor/maplibre-gl.css',
   '/vendor/pmtiles.js',
+  '/data/native-base-tiles.bin',
   '/data/epicenter_regions.geojson',
   '/data/tsunami_regions.geojson',
   '/data/prefectures.geojson',
