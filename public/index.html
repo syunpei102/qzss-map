@@ -29,10 +29,11 @@
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="icon" href="./icons/icon-192.png">
 
-  <link
-    href="./vendor/maplibre-gl.css"
-    rel="stylesheet"
-  />
+  <script>
+    if (new URLSearchParams(location.search).get('renderer') !== 'native') {
+      document.write('<link href="./vendor/maplibre-gl.css" rel="stylesheet">');
+    }
+  </script>
   <style>
     /* iOSのPWA(ホーム画面に追加後)では height:100% だけだとホーム
        インジケーター分の余白が下に残ることがあるため、動的ビューポート
@@ -127,7 +128,14 @@
     })();
   </script>
 
-  <script src="./vendor/maplibre-gl.js"></script>
-  <script src="./vendor/pmtiles.js"></script>
+  <script>
+    // 独自CanvasモードではMapLibreとPMTilesのブラウザ実行コードを読み込まない．
+    if (new URLSearchParams(location.search).get('renderer') === 'native') {
+      document.write('<script src="./native-map.js"><\/script>');
+    } else {
+      document.write('<script src="./vendor/maplibre-gl.js"><\/script>');
+      document.write('<script src="./vendor/pmtiles.js"><\/script>');
+    }
+  </script>
 </body>
 </html>

@@ -5,6 +5,8 @@
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
   && !(location.port !== '8080' && new URLSearchParams(location.search).get('web-preview') === '1');
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
+const IS_NATIVE_RENDERER = new URLSearchParams(location.search).get('renderer') === 'native';
+const MapMarker = IS_NATIVE_RENDERER ? QzssNativeMarker : maplibregl.Marker;
 
 // ==================================================
 // 時計表示
@@ -2620,7 +2622,7 @@ function createIntensityBadgeMarkers(prefectures) {
     if (!feature) continue;
     const centroid = geometryCentroid(feature.geometry);
     if (!centroid) continue;
-    const marker = new maplibregl.Marker({ element: createIntensityBadgeElement(p.label, p.color, p.textColor), anchor: 'center' })
+    const marker = new MapMarker({ element: createIntensityBadgeElement(p.label, p.color, p.textColor), anchor: 'center' })
       .setLngLat(centroid)
       .addTo(map);
     applyIntensityBadgeScale(marker, scale);
@@ -3181,7 +3183,7 @@ function updateIdleOverviewMarkers() {
     const end = Math.min(i + IDLE_MARKERS_PER_FRAME, shown.length);
     for (; i < end; i++) {
       const c = shown[i];
-      const marker = new maplibregl.Marker({ element: createOverviewDotElement(c.color), anchor: 'center' })
+      const marker = new MapMarker({ element: createOverviewDotElement(c.color), anchor: 'center' })
         .setLngLat(c.point)
         .addTo(map);
       idleOverviewMarkers.push(marker);
@@ -4718,8 +4720,10 @@ function renderReport(report) {
 //          Performance APIのmark(qzss:*)とコンソールへ記録する
 // ==================================================
 async function initMap() {
-  const protocol = new pmtiles.Protocol();
-  maplibregl.addProtocol('pmtiles', protocol.tile);
+  if (!IS_NATIVE_RENDERER) {
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol('pmtiles', protocol.tile);
+  }
 
   // 段階0: 地図の生成に必須なstyle.jsonだけを待つ
   const style = await fetch('./style.json').then(res => {
@@ -4728,7 +4732,7 @@ async function initMap() {
   });
 
   const initialView = getDefaultView();
-  map = new maplibregl.Map({
+  map = new (IS_NATIVE_RENDERER ? QzssNativeMap : maplibregl.Map)({
     container: 'map',
     style: style,
     center: initialView.center,
