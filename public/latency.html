@@ -108,6 +108,20 @@ async function fetchHistory() {
   }
 }
 
+// 過去の履歴には電文キーが無いため，その分だけ表示用の要約が同じカードを
+// まとめる．新しい履歴はraw由来のキーで判定し，内容更新を別件として残す．
+function deduplicateLatencyHistory(history) {
+  const seen = new Set();
+  return history.filter((h) => {
+    const identity = h.reportKey || (h.reportSummary ? `legacy:${JSON.stringify(h.reportSummary)}` : null);
+    if (!identity) return true;
+    const key = `${h.isTestData ? 'test' : 'live'}:${identity}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function percentile(sorted, p) {
   if (!sorted.length) return 0;
   const idx = Math.min(sorted.length - 1, Math.floor(p * sorted.length));
@@ -419,7 +433,8 @@ function isProductionEntry(h) {
 
 async function refresh() {
   const all = await fetchHistory();
-  const history = hideTestToggle.checked ? all.filter(isProductionEntry) : all;
+  const unique = deduplicateLatencyHistory(all);
+  const history = hideTestToggle.checked ? unique.filter(isProductionEntry) : unique;
   renderStats(history);
   renderChart(history);
   renderHistory(history);

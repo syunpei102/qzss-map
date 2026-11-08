@@ -118,7 +118,9 @@ function validateClientTiming(ts) {
   const decodeMs = t1 - t0, networkMs = t2 - t1, dispatchPrepMs = t3 - t2;
   if ([decodeMs, networkMs, dispatchPrepMs].some(v => Math.abs(v) > MAX_SPAN_MS)) return null;
   const summary = validateReportSummary(ts.reportSummary);
-  return { decodeMs, networkMs, dispatchPrepMs, renderMs: render, totalMs: decodeMs + networkMs + dispatchPrepMs + render, reportSummary: summary, isTestData: !!ts.isTestData };
+  const reportKey = typeof ts.reportKey === "string" && /^dcr:[0-9a-f]{1,160}:(?:[0-9]{1,2})?$/.test(ts.reportKey)
+    ? ts.reportKey : null;
+  return { decodeMs, networkMs, dispatchPrepMs, renderMs: render, totalMs: decodeMs + networkMs + dispatchPrepMs + render, reportSummary: summary, isTestData: !!ts.isTestData, reportKey };
 }
 
 // ---- 通知tag (Issue #17) ----

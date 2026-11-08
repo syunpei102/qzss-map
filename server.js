@@ -877,6 +877,12 @@ app.post("/client-timing", (req, res) => {
   // 測った client_processing_ms を使い，機器間の時計比較はしない(区間は同一機器内の差)
   const timing = guards.validateClientTiming(req.body);
   if (timing) {
+    // 同じ電文は複数ブラウザ・ラズパイ経由の転送で計測が重なる．
+    // 最初の一件だけを残し，後続は履歴にもクラウド転送にも追加しない．
+    if (timing.reportKey && latencyHistory.some(h =>
+      h.reportKey === timing.reportKey && h.isTestData === timing.isTestData)) {
+      return res.status(204).end();
+    }
     const entry = { recordedAt: Date.now(), ...timing };
     console.log(
       `⏱️ end-to-end合計: ${entry.totalMs}ms `
