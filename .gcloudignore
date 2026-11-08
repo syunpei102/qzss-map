@@ -3,6 +3,7 @@ venv
 __pycache__
 *.pyc
 qzss_pipe
+.local_state
 .git
 .gitignore
 .DS_Store

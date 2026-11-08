@@ -505,8 +505,8 @@ function unitFreshlyNotifiable(key, token, now) {
   return last === undefined || now - last >= NOTIFY_REMEMBER_MS;
 }
 
-function rememberNotifiedUnit(key, token, now) {
-  if (key === null) return;
+function rememberNotifiedUnits(key, tokens, now) {
+  if (key === null || tokens.length === 0) return;
   let m = notifiedUnitsByKey.get(key);
   if (!m) {
     m = new Map();
@@ -516,13 +516,17 @@ function rememberNotifiedUnit(key, token, now) {
     notifiedUnitsByKey.delete(key);
     notifiedUnitsByKey.set(key, m);
   }
-  m.set(token, now);
+  for (const token of tokens) m.set(token, now);
   // 期限切れトークンを掃除(メモリ肥大防止)
   for (const [t, ts] of m) if (now - ts >= NOTIFY_REMEMBER_MS) m.delete(t);
   if (m.size === 0) notifiedUnitsByKey.delete(key);
   while (notifiedUnitsByKey.size > NOTIFIED_KEY_LIMIT) {
     notifiedUnitsByKey.delete(notifiedUnitsByKey.keys().next().value);
   }
+}
+
+function rememberNotifiedUnit(key, token, now) {
+  rememberNotifiedUnits(key, [token], now);
 }
 
 // 解除・取消時、この通報自身が指す対象(トークン)だけ「通知済み」記憶を
@@ -543,20 +547,75 @@ function deltaBodyFor(report, labels) {
   return body;
 }
 
-function dispatchPush(report, body) {
+const inFlightPushes = new Set();
+
+function pushDeliveryOptions(report) {
+  const urgent = report.type === "QzssDcxJAlert" || [1, 2, 3, 5].includes(report.disaster_category_no);
+  // 既定TTL(4週間)では解除後に古い警報が届き得る．緊急速報は短く，
+  // 津波は長めに保持する．Urgency=highは緊急情報だけに使う．
+  const ttl = [1, 2, 3].includes(report.disaster_category_no) ? 600
+    : report.disaster_category_no === 5 ? 3600 : 1800;
+  return { urgency: urgent ? "high" : "normal", TTL: ttl, timeout: 2000 };
+}
+
+function isRetryablePushFailure(err) {
+  return [408, 429, 500, 502, 503, 504].includes(err && err.statusCode)
+    || ['ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'ECONNREFUSED'].includes(err && err.code);
+}
+
+async function sendPushWithRetry(sub, payload, options) {
+  try {
+    return await webpush.sendNotification(sub, payload, options);
+  } catch (err) {
+    // 429は送信先の流量制限．即時再試行で悪化させず，受信機の再送待機へ渡す．
+    if (!isRetryablePushFailure(err) || (err && err.statusCode === 429)) throw err;
+    // 初回送信は即時．失敗した購読先だけ短いジッターを置いて1回再試行する．
+    await new Promise((resolve) => setTimeout(resolve, 100 + Math.floor(Math.random() * 100)));
+    return webpush.sendNotification(sub, payload, options);
+  }
+}
+
+function dispatchPush(report, body, onAllTransientFailure) {
   const groupKey = notificationGroupKey(report);
   const tag = guards.notificationTag(groupKey, body, [1, 2, 3].includes(report.disaster_category_no));
   const payload = JSON.stringify({ title: notificationTitleFor(report), body, tag });
+  const options = pushDeliveryOptions(report);
+  const endpoints = [];
+  const sends = [];
+  const startedAt = Date.now();
   for (const [endpoint, sub] of pushSubscriptions) {
-    webpush.sendNotification(sub, payload).catch((err) => {
-      if (err.statusCode === 410 || err.statusCode === 404) {
-        pushSubscriptions.delete(endpoint);
-        persistPushSubscriptions();
-      } else {
-        console.error("⚠️ プッシュ通知の送信に失敗しました:", err.statusCode || err.message);
-      }
-    });
+    endpoints.push(endpoint);
+    // 1つの壊れた購読先が他の購読先への送信開始を止めない．
+    sends.push(sendPushWithRetry(sub, payload, options));
   }
+  const completion = Promise.allSettled(sends).then((results) => {
+    let accepted = 0;
+    let removed = false;
+    let transientFailures = 0;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') { accepted++; continue; }
+      const err = result.reason;
+      if (err && (err.statusCode === 410 || err.statusCode === 404)) {
+        removed = pushSubscriptions.delete(endpoints[i]) || removed;
+      } else {
+        if (isRetryablePushFailure(err)) transientFailures++;
+        console.error("⚠️ プッシュ通知の送信に失敗しました:", err && (err.statusCode || err.message));
+      }
+    }
+    if (removed) persistPushSubscriptions();
+    if (accepted === 0 && transientFailures > 0) {
+      if (onAllTransientFailure) onAllTransientFailure();
+      // 受信機側へ503を返す．同じ電文の再送時も重複フィルタで落とさず再試行する．
+      const contentKey = reportContentKey(report);
+      if (contentKey !== null) recentContentKeys.delete(contentKey);
+    }
+    console.log(`🔔 プッシュ送信先受理 ${accepted}/${results.length}件，所要${Date.now() - startedAt}ms`);
+    return { accepted, attempted: results.length, retryableFailure: accepted === 0 && transientFailures > 0 };
+  }).catch((err) => console.error("⚠️ プッシュ送信結果の処理に失敗しました:", err.message));
+  inFlightPushes.add(completion);
+  completion.then(() => inFlightPushes.delete(completion));
+  return completion;
 }
 
 function sendPushNotifications(report) {
@@ -591,16 +650,19 @@ function sendPushNotifications(report) {
       if (!unitFreshlyNotifiable(key, 'ended', now)) return;
       rememberNotifiedUnit(key, 'ended', now);
       forgetNotifiedUnit(key, 'forecast');
-      dispatchPush(report, body);
-      return;
+      return dispatchPush(report, body, () => forgetNotifiedUnit(key, 'ended'));
     }
     // 北西太平洋津波の「可能性なし」は同じ発表時刻の電文が繰り返し届く．
     // 発表側の通知済み記録を消しても，この解除通知自体は別キーで覚える．
+    let resolvedKey = null;
+    let resolvedToken = null;
     if (report.disaster_category_no === 6 && report.tsunamigenic_potential_raw === 0) {
       const endKey = `${key}|resolved`;
       const endToken = `${report.report_time || ""}|${body}`;
       if (!unitFreshlyNotifiable(endKey, endToken, now)) return;
       rememberNotifiedUnit(endKey, endToken, now);
+      resolvedKey = endKey;
+      resolvedToken = endToken;
     }
     const units = notificationUnits(report);
     if (units && key !== null) {
@@ -608,8 +670,9 @@ function sendPushNotifications(report) {
     } else if (key !== null) {
       notifiedUnitsByKey.delete(key);
     }
-    dispatchPush(report, body);
-    return;
+    return dispatchPush(report, body, () => {
+      if (resolvedKey !== null) forgetNotifiedUnit(resolvedKey, resolvedToken);
+    });
   }
 
   const units = notificationUnits(report);
@@ -617,10 +680,11 @@ function sendPushNotifications(report) {
     // 地域単位で管理できる種別: 前回通知から間もない地域を除いた「新規分」だけ通知
     const fresh = units.filter((u) => unitFreshlyNotifiable(key, u.token, now));
     if (units.length && fresh.length === 0) return; // 全て通知済み(=単なる再送) → 通知しない
-    for (const u of fresh) rememberNotifiedUnit(key, u.token, now);
+    rememberNotifiedUnits(key, fresh.map((u) => u.token), now);
     const body = fresh.length ? deltaBodyFor(report, fresh.map((u) => u.label)) : notificationBodyFor(report);
-    dispatchPush(report, body);
-    return;
+    return dispatchPush(report, body, () => {
+      for (const u of fresh) forgetNotifiedUnit(key, u.token);
+    });
   }
 
   // 地域の概念が無い種別: タイトル+本文のシグネチャ単位で重複を抑制する
@@ -631,7 +695,7 @@ function sendPushNotifications(report) {
     if (!unitFreshlyNotifiable(key, sig, now)) return;
     rememberNotifiedUnit(key, sig, now);
   }
-  dispatchPush(report, body);
+  return dispatchPush(report, body, () => forgetNotifiedUnit(key, sig));
 }
 
 // 現在「表示中」とみなせる重要な通報を覚えておき、ブラウザが
@@ -803,19 +867,26 @@ function handleIncomingLine(line) {
   pruneStaleActiveReports();
   if (report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report)) return;
 
-  if (isEndSignal(report) || isReplayable(report)) {
+  const shouldPersist = isEndSignal(report) || isReplayable(report);
+  if (shouldPersist) {
     activeReports = updateActiveReports(activeReports, report, Date.now(), isEndSignal(report));
     pruneStaleActiveReports();
-    persistActiveReports();
   }
-  broadcast(line);
-  sendPushNotifications(report);
+  // ローカル専用機は従来どおり送信前に同期保存する．クラウド側は送信開始を
+  // 待たせず，最後に非同期保存する．配信で例外が出ても保存は必ず予約する．
+  if (shouldPersist && LOCAL_STATE_ONLY) persistActiveReports();
+  try {
+    broadcast(line);
+    return sendPushNotifications(report);
+  } finally {
+    if (shouldPersist && !LOCAL_STATE_ONLY) persistActiveReports();
+  }
 }
 
 // ラズパイなど現地の受信機からデコード済みJSONを受け取るエンドポイント。
 // 拠点ごとのトークン(X-Api-Keyヘッダ)で照合する。1台分が漏えいしても
 // 他の拠点は影響を受けない(requireDeviceToken参照)。
-app.post("/ingest", (req, res) => {
+app.post("/ingest", async (req, res, next) => {
   const auth = requireDeviceToken(req, res);
   if (!auth.ok) return;
   // レイテンシ計測(T0受信→T1デコード→T2サーバー受信→T3配信→T4描画完了)。
@@ -832,9 +903,19 @@ app.post("/ingest", (req, res) => {
   // 側で1リクエストの上限を256kbに制限済みなので、ログ1行がその桁で
   // 際限なく肥大化することは無い。4000文字あれば実際の通報JSON
   // (Lアラート等)は余裕を持ってまるごと残るサイズなので、それを上限にする
-  console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 4000));
-  handleIncomingLine(line);
-  res.status(204).end();
+  try {
+    // Cloud Runのリクエスト課金では応答後にCPUが止まり得る．送信先サービスが
+    // 受理するまでリクエストを維持して，プッシュ送信を途中で止めない．
+    const pushResult = await handleIncomingLine(line);
+    // 詳細ログは送信先への依頼が終わってから出し，初動を待たせない．
+    console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 4000));
+    if (pushResult && pushResult.retryableFailure) {
+      return res.status(503).json({ error: 'push delivery temporarily unavailable' });
+    }
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // レイテンシ計測(T0受信〜T4描画完了)の履歴。ダッシュボード表示用に
@@ -1300,13 +1381,22 @@ async function loadPersistedJson(filename) {
   return loadLocalStateFile(filename);
 }
 
-function persistJson(filename, data) {
+function persistJson(filename, data, { nonBlockingLocal = false } = {}) {
   const json = JSON.stringify(data);
-  try {
-    fs.mkdirSync(LOCAL_STATE_DIR, { recursive: true });
-    fs.writeFileSync(localStatePath(filename), json);
-  } catch (err) {
-    console.warn(`⚠️ ローカルファイルへの保存に失敗しました(${filename}):`, err.message);
+  if (nonBlockingLocal && !LOCAL_STATE_ONLY) {
+    // クラウドではGCSが主保存先．フォールバック用ローカル書込みも
+    // 受信処理を止めず，ファイル名ごとに順序を守って書く．
+    localSaveQueue(filename, async () => {
+      await fs.promises.mkdir(LOCAL_STATE_DIR, { recursive: true });
+      await fs.promises.writeFile(localStatePath(filename), json);
+    }).catch((err) => console.warn(`⚠️ ローカルファイルへの保存に失敗しました(${filename}):`, err.message));
+  } else {
+    try {
+      fs.mkdirSync(LOCAL_STATE_DIR, { recursive: true });
+      fs.writeFileSync(localStatePath(filename), json);
+    } catch (err) {
+      console.warn(`⚠️ ローカルファイルへの保存に失敗しました(${filename}):`, err.message);
+    }
   }
   if (LOCAL_STATE_ONLY) return Promise.resolve();
   // 同一ファイルへのGCS保存は呼び出し順に直列化する(完了順が逆転して古い状態が
@@ -1318,6 +1408,7 @@ function persistJson(filename, data) {
     .catch((err) => console.warn(`⚠️ GCSへの保存に失敗しました(${filename}):`, err.message));
 }
 const gcsSaveQueue = createSerialQueue();
+const localSaveQueue = createSerialQueue();
 
 // ==================================================
 // 拠点ごとのINGEST_TOKEN
@@ -1405,7 +1496,7 @@ function seedNotifiedFromActiveReports() {
     if (key === null) continue;
     const units = notificationUnits(report);
     if (units) {
-      for (const u of units) rememberNotifiedUnit(key, u.token, now);
+      rememberNotifiedUnits(key, units.map((u) => u.token), now);
     } else {
       const sig = "sig:" + notificationTitleFor(report) + "\n" + notificationBodyFor(report);
       rememberNotifiedUnit(key, sig, now);
@@ -1414,7 +1505,7 @@ function seedNotifiedFromActiveReports() {
 }
 
 function persistActiveReports() {
-  persistJson(ACTIVE_REPORTS_STATE_FILE, activeReports);
+  persistJson(ACTIVE_REPORTS_STATE_FILE, activeReports, { nonBlockingLocal: true });
 }
 
 // 管理者パスワード(/device-adminから自分で変更できる)。同じバケットに
@@ -1915,8 +2006,10 @@ process.on("SIGTERM", async () => {
   server.close();
   const forceExit = setTimeout(() => process.exit(1), 9000);
   try {
+    await Promise.allSettled([...inFlightPushes]);
     await latencyPersist.flush();
     await gcsSaveQueue.drain();
+    await localSaveQueue.drain();
     clearTimeout(forceExit);
     process.exit(0);
   } catch (err) {
