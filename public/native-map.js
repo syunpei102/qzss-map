@@ -122,18 +122,46 @@
     return false;
   }
 
+  // 多数の対象区域を持つ警報では，GeoJSONの各featureに対して同じ
+  // in/match式を何度も評価する．式オブジェクトはsetFilter/paintの間
+  // 不変なので，探索表を式ごとに一度だけ作る．
+  const literalSetCache = new WeakMap();
+  const matchIndexCache = new WeakMap();
+
   function evaluate(expression, properties, zoom) {
     if (!Array.isArray(expression)) return expression;
     const [op, ...args] = expression;
     if (op === 'get') return properties[args[0]];
     if (op === 'literal') return args[0];
     if (op === 'zoom') return zoom;
-    if (op === 'in') return evaluate(args[1], properties, zoom)?.includes(evaluate(args[0], properties, zoom)) || false;
+    if (op === 'in') {
+      const candidate = evaluate(args[0], properties, zoom);
+      const values = evaluate(args[1], properties, zoom);
+      if (!Array.isArray(values)) return values?.includes?.(candidate) || false;
+      if (values.length < 8 || args[1]?.[0] !== 'literal') return values.includes(candidate);
+      let set = literalSetCache.get(expression);
+      if (!set) { set = new Set(values); literalSetCache.set(expression, set); }
+      return set.has(candidate);
+    }
     if (op === '!=') return evaluate(args[0], properties, zoom) !== evaluate(args[1], properties, zoom);
     if (op === '==') return evaluate(args[0], properties, zoom) === evaluate(args[1], properties, zoom);
     if (op === 'all') return args.every(arg => evaluate(arg, properties, zoom));
     if (op === 'match') {
       const value = evaluate(args[0], properties, zoom);
+      if (args.length >= 16) {
+        let index = matchIndexCache.get(expression);
+        if (!index) {
+          index = new Map();
+          for (let i = 1; i < args.length - 1; i += 2) {
+            for (const key of Array.isArray(args[i]) ? args[i] : [args[i]]) {
+              if (!index.has(key)) index.set(key, i + 1); // matchは最初の一致を使う
+            }
+          }
+          matchIndexCache.set(expression, index);
+        }
+        const outputIndex = index.get(value);
+        return evaluate(outputIndex === undefined ? args.at(-1) : args[outputIndex], properties, zoom);
+      }
       for (let i = 1; i < args.length - 1; i += 2) {
         if (Array.isArray(args[i]) ? args[i].includes(value) : args[i] === value) return evaluate(args[i + 1], properties, zoom);
       }
@@ -379,6 +407,34 @@
     drawGeoLayer(layer) {
       const source = this.sources.get(layer.source);
       if (!source?.data?.features || (layer.filter?.[0] === 'in' && layer.filter[2]?.[1]?.length === 0)) return;
+      // 警報が変わらない間，区域フィルターの結果も変わらない．地図の
+      // フレームごとに全国の全featureを評価せず，対象だけを描く．
+      const filterCache = layer.__nativeFilterCache;
+      let features;
+      if (filterCache && filterCache.data === source.data && filterCache.filter === layer.filter
+        && filterCache.zoom === this.zoom) {
+        features = filterCache.features;
+      } else {
+        features = layer.filter
+          ? source.data.features.filter(feature => evaluate(layer.filter, feature.properties || {}, this.zoom))
+          : source.data.features;
+        layer.__nativeFilterCache = { data: source.data, filter: layer.filter, zoom: this.zoom, features };
+      }
+      if (!features.length) return;
+      const colorExpression = layer.paint?.[`${layer.type}-color`];
+      const colorCache = layer.__nativeColorCache;
+      let coloredFeatures = null;
+      if (layer.type !== 'symbol') {
+        if (colorCache && colorCache.features === features && colorCache.expression === colorExpression
+          && colorCache.zoom === this.zoom) {
+          coloredFeatures = colorCache.entries;
+        } else {
+          coloredFeatures = features.map(feature => ({
+            feature, color: evaluate(colorExpression, feature.properties || {}, this.zoom),
+          })).filter(entry => entry.color);
+          layer.__nativeColorCache = { features, expression: colorExpression, zoom: this.zoom, entries: coloredFeatures };
+        }
+      }
       const ctx = this.ctx; const [cx, cy] = mercator(this.center); const size = this.worldSize();
       const x = this.width / 2 - cx * size; const y = this.height / 2 - cy * size;
       const opacity = evaluate(layer.paint?.[`${layer.type}-opacity`], {}, this.zoom) ?? 1;
@@ -386,9 +442,8 @@
       ctx.save(); ctx.globalAlpha = opacity;
       ctx.setTransform(this.dpr * size, 0, 0, this.dpr * size, this.dpr * x, this.dpr * y);
       ctx.lineWidth = lineWidth / size;
-      for (const feature of source.data.features) {
-        const props = feature.properties || {};
-        if (layer.filter && !evaluate(layer.filter, props, this.zoom)) continue;
+      for (const entry of coloredFeatures || features) {
+        const feature = coloredFeatures ? entry.feature : entry;
         if (layer.type === 'symbol') {
           const image = this.images.get(layer.layout?.['icon-image']);
           if (!image || feature.geometry?.type !== 'Point') continue;
@@ -404,8 +459,7 @@
           }
           ctx.restore(); continue;
         }
-        const color = evaluate(layer.paint?.[`${layer.type}-color`], props, this.zoom);
-        if (!color) continue;
+        const color = entry.color;
         const path = geoPath(feature);
         if (layer.type === 'fill') { ctx.fillStyle = color; ctx.fill(path, 'evenodd'); }
         else if (layer.type === 'line') { ctx.strokeStyle = color; ctx.stroke(path); }
