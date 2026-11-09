@@ -551,22 +551,13 @@ function createIntensityBadgeElement(label, color, textColor) {
   return wrapper;
 }
 
-// ズームレベルに応じて震度バッジの大きさを変える
-// (zoom6を基準サイズとし、拡大するほど大きく、縮小するほど小さくする)
-const INTENSITY_BADGE_BASE_ZOOM = 6;
-function intensityBadgeScaleForZoom(zoom) {
-  return Math.min(2.2, Math.max(0.6, 1 + (zoom - INTENSITY_BADGE_BASE_ZOOM) * 0.22));
+// 震度バッジは画面上のサイズを固定する．重なり回避の半径も同じ倍率を使う．
+function intensityBadgeScaleForZoom() {
+  return 1;
 }
 function applyIntensityBadgeScale(marker, scale) {
   const badge = marker.getElement().querySelector('.intensity-badge');
   if (badge) badge.style.transform = `scale(${scale})`;
-}
-function updateAllIntensityBadgeScales() {
-  if (!map) return;
-  const scale = intensityBadgeScaleForZoom(map.getZoom());
-  for (const record of activeEvents.values()) {
-    for (const marker of record.markers.intensityBadges) applyIntensityBadgeScale(marker, scale);
-  }
 }
 
 // ==================================================
@@ -2366,6 +2357,10 @@ function buildEventFromReport(report) {
     rows: buildSummary(report),
     geo,
     earthquakeFill,
+    expiresAt: Date.now() + ReportTtl.remainingTtlMsForReport(report),
+    // 津波の続報で震源・震度の寿命を延長しない．
+    earthquakeGeoExpiresAt: [1, 2, 3].includes(report.disaster_category_no)
+      ? Date.now() + ReportTtl.remainingTtlMsForReport(report) : null,
     bounds: boundsList.length ? unionBounds(boundsList) : null,
     // 都道府県単位の塗りつぶしは、小さい県だと対象範囲(bbox対角線)が
     // 短く判定され、Lアラートの市区町村向けの上限(11)が誤って適用されて
@@ -2511,6 +2506,8 @@ function retirePreviousEarthquakes(incomingEvent) {
       });
     }
     clearTimeout(record.eewFillTimer);
+    clearTimeout(record.earthquakeGeoTimer);
+    record.earthquakeGeoExpiresAt = null;
     record.eewFillTimer = null;
     for (const marker of record.markers.intensityBadges) marker.remove();
     record.markers.intensityBadges = [];
@@ -2768,9 +2765,41 @@ function resolveMarkerOverlaps() {
 // させるまでの間隔(ミリ秒)。0にすると従来通り同時になる
 const CAMERA_ZOOM_DELAY_MS = 400;
 
-// ttlMs を指定しない場合は自動消滅させない(取消・警報解除など明示的な
-// 信号が来るまで表示し続ける)。「取消」「警報解除」等の短時間だけ
-// 出す通知カードにのみ ttlMs を明示的に渡す。
+// 統合カードは絶対期限を比較する．残り時間の最大値を毎回数え直さない．
+function scheduleActiveEventExpiry(record, eventData, ttlMs) {
+  clearTimeout(record.timer);
+  if (ttlMs != null) {
+    const incomingDeadline = eventData.expiresAt ?? Date.now() + ttlMs;
+    record.expiresAt = Math.max(record.expiresAt || 0, incomingDeadline);
+  }
+  record.timer = record.expiresAt != null
+    ? setTimeout(() => removeActiveEvent(record.id), Math.max(0, record.expiresAt - Date.now())) : null;
+}
+
+// 震源と震度は津波から独立して失効する．津波のカード・沿岸線は保持する．
+function scheduleEarthquakeGeoExpiry(record) {
+  clearTimeout(record.earthquakeGeoTimer);
+  record.earthquakeGeoTimer = null;
+  if (record.earthquakeGeoExpiresAt == null) return;
+  const expire = () => {
+    if (!activeEvents.has(record.id)) return;
+    record.geo.hypocenter = null;
+    record.geo.prefectures = [];
+    record.earthquakeFill = null;
+    clearTimeout(record.eewFillTimer);
+    for (const marker of record.markers.intensityBadges) marker.remove();
+    record.markers.intensityBadges = [];
+    record.earthquakeGeoTimer = null;
+    syncActiveEventLayers();
+    resolveMarkerOverlaps();
+    renderEventsPanel();
+  };
+  const remaining = record.earthquakeGeoExpiresAt - Date.now();
+  if (remaining <= 0) expire();
+  else record.earthquakeGeoTimer = setTimeout(expire, remaining);
+}
+
+// ttlMsがnullの通知は明示的な解除まで保持する．0は期限切れを意味する．
 function addActiveEvent(eventData, ttlMs = null) {
   const id = nextEventId++;
   const record = {
@@ -2786,9 +2815,10 @@ function addActiveEvent(eventData, ttlMs = null) {
 
   if (eventData.disasterCategoryNo === 5) record.tsunamiSnapshot = tsunamiSnapshotForEvent(eventData);
 
-  record.timer = ttlMs ? setTimeout(() => removeActiveEvent(id), ttlMs) : null;
+  scheduleActiveEventExpiry(record, eventData, ttlMs);
   activeEvents.set(id, record);
   scheduleEewFillExpiry(record);
+  scheduleEarthquakeGeoExpiry(record);
   // 地震・津波・Jアラート・Lアラート等が発生した場合、地図はそちらに
   // ズームするため、それまで気象警報の巡回で表示していた地域の
   // カード/輪郭強調は(カメラが実際にはもうそこを見ていないので)消す
@@ -2826,7 +2856,10 @@ function addActiveEvent(eventData, ttlMs = null) {
 // 採用する(短い方に引きずられて津波警報ごと早期に消えないようにする)
 function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   clearTimeout(record.timer);
-  if (newTtlMs != null) record.ttlMs = Math.max(record.ttlMs || 0, newTtlMs);
+  if (newTtlMs != null) record.ttlMs = newTtlMs;
+  if (eventData.earthquakeGeoExpiresAt != null) {
+    record.earthquakeGeoExpiresAt = Math.max(record.earthquakeGeoExpiresAt || 0, eventData.earthquakeGeoExpiresAt);
+  }
 
   // 表示の優先順位: 1.警報対象地域の塗りつぶし 2.震源・震度バッジの
   // マーカー 3.カメラズーム。まずマーカーに関わるデータだけ更新し
@@ -2916,7 +2949,8 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   if (report.occurrence_time_of_earthquake) record.occurrenceTime = report.occurrence_time_of_earthquake;
   record.updatedAt = Date.now();
 
-  record.timer = record.ttlMs ? setTimeout(() => removeActiveEvent(record.id), record.ttlMs) : null;
+  scheduleActiveEventExpiry(record, eventData, newTtlMs);
+  scheduleEarthquakeGeoExpiry(record);
   syncActiveEventLayers(); // 震源✕はこの中の updateEpicenterLayer() で最新化される
   updateWeatherDisplay();
   // 塗りつぶしを反映した後で、変化があった分だけ震度バッジ(DOM)を作り直す
@@ -2947,6 +2981,8 @@ function removeActiveEvent(id) {
   const record = activeEvents.get(id);
   if (!record) return;
   clearTimeout(record.eewFillTimer);
+  clearTimeout(record.earthquakeGeoTimer);
+  clearTimeout(record.timer);
   for (const marker of record.markers.intensityBadges) marker.remove();
   activeEvents.delete(id);
   syncActiveEventLayers(); // 削除後に updateEpicenterLayer() が震源✕からも取り除く
@@ -4687,6 +4723,7 @@ function renderReport(report) {
   // 画面はそのまま(前回の重要な通報の表示を維持する)
   if (!ALLOWED_CATEGORIES.has(report.disaster_category_no)) return;
 
+  if (ReportTtl.remainingTtlMsForReport(report) <= 0) return;
   const event = applyTrainingLabel(buildEventFromReport(report), report);
   if (!isRelevantToTargetRegion(event)) return;
 
@@ -4786,17 +4823,7 @@ async function initMap() {
     new ResizeObserver(() => map.resize()).observe(mapContainer);
   }
 
-  // ズーム操作/オートズームに合わせて震度バッジの大きさを追従させる。
-  // これは'zoom'(ズーム中は連続して発火)で毎フレーム追従させないと
-  // 大きさがガクガクして見える
-  map.on('zoom', updateAllIntensityBadgeScales);
-  // 震源✕・震度バッジの重なり回避(resolveMarkerOverlaps)は、上と違い
-  // 'zoomend'(ズームが止まった時に1回だけ発火)でのみ計算し直す。
-  // 'zoom'(連続発火)のたびにDOMマーカーの位置をsetLngLatで再計算すると、
-  // ズーム中のアニメーション(flyTo等)の最中は毎ティック押しのけ量が
-  // 微妙に変わり続け、バッジがガクガクと不規則に揺れて見えてしまう
-  // (実機で確認: 巡回ズームで別の震源へ切り替わる最中に震度バッジが
-  // 泳ぐように見えた)。ズームが落ち着いてから1回だけ揃える方が安定する
+  // サイズは固定し，位置の重なりだけズーム終了後に調整する．
   map.on('zoomend', resolveMarkerOverlaps);
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
@@ -4851,7 +4878,7 @@ async function initMap() {
     filter: ['in', ['get', 'code'], ['literal', []]],
     paint: {
       'line-color': TSUNAMI_DEFAULT_COLOR,
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 6, 7, 10],
+      'line-width': 8,
     },
   });
 
@@ -4955,6 +4982,8 @@ async function initMap() {
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'icon-size': 1,
+      'icon-pitch-alignment': 'viewport',
+      'icon-rotation-alignment': 'viewport',
     },
   });
 
@@ -5418,6 +5447,9 @@ function connectWebSocket() {
     }
 
     await mapReady;
+    // データ読込待ちも寿命に含める．期限直前の再送を期限後に描画しない．
+    report.replay_age_ms = (Number.isFinite(report.replay_age_ms) ? report.replay_age_ms : 0)
+      + Date.now() - clientMessageReceivedAt;
     renderReport(report);
     const timingSequence = ++latestTimedReportSequence;
 

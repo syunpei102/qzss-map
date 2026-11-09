@@ -64,7 +64,7 @@ test('v2 ingest to websocket to timing history preserves local intervals', { tim
     const history = await (await fetch(`${base}/api/latency-history`)).json();
     assert.equal(history.length, 1);
     assert.equal(history[0].schemaVersion, 2);
-    assert.equal(history[0].measuredMs, 34.25 + report.client_timestamps.server_processing_ms);
+    assert.ok(Math.abs(history[0].measuredMs - (34.25 + report.client_timestamps.server_processing_ms)) < 1e-9);
   } finally {
     ws?.close();
     child.kill('SIGTERM');
