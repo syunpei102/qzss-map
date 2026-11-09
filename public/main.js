@@ -5299,6 +5299,7 @@ const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 // わけではないので、close側の3秒待ちの自動再接続とは区別する
 let socket = null;
 let intentionalReconnect = false;
+let latestTimedReportSequence = 0;
 
 // 再接続の待ち時間。初回は素早く(200ms)・失敗が続いたら徐々に間隔を
 // 伸ばす指数バックオフにする。以前は完全ローカル版(IS_LOCAL_KIOSK)だけ
@@ -5363,11 +5364,8 @@ function connectWebSocket() {
   });
 
   socket.addEventListener('message', async (event) => {
-    // レイテンシ計測用: メッセージを受け取った瞬間のブラウザ自身の時刻。
-    // 「配信→描画完了」の所要時間は、この後この関数の最後で
-    // Date.now()との差分として計算する(サーバー側のタイムスタンプとは
-    // 一切比較しない=別々の機器の時計のズレの影響を受けない)
-    const clientMessageReceivedAt = Date.now();
+    // ブラウザ内の経過時間だけを単調時計で測る．他機器の時計とは差し引かない．
+    const clientMessageReceivedAt = performance.now();
     // キオスクは画面を何週間も再読み込みせずに開きっぱなしにするため、
     // 受信のたびに生のペイロード全体(raw/description等を含む数百バイト~)
     // をコンソールに残し続けるのは無駄に大きい。中身の確認用途としては
@@ -5421,21 +5419,11 @@ function connectWebSocket() {
 
     await mapReady;
     renderReport(report);
+    const timingSequence = ++latestTimedReportSequence;
 
-    // レイテンシ計測(T0受信〜描画完了)。renderReportは同期関数で、
-    // 警報の塗りつぶし(最優先の描画)はこの時点で既に反映済み。
-    // 「配信→描画完了」の所要時間は、サーバーが配信した時刻
-    // (t3_dispatched_ms、サーバー機の時計)とここでのDate.now()
-    // (ブラウザの時計)を引き算していたが、キオスク(ラズパイ)は正確な
-    // 時刻を持っていないことが多く、機器間で時計がズレていると差分が
-    // マイナスになったり異常に大きくなったりする不具合があった(実機の
-    // ダッシュボードで確認: 一部の通報だけ描画に数秒〜十数秒かかった
-    // ように見えていたが、実際には時計のズレによる見かけ上の数値だった)。
-    // メッセージを受け取ってから描画完了までをブラウザ自身の時計だけで
-    // 測った時間(clientProcessingMs)を代わりに送り、サーバー側の時刻とは
-    // 一切比較しないようにする
+    // ブラウザ内の処理時間だけを単調時計で測る．表示準備はrAFで別に測る．
     if (report.client_timestamps) {
-      const clientProcessingMs = Date.now() - clientMessageReceivedAt;
+      const clientProcessingMs = Math.round((performance.now() - clientMessageReceivedAt) * 1000) / 1000;
       // sentence/raw/message/nmeaは同じ信号の別エンコーディングに過ぎず
       // ダッシュボードでの内容確認には不要なので除外する(このためだけに
       // ペイロードを膨らませたくない)
@@ -5450,6 +5438,22 @@ function connectWebSocket() {
           ? `dcr:${raw.toLowerCase()}:${report.information_type_no ?? ''}` : null,
         reportSummary,
       };
+      // 二度目のフレーム要求まで待ち，描画候補が画面へ渡るまでの時間を測る．
+      // 非表示タブではrAFが停止するため，計測を省略する．画素の表示時刻ではない．
+      if (timestamps.schema_version === 2 && !document.hidden) {
+        timestamps.client_visual_ready_ms = await new Promise((resolve) => {
+          let settled = false;
+          const finish = (value) => { if (!settled) { settled = true; resolve(value); } };
+          const timeout = setTimeout(() => finish(null), 2000);
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            clearTimeout(timeout);
+            finish(timingSequence === latestTimedReportSequence
+              ? Math.max(clientProcessingMs,
+                Math.round((performance.now() - clientMessageReceivedAt) * 1000) / 1000)
+              : null);
+          }));
+        });
+      }
       fetch('/client-timing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

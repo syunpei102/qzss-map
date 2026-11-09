@@ -76,15 +76,14 @@
 <body>
 <div class="wrap">
   <h1>⏱️ レイテンシダッシュボード</h1>
-  <p class="sub">本番データのみ表示．信号受信(T0)→デコード(T1)→サーバー受信(T2)→配信(T3)→ブラウザ描画完了(T4)．5秒ごとに自動更新．</p>
+  <p class="sub">本番データの新方式計測のみ表示．合計は受信機・サーバー・ブラウザの処理区間のみで，通信・送信待ち・画面の実点灯時間は含みません．5秒ごとに更新．</p>
 
   <div class="stats" id="stats"></div>
 
   <div class="legend">
-    <span><i style="background:#4c8bf5"></i>デコード</span>
-    <span><i style="background:#f1c40f"></i>受信機→サーバー</span>
-    <span><i style="background:#9c7fe0"></i>配信準備</span>
-    <span><i style="background:#2ecc71"></i>配信→描画完了</span>
+    <span><i style="background:#4c8bf5"></i>受信機処理</span>
+    <span><i style="background:#9c7fe0"></i>サーバー処理</span>
+    <span><i style="background:#2ecc71"></i>ブラウザ表示準備</span>
   </div>
   <canvas id="chart" height="200"></canvas>
 
@@ -122,7 +121,7 @@ function formatSeconds(ms) {
 function renderStats(history) {
   const el = document.getElementById('stats');
   if (!history.length) { el.innerHTML = ''; return; }
-  const totals = history.map((h) => h.totalMs).sort((a, b) => a - b);
+  const totals = history.map((h) => h.measuredMs).sort((a, b) => a - b);
   const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
@@ -163,7 +162,7 @@ function renderChart(history) {
   // 枠外へ切り詰めて上に▲マーク+実測値を表示する。p90など単純な
   // percentileだと、外れ値が2件以上混ざると外れ値自体がp90に入って
   // しまい軸が潰れたままになるケースがあったため採用している
-  const sortedTotals = recent.map((h) => h.totalMs).sort((a, b) => a - b);
+  const sortedTotals = recent.map((h) => h.measuredMs).sort((a, b) => a - b);
   const trueMax = sortedTotals[sortedTotals.length - 1] || 0;
   let maxTotal;
   if (sortedTotals.length < 8) {
@@ -182,7 +181,7 @@ function renderChart(history) {
   const plotBottom = cssHeight - padBottom;
   const plotTop = padTop;
   const scale = (plotBottom - plotTop) / maxTotal;
-  const colors = { decodeMs: '#4c8bf5', networkMs: '#f1c40f', dispatchPrepMs: '#9c7fe0', renderMs: '#2ecc71' };
+  const colors = { receiverDecodeMs: '#4c8bf5', serverProcessingMs: '#9c7fe0', browserMs: '#2ecc71' };
 
   ctx.save();
   ctx.beginPath();
@@ -191,8 +190,8 @@ function renderChart(history) {
   recent.forEach((h, i) => {
     let y = plotBottom;
     const x = i * (barWidth + barGap);
-    for (const key of ['decodeMs', 'networkMs', 'dispatchPrepMs', 'renderMs']) {
-      const segH = Math.max(0, h[key]) * scale;
+    for (const key of ['receiverDecodeMs', 'serverProcessingMs', 'browserMs']) {
+      const segH = Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? h.clientProcessingMs) : h[key]) * scale;
       ctx.fillStyle = colors[key];
       ctx.fillRect(x, y - segH, barWidth, segH);
       y -= segH;
@@ -204,7 +203,7 @@ function renderChart(history) {
   ctx.font = '9px sans-serif';
   ctx.textAlign = 'center';
   recent.forEach((h, i) => {
-    if (h.totalMs <= maxTotal) return;
+    if (h.measuredMs <= maxTotal) return;
     const x = i * (barWidth + barGap) + barWidth / 2;
     ctx.beginPath();
     ctx.moveTo(x, plotTop - 6);
@@ -212,7 +211,7 @@ function renderChart(history) {
     ctx.lineTo(x + barWidth / 2, plotTop + 3);
     ctx.closePath();
     ctx.fill();
-    ctx.fillText(`${formatSeconds(h.totalMs)}s`, x, plotTop - 8);
+    ctx.fillText(`${formatSeconds(h.measuredMs)}s`, x, plotTop - 8);
   });
 
   ctx.strokeStyle = '#2a2e35';
@@ -353,10 +352,9 @@ function reportRows(r) {
 }
 
 const LATENCY_SEGMENTS = [
-  ['decodeMs', '#4c8bf5'],
-  ['networkMs', '#f1c40f'],
-  ['dispatchPrepMs', '#9c7fe0'],
-  ['renderMs', '#2ecc71'],
+  ['receiverDecodeMs', '#4c8bf5'],
+  ['serverProcessingMs', '#9c7fe0'],
+  ['browserMs', '#2ecc71'],
 ];
 
 function renderHistory(history) {
@@ -372,11 +370,11 @@ function renderHistory(history) {
 
   container.innerHTML = recent.map((h) => {
     const r = h.reportSummary;
-    const isAnomaly = h.totalMs > ANOMALY_THRESHOLD_MS;
+    const isAnomaly = h.measuredMs > ANOMALY_THRESHOLD_MS;
     const rowsHtml = reportRows(r).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
-    const maxSeg = Math.max(h.totalMs, 1);
+    const maxSeg = Math.max(h.measuredMs, 1);
     const barHtml = LATENCY_SEGMENTS.map(([key, color]) =>
-      `<span style="width:${Math.max(0, h[key]) / maxSeg * 100}%; background:${color}"></span>`
+      `<span style="width:${Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? h.clientProcessingMs) : h[key]) / maxSeg * 100}%; background:${color}"></span>`
     ).join('');
     return `
       <div class="report-card ${reportSeverityClass(r)} ${isAnomaly ? 'anomaly' : ''}">
@@ -388,9 +386,9 @@ function renderHistory(history) {
         <dl class="report-summary">${rowsHtml}</dl>
         <div class="latency-bar-row">
           <div class="latency-bar">${barHtml}</div>
-          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.totalMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
+          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.measuredMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
         </div>
-        <div class="recorded-time">受信 ${formatRecordedAt(h.recordedAt)}(デコード${formatSeconds(h.decodeMs)}s・受信機→サーバー${formatSeconds(h.networkMs)}s・配信準備${formatSeconds(h.dispatchPrepMs)}s・配信→描画${formatSeconds(h.renderMs)}s)</div>
+        <div class="recorded-time">記録 ${formatRecordedAt(h.recordedAt)}(受信機処理${formatSeconds(h.receiverDecodeMs)}s・サーバー処理${formatSeconds(h.serverProcessingMs)}s・ブラウザ処理${formatSeconds(h.clientProcessingMs)}s・表示準備${h.clientVisualReadyMs == null ? '未計測' : `${formatSeconds(h.clientVisualReadyMs)}s`})</div>
       </div>
     `;
   }).join('');
@@ -422,7 +420,7 @@ function latencySourceLabel(h) {
 async function refresh() {
   const all = await fetchHistory();
   const unique = deduplicateLatencyHistory(all);
-  const history = unique.filter(isProductionEntry);
+  const history = unique.filter(h => h.schemaVersion === 2 && isProductionEntry(h));
   renderStats(history);
   renderChart(history);
   renderHistory(history);
