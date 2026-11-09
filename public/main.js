@@ -260,7 +260,14 @@ function eachCoordinate(coords, cb) {
   for (const c of coords) eachCoordinate(c, cb);
 }
 
+// 配信済みGeoJSONの座標は読み込み後に変更しない．同じ県や沿岸を
+// 続報・ズームのたびに全頂点走査しないよう，形状オブジェクト単位で保持する．
+const geometryBoundsCache = new WeakMap();
+const mainLandBoundsCache = new WeakMap();
+const geometryCentroidCache = new WeakMap();
+
 function geometryBounds(geometry) {
+  if (geometryBoundsCache.has(geometry)) return geometryBoundsCache.get(geometry);
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   eachCoordinate(geometry.coordinates, ([x, y]) => {
     if (x < minX) minX = x;
@@ -268,7 +275,9 @@ function geometryBounds(geometry) {
     if (x > maxX) maxX = x;
     if (y > maxY) maxY = y;
   });
-  return [minX, minY, maxX, maxY];
+  const bounds = [minX, minY, maxX, maxY];
+  geometryBoundsCache.set(geometry, bounds);
+  return bounds;
 }
 
 // 都道府県ジオメトリの「主要な陸地」だけでズーム範囲を決める。
@@ -279,6 +288,7 @@ function geometryBounds(geometry) {
 // MultiPolygonの場合は、bbox面積が最大のポリゴン(=本土)だけを使う
 function mainLandBounds(geometry) {
   if (geometry.type !== 'MultiPolygon') return geometryBounds(geometry);
+  if (mainLandBoundsCache.has(geometry)) return mainLandBoundsCache.get(geometry);
   let best = null;
   let bestArea = -1;
   for (const rings of geometry.coordinates) {
@@ -295,15 +305,20 @@ function mainLandBounds(geometry) {
       best = [minX, minY, maxX, maxY];
     }
   }
-  return best || geometryBounds(geometry);
+  const bounds = best || geometryBounds(geometry);
+  mainLandBoundsCache.set(geometry, bounds);
+  return bounds;
 }
 
 function geometryCentroid(geometry) {
+  if (geometryCentroidCache.has(geometry)) return geometryCentroidCache.get(geometry);
   let sumX = 0, sumY = 0, n = 0;
   eachCoordinate(geometry.coordinates, ([x, y]) => {
     sumX += x; sumY += y; n++;
   });
-  return n ? [sumX / n, sumY / n] : null;
+  const centroid = n ? [sumX / n, sumY / n] : null;
+  geometryCentroidCache.set(geometry, centroid);
+  return centroid;
 }
 
 function unionBounds(boundsList) {
@@ -1675,20 +1690,21 @@ function updateWeatherDisplay() {
   // ポリゴンのまま(syncActiveEventLayersのidle対応と同じ考え方)
   const codes = shouldUseLightweightIdleView() || isQuakeLockActive() || hasVisibleEewFill()
     ? [] : [...weatherSites.keys()];
+  const filter = ['in', ['get', 'code'], ['literal', codes]];
   if (!codes.length) {
-    map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', []]]);
-    map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', []]]);
+    MapSourceCache.setFilterIfChanged(map, 'weather-fill', filter);
+    MapSourceCache.setFilterIfChanged(map, 'weather-outline', filter);
     return;
   }
-  map.setFilter('weather-fill', ['in', ['get', 'code'], ['literal', codes]]);
-  map.setFilter('weather-outline', ['in', ['get', 'code'], ['literal', codes]]);
+  MapSourceCache.setFilterIfChanged(map, 'weather-fill', filter);
+  MapSourceCache.setFilterIfChanged(map, 'weather-outline', filter);
   const matchExpr = ['match', ['get', 'code']];
   for (const [code, site] of weatherSites) {
     matchExpr.push(code, weatherSeverityColor(worstSubCategory(site.subCategories)));
   }
   matchExpr.push(WEATHER_WARNING_COLOR);
-  map.setPaintProperty('weather-fill', 'fill-color', matchExpr);
-  map.setPaintProperty('weather-outline', 'line-color', matchExpr);
+  MapSourceCache.setPaintIfChanged(map, 'weather-fill', 'fill-color', matchExpr);
+  MapSourceCache.setPaintIfChanged(map, 'weather-outline', 'line-color', matchExpr);
 }
 
 // 解除(取消)信号が届かないまま安全策のTTL(TTL_WEATHER_MS)が経過した
