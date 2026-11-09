@@ -25,7 +25,7 @@ const context = {
   isEarthquakeOrTsunamiRecord: () => true,
   currentPatrolCode: null, currentPatrolTrainingId: null,
 };
-const merge = vm.runInNewContext(`${helpers}\n${merger}; mergeIntoActiveEvent`, context);
+const merge = vm.runInNewContext(`${helpers}\n${section("function scheduleActiveEventExpiry(", "function addActiveEvent(")}\n${merger}; mergeIntoActiveEvent`, context);
 
 function incoming(code, name, height, warningCode = 3, warningText = '津波警報') {
   return {

@@ -252,7 +252,7 @@
     setFilter(id, filter) { const layer = this.getLayer(id); if (layer) { layer.filter = filter; this.requestRender(this.isBaseLayer(layer)); } return this; }
     setPaintProperty(id, key, value) { const layer = this.getLayer(id); if (layer) { layer.paint[key] = value; this.requestRender(this.isBaseLayer(layer)); } return this; }
     hasImage(id) { return this.images.has(id); }
-    addImage(id, image) { this.images.set(id, image); this.requestRender(); return this; }
+    addImage(id, image, options = {}) { this.images.set(id, { data: image, pixelRatio: options.pixelRatio || 1 }); this.requestRender(); return this; }
     resize() {
       const width = Math.max(1, this.container.clientWidth); const height = Math.max(1, this.container.clientHeight);
       this.width = width; this.height = height;
@@ -449,13 +449,15 @@
           if (!image || feature.geometry?.type !== 'Point') continue;
           const point = mercator(feature.geometry.coordinates); const scale = layer.layout?.['icon-size'] ?? 1;
           const element = image.data || image;
-          const width = image.width || element.width; const height = image.height || element.height;
+          const width = element.width; const height = element.height;
+          const pixelRatio = image.pixelRatio || 1;
+          const displayWidth = width / pixelRatio; const displayHeight = height / pixelRatio;
           ctx.save(); ctx.translate(point[0], point[1]); ctx.scale(1 / size, 1 / size);
-          if (element instanceof HTMLCanvasElement || element instanceof HTMLImageElement) ctx.drawImage(element, -width * scale / 2, -height * scale / 2, width * scale, height * scale);
+          if (element instanceof HTMLCanvasElement || element instanceof HTMLImageElement) ctx.drawImage(element, -displayWidth * scale / 2, -displayHeight * scale / 2, displayWidth * scale, displayHeight * scale);
           else {
             const offscreen = document.createElement('canvas'); offscreen.width = width; offscreen.height = height;
-            offscreen.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(element), width, height), 0, 0);
-            ctx.drawImage(offscreen, -width * scale / 2, -height * scale / 2, width * scale, height * scale);
+            offscreen.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(element.data || element), width, height), 0, 0);
+            ctx.drawImage(offscreen, -displayWidth * scale / 2, -displayHeight * scale / 2, displayWidth * scale, displayHeight * scale);
           }
           ctx.restore(); continue;
         }
