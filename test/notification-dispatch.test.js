@@ -31,8 +31,9 @@ for (const localOnly of [false, true]) {
       broadcast: () => calls.push('broadcast'),
       sendPushNotifications: () => calls.push('push'),
       console,
+      performance,
     };
-    const handle = vm.runInNewContext(`${extract('function handleIncomingLine(line)', '// ラズパイなど現地の受信機')}\nhandleIncomingLine`, context);
+    const handle = vm.runInNewContext(`${extract('function handleIncomingLine(line,', '// ラズパイなど現地の受信機')}\nhandleIncomingLine`, context);
     handle(JSON.stringify({ type: 'Report', report_time: '2026-11-08T00:00:00' }));
     assert.deepEqual(calls, localOnly ? ['persist', 'broadcast', 'push'] : ['broadcast', 'push', 'persist']);
   });
@@ -128,9 +129,10 @@ test('ingest keeps the request open until the push provider accepts', async () =
     app: { post: (_path, fn) => { handler = fn; } },
     requireDeviceToken: () => ({ ok: true, deviceId: 'test' }),
     handleIncomingLine: () => new Promise(resolve => { accept = resolve; }),
+    performance,
     console: { log: () => {} },
   };
-  vm.runInNewContext(extract('app.post("/ingest",', '// レイテンシ計測(T0受信〜T4描画完了)の履歴'), context);
+  vm.runInNewContext(extract('app.post("/ingest",', 'const LATENCY_HISTORY_MAX_SIZE'), context);
   const res = { status: code => { calls.push(code); return { end: () => calls.push('end') }; } };
   const pending = handler({ body: { type: 'Report' } }, res, err => { throw err; });
   assert.deepEqual(calls, []);
@@ -145,9 +147,10 @@ test('ingest returns 503 when every push attempt fails transiently', async () =>
     app: { post: (_path, fn) => { handler = fn; } },
     requireDeviceToken: () => ({ ok: true }),
     handleIncomingLine: async () => ({ accepted: 0, attempted: 1, retryableFailure: true }),
+    performance,
     console: { log: () => {} },
   };
-  vm.runInNewContext(extract('app.post("/ingest",', '// レイテンシ計測(T0受信〜T4描画完了)の履歴'), context);
+  vm.runInNewContext(extract('app.post("/ingest",', 'const LATENCY_HISTORY_MAX_SIZE'), context);
   const calls = [];
   const res = { status: code => { calls.push(code); return { json: body => calls.push(body.error) }; } };
   await handler({ body: { type: 'Report' } }, res, err => { throw err; });

@@ -112,15 +112,25 @@ function validateReportSummary(report) {
 
 function validateClientTiming(ts) {
   if (!ts || typeof ts !== "object" || Array.isArray(ts)) return null;
+  const summary = validateReportSummary(ts.reportSummary);
+  const reportKey = typeof ts.reportKey === "string" && /^dcr:[0-9a-f]{1,160}:(?:[0-9]{1,2})?$/.test(ts.reportKey)
+    ? ts.reportKey : null;
+  if (ts.schema_version === 2) {
+    const decode = ts.receiver_decode_ms, server = ts.server_processing_ms;
+    const client = ts.client_processing_ms, visual = ts.client_visual_ready_ms;
+    if (![decode, server, client].every(v => Number.isFinite(v) && v >= 0 && v <= MAX_SPAN_MS)) return null;
+    if (visual != null && (!Number.isFinite(visual) || visual < client || visual > MAX_SPAN_MS)) return null;
+    return { schemaVersion: 2, receiverDecodeMs: decode, serverProcessingMs: server,
+      clientProcessingMs: client, clientVisualReadyMs: visual ?? null,
+      measuredMs: decode + server + (visual ?? client),
+      reportSummary: summary, isTestData: !!ts.isTestData, reportKey };
+  }
   const { t0_received_ms: t0, t1_decoded_ms: t1, t2_server_received_ms: t2, t3_dispatched_ms: t3, client_processing_ms: render } = ts;
   const nums = [t0, t1, t2, t3, render];
   if (!nums.every(Number.isFinite) || t0 <= 0 || render < 0 || render > MAX_SPAN_MS) return null;
   const decodeMs = t1 - t0, networkMs = t2 - t1, dispatchPrepMs = t3 - t2;
   if ([decodeMs, networkMs, dispatchPrepMs].some(v => Math.abs(v) > MAX_SPAN_MS)) return null;
-  const summary = validateReportSummary(ts.reportSummary);
-  const reportKey = typeof ts.reportKey === "string" && /^dcr:[0-9a-f]{1,160}:(?:[0-9]{1,2})?$/.test(ts.reportKey)
-    ? ts.reportKey : null;
-  return { decodeMs, networkMs, dispatchPrepMs, renderMs: render, totalMs: decodeMs + networkMs + dispatchPrepMs + render, reportSummary: summary, isTestData: !!ts.isTestData, reportKey };
+  return { schemaVersion: 1, decodeMs, networkMs, dispatchPrepMs, renderMs: render, totalMs: decodeMs + networkMs + dispatchPrepMs + render, reportSummary: summary, isTestData: !!ts.isTestData, reportKey };
 }
 
 // ---- 通知tag (Issue #17) ----

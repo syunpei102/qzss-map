@@ -6,6 +6,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { performance } = require("node:perf_hooks");
 const WebSocket = require("ws");
 const webpush = require("web-push");
 const compression = require("compression");
@@ -820,28 +821,12 @@ function isDuplicateReport(report) {
   return isDup;
 }
 
-function handleIncomingLine(line) {
+function handleIncomingLine(line, receivedMono = performance.now()) {
   let report = null;
   try {
     report = JSON.parse(line);
   } catch (e) {
     // JSONとして解釈できないものはそのまま流すだけで、保持対象にはしない
-  }
-
-  // レイテンシ計測: T3(WebSocket配信直前)を追記し、ここまでの各段階の
-  // 所要時間をログに出す(T4はブラウザ側で描画完了後にこの値を使って
-  // 計算し、/client-timingへ返してくる)
-  if (report && report.client_timestamps) {
-    const ts = report.client_timestamps;
-    ts.t3_dispatched_ms = Date.now();
-    if (ts.t0_received_ms && ts.t1_decoded_ms && ts.t2_server_received_ms) {
-      console.log(
-        `⏱️ レイテンシ内訳: デコード${ts.t1_decoded_ms - ts.t0_received_ms}ms `
-        + `→ 受信機→サーバー${ts.t2_server_received_ms - ts.t1_decoded_ms}ms `
-        + `→ 配信準備${ts.t3_dispatched_ms - ts.t2_server_received_ms}ms`
-      );
-    }
-    line = JSON.stringify(report);
   }
 
   // ハートビートは接続状態の指標なので、重複判定の対象にせず必ず流す
@@ -876,6 +861,16 @@ function handleIncomingLine(line) {
   // 待たせず，最後に非同期保存する．配信で例外が出ても保存は必ず予約する．
   if (shouldPersist && LOCAL_STATE_ONLY) persistActiveReports();
   try {
+    if (report?.client_timestamps) {
+      const ts = report.client_timestamps;
+      if (ts.schema_version === 2) {
+        ts.server_processing_ms = Math.round((performance.now() - receivedMono) * 1000) / 1000;
+      } else {
+        // 旧受信機との段階的な更新に備え，旧形式は残すが推定値として扱う．
+        ts.t3_dispatched_ms = Date.now();
+      }
+      line = JSON.stringify(report);
+    }
     broadcast(line);
     return sendPushNotifications(report);
   } finally {
@@ -887,11 +882,11 @@ function handleIncomingLine(line) {
 // 拠点ごとのトークン(X-Api-Keyヘッダ)で照合する。1台分が漏えいしても
 // 他の拠点は影響を受けない(requireDeviceToken参照)。
 app.post("/ingest", async (req, res, next) => {
+  const receivedMono = performance.now();
   const auth = requireDeviceToken(req, res);
   if (!auth.ok) return;
-  // レイテンシ計測(T0受信→T1デコード→T2サーバー受信→T3配信→T4描画完了)。
-  // 受信機側が埋めたT0/T1がある場合のみ、ここでT2を追記する
-  if (req.body && req.body.client_timestamps) {
+  // 旧受信機のv1計測だけに時刻を追記する．v2は単調時計による区間で測る．
+  if (req.body?.client_timestamps && req.body.client_timestamps.schema_version !== 2) {
     req.body.client_timestamps.t2_server_received_ms = Date.now();
   }
   const line = JSON.stringify(req.body);
@@ -906,7 +901,7 @@ app.post("/ingest", async (req, res, next) => {
   try {
     // Cloud Runのリクエスト課金では応答後にCPUが止まり得る．送信先サービスが
     // 受理するまでリクエストを維持して，プッシュ送信を途中で止めない．
-    const pushResult = await handleIncomingLine(line);
+    const pushResult = await handleIncomingLine(line, receivedMono);
     // 詳細ログは送信先への依頼が終わってから出し，初動を待たせない．
     console.log(`📡 ingest受信${auth.deviceId ? `[${auth.deviceId}]` : ""}:`, line.slice(0, 4000));
     if (pushResult && pushResult.retryableFailure) {
@@ -918,7 +913,7 @@ app.post("/ingest", async (req, res, next) => {
   }
 });
 
-// レイテンシ計測(T0受信〜T4描画完了)の履歴。ダッシュボード表示用に
+// レイテンシ計測の履歴。ダッシュボード表示用に
 // 直近LATENCY_HISTORY_MAX_SIZE件だけ保持する。deviceRegionConfig等と
 // 同じパターンでGCS/ローカルファイルに永続化し、デプロイ・再起動を
 // またいでも消えないようにする
@@ -947,7 +942,7 @@ const latencyPersist = createDebouncedTask(persistLatencyHistory);
 // 環境変数で、Cloud Run側では未設定のまま(自分自身には転送しない)
 const CLOUD_LATENCY_REPORT_URL = (process.env.CLOUD_LATENCY_REPORT_URL || "").trim();
 
-// レイテンシ計測(T0受信〜T4描画完了)のブラウザ側からの報告を1箇所の
+// ブラウザ側からの計測報告を1箇所の
 // ログにまとめる。認証不要(値そのものに機密性は無く、失敗しても
 // 実運用に影響しない計測専用の経路のため)
 const clientTimingLimiter = guards.createRateLimiter({ windowMs: 60 * 1000, max: 30 });
@@ -968,13 +963,13 @@ app.post("/client-timing", (req, res) => {
       return res.status(204).end();
     }
     const entry = { recordedAt: Date.now(), ...timing };
-    console.log(
-      `⏱️ end-to-end合計: ${entry.totalMs}ms `
-      + `(受信→デコード${entry.decodeMs}ms, `
-      + `受信機→サーバー${entry.networkMs}ms, `
-      + `配信準備${entry.dispatchPrepMs}ms, `
-      + `配信→描画完了${entry.renderMs}ms)`
-    );
+    if (entry.schemaVersion === 2) {
+      console.log(`⏱️ 計測済み区間の合計(通信・待ち時間を除く): ${entry.measuredMs}ms `
+        + `(受信機処理${entry.receiverDecodeMs}ms，サーバー処理${entry.serverProcessingMs}ms，`
+        + `ブラウザ処理${entry.clientProcessingMs}ms，表示準備${entry.clientVisualReadyMs ?? '未計測'}ms)`);
+    } else {
+      console.log(`⏱️ 旧方式の推定値: ${entry.totalMs}ms (機器間の時計差を含む可能性あり)`);
+    }
     latencyHistory.push(entry);
     if (latencyHistory.length > LATENCY_HISTORY_MAX_SIZE) latencyHistory.shift();
     // GCSへの書込みは間引く(最後の更新から30秒後，最長5分ごと)
@@ -1352,7 +1347,7 @@ const gcsStorage = new Storage();
 // (start_demo.sh/start_prod.sh/start_pi_local.shが自動で設定する)。
 // 未設定(Cloud Run本番)の場合はGCSが実質的な永続化先になる。
 const LOCAL_STATE_ONLY = (process.env.LOCAL_STATE_ONLY || "").trim() === "true";
-const LOCAL_STATE_DIR = path.join(__dirname, ".local_state");
+const LOCAL_STATE_DIR = process.env.QZSS_LOCAL_STATE_DIR || path.join(__dirname, ".local_state");
 
 function localStatePath(filename) {
   return path.join(LOCAL_STATE_DIR, filename);
