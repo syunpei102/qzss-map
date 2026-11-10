@@ -1,5 +1,6 @@
 const express = require("express");
 const { reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const InformationSettings = require("./public/information-settings");
 const TrainingReportFilter = require("./public/training-report-filter");
 const { ashIssueKey, ashNotificationBody } = require("./ash-notification");
 const http = require("http");
@@ -220,6 +221,7 @@ function isStaleForNotification(report) {
 
 function shouldNotify(report) {
   if (!PUSH_ENABLED || !report) return false;
+  if (!InformationSettings.isEnabled(report, informationCategorySettings)) return false;
   if (report.type === "Heartbeat" || report.type === "DecodeError") return false;
   if (!report.is_test_data && isStaleForNotification(report)) return false;
   // 訓練放送(DCRはreport_classification_no===7、DCX/LアラートJアラートは
@@ -955,11 +957,24 @@ app.post("/client-timing", (req, res) => {
     // 同じ電文は複数ブラウザ・ラズパイ経由の転送で計測が重なる．
     // 最初の一件だけを残し，後続は履歴にもクラウド転送にも追加しない．
     const key = latencyIdentity(timing);
-    if (key && latencyHistory.some(h => {
+    const previous = key && latencyHistory.find(h => {
       if (latencyIdentity(h) !== key) return false;
       if (timing.reportSummary?.report_time) return true;
       return Date.now() - h.recordedAt < 30 * 60 * 1000;
-    })) {
+    });
+    if (previous) {
+      // 最初の計測値は保持し，別版・別判定の表示結果だけを補足する．
+      if (timing.displayResult) {
+        const observations = previous.displayObservations || [];
+        const same = value => value.clientVersion === timing.clientVersion
+          && value.displayResult?.status === timing.displayResult.status
+          && value.displayResult?.reason === timing.displayResult.reason;
+        if (!same(previous) && !observations.some(same)) {
+          previous.displayObservations = [...observations, { recordedAt: Date.now(),
+            clientVersion: timing.clientVersion, displayResult: timing.displayResult }].slice(-8);
+          latencyPersist.schedule();
+        }
+      }
       return res.status(204).end();
     }
     const entry = { recordedAt: Date.now(), ...timing };
@@ -1611,6 +1626,19 @@ function resolveLalertEnabled(deviceId) {
   return globalLalertEnabled;
 }
 
+// 気象（10）と火山・降灰（8・9）の表示・通知は全体で同じ設定を使う．
+const INFORMATION_CATEGORY_STATE_FILE = "information_category_settings.json";
+let informationCategorySettings = { ...InformationSettings.defaults };
+async function loadInformationCategorySettings() {
+  const restored = await loadPersistedJson(INFORMATION_CATEGORY_STATE_FILE);
+  if (restored) informationCategorySettings = InformationSettings.normalize(restored);
+}
+function setInformationCategorySettings(value) {
+  informationCategorySettings = InformationSettings.normalize({ ...informationCategorySettings, ...value });
+  persistJson(INFORMATION_CATEGORY_STATE_FILE, informationCategorySettings);
+  broadcast(JSON.stringify({ type: "InformationCategorySettingChanged" }));
+}
+
 // ラズパイのローカルkiosk(LOCAL_STATE_ONLY=true)専用の同期エンドポイント。
 // Discordの/set_training_broadcastsはCloud Run(公開URL)にしか届かず、
 // LAN内だけのローカルkioskサーバーはそのWebhookを一切受け取れない。
@@ -1628,6 +1656,23 @@ if (LOCAL_STATE_ONLY) {
     broadcast(JSON.stringify({ type: "TrainingBroadcastSettingChanged" }));
     res.status(204).end();
   });
+  if (process.env.QZSS_REVIEW_MODE === "true") {
+    app.post("/local-sync/reset-reports", loopbackOnly, (req, res) => {
+      activeReports = [];
+      latencyHistory.splice(0);
+      persistActiveReports();
+      persistLatencyHistory();
+      broadcast(JSON.stringify({ type: "LocalReportsReset" }));
+      res.status(204).end();
+    });
+  }
+  for (const key of ["weatherEnabled", "volcanoEnabled"]) {
+    app.post(`/local-sync/${key}`, loopbackOnly, (req, res) => {
+      if (typeof req.body.enabled !== "boolean") return res.status(400).json({ error: "enabled must be boolean" });
+      setInformationCategorySettings({ [key]: req.body.enabled });
+      res.status(204).end();
+    });
+  }
   app.post("/local-sync/lalert", loopbackOnly, (req, res) => {
     setLalertEnabledSetting(null, !!req.body.enabled);
     broadcast(JSON.stringify({ type: "LalertSettingChanged" }));
@@ -1714,6 +1759,8 @@ app.get("/config", (req, res) => {
   res.json({
     showTrainingBroadcasts: resolveShowTrainingBroadcasts(deviceId),
     lalertEnabled: resolveLalertEnabled(deviceId),
+    ...informationCategorySettings,
+    webVersion: fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim(),
   });
 });
 
@@ -1842,6 +1889,11 @@ function handleCommand(interaction) {
         : `✅ 全体(拠点ごとの上書きが無い端末すべて)の訓練放送表示を${enabled ? "ON" : "OFF"}にしました`
     );
   }
+  if (interaction.data.name === "set_information_categories") {
+    if (typeof options.weather !== "boolean" || typeof options.volcano !== "boolean") return ephemeralReply("気象と火山のON/OFFを両方指定してください．");
+    setInformationCategorySettings({ weatherEnabled: options.weather, volcanoEnabled: options.volcano });
+    return ephemeralReply(`気象情報の表示・通知：${options.weather ? "ON" : "OFF"}，火山・降灰の表示・通知：${options.volcano ? "ON" : "OFF"}．全画面と通知に適用します．`);
+  }
   if (interaction.data.name === "set_lalert") {
     const enabled = !!options.enabled;
     const targetDevice = deviceId || null; // device未指定なら全体設定を変更する
@@ -1894,6 +1946,7 @@ Promise.all([
   loadDeviceIngestTokens(),
   loadTrainingBroadcastSettings(),
   loadLalertEnabledSettings(),
+  loadInformationCategorySettings(),
   loadActiveReports(),
   loadLatencyHistory(),
   loadPushSubscriptions(),

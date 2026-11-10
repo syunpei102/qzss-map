@@ -1,0 +1,32 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QZSS ローカル確認・100件</title><style>
+*{box-sizing:border-box}body{margin:0;background:#10171d;color:#edf2f7;font:15px system-ui}header{padding:12px 18px;background:#1c2935}h1{font-size:19px;margin:0 0 5px}main{display:grid;grid-template-columns:340px 1fr;height:calc(100dvh - 84px)}aside{padding:16px;overflow:auto;border-right:1px solid #405163}button,select,input{font:inherit}button,select{padding:8px;margin:4px 0;background:#273d50;color:white;border:1px solid #5b778d;border-radius:6px}button{cursor:pointer}button:disabled{opacity:.5}select{width:100%}label{display:block;margin:10px 0}.row{display:flex;gap:8px;flex-wrap:wrap}iframe{width:100%;height:100%;border:0}p{line-height:1.6}#expected{white-space:pre-wrap;background:#1b2a36;padding:12px;border-radius:6px;font-size:13px}#status{color:#aee1ff;white-space:pre-wrap}a{color:#9dd9ff}.warning{color:#ffd593}@media(max-width:700px){main{display:block;height:auto}aside{border:0}iframe{height:70dvh}}</style>
+<header><h1>QZSS ローカル確認・100件</h1><span class="warning">合成データ／本番への送信なし／デプロイ前の確認候補</span></header>
+<main><aside>
+<div class="row"><a href="__APP_URL__/?web-preview=1&renderer=native&preview=1.13.0" target="_blank">地図を別タブで開く</a><a href="__APP_URL__/latency.html?replay=1" target="_blank">計測</a></div>
+<p>通常は1件ごとに表示状態だけを消し，地図の読み込みを保ったまま送ります．ONの確認ケースでは，このローカル環境だけ設定がONになります．</p>
+<select id="group"><option value="">全100件</option></select><select id="cases" size="7"></select>
+<div id="expected"></div>
+<label><input type="checkbox" id="reset" checked>送信前に表示をリセットする（読み込みは継続）</label><label><input type="checkbox" id="caseSettings" checked>各ケースのON/OFF設定を適用する</label>
+<div class="row"><button id="send">選択した1件を送信</button><button id="next">次の1件を送信</button></div>
+<div class="row"><button id="play">連続再生</button><button id="pause">停止</button><label>間隔 <input id="interval" type="number" value="15" min="5" max="120" style="width:55px">秒</label></div>
+<div class="row"><button id="clear">全リセット・両方OFF</button><button id="reload">地図を再読み込み</button></div>
+<hr><strong>このローカル環境の設定</strong><label><input id="weather" type="checkbox">気象情報：表示・通知ON</label><label><input id="volcano" type="checkbox">火山・降灰：表示・通知ON</label><button id="settings">設定を適用</button>
+<label>描画方式 <select id="renderer"><option value="native">独自描画</option><option value="maplibre">MapLibre</option></select></label><p id="status">準備中…</p>
+</aside><iframe id="map" title="検証用地図" src="__APP_URL__/?web-preview=1&renderer=native&preview=1.13.0"></iframe></main>
+<script>
+const $=id=>document.getElementById(id);let cases=[],filtered=[],timer=null,working=false;const app='__APP_URL__';
+const reload=()=>$('map').src=app+'/?web-preview=1&renderer='+$('renderer').value+'&preview=1.13.0&t='+Date.now();
+async function api(path,value){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value)}),d=await r.json();if(!r.ok)throw Error(d.error);return d}
+async function state(){const d=await(await fetch('/api/state')).json();$('weather').checked=d.config.weatherEnabled;$('volcano').checked=d.config.volcanoEnabled;}
+function expected(){const c=cases.find(c=>c.id===$('cases').value);$('expected').textContent=c?c.id+' '+c.name+'\n期待：'+(c.expected.visible?'表示される':'表示されない')+'\n'+(c.expected.note||''):'';}
+function list(){filtered=cases.filter(c=>!$('group').value||c.group===$('group').value);$('cases').replaceChildren(...filtered.map(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=c.id+' '+c.name;return o}));if(filtered.length)$('cases').value=filtered[0].id;expected();}
+function stop(){clearTimeout(timer);timer=null;$('play').disabled=false;}
+async function send(){if(working)return;working=true;$('send').disabled=true;try{const d=await api('send',{id:$('cases').value,reset:$('reset').checked,caseSettings:$('caseSettings').checked});await state();$('status').textContent=d.id+' を送信しました．\n'+d.name;return true}catch(e){stop();$('status').textContent=e.message;return false}finally{working=false;$('send').disabled=false}}
+function advance(){const i=filtered.findIndex(c=>c.id===$('cases').value);if(i+1>=filtered.length)return false;$('cases').value=filtered[i+1].id;expected();return true}
+$('send').onclick=()=>{stop();send()};$('next').onclick=()=>{stop();if(advance())send()};$('pause').onclick=()=>{stop();$('status').textContent='連続再生を停止しました．'};
+$('play').onclick=async()=>{stop();$('play').disabled=true;async function tick(){if(!await send())return;if($('play').disabled)timer=setTimeout(()=>{if(advance())tick();else stop()},Math.max(5,Number($('interval').value)||15)*1000)}await tick()};
+$('clear').onclick=async()=>{stop();try{await api('reset',{});await state();$('status').textContent='リセットしました．気象・火山は両方OFFです．'}catch(e){$('status').textContent=e.message}};
+$('settings').onclick=async()=>{stop();try{await api('settings',{weatherEnabled:$('weather').checked,volcanoEnabled:$('volcano').checked});await state();$('status').textContent='設定を適用しました．このローカル環境だけに反映されます．'}catch(e){$('status').textContent=e.message}};
+$('reload').onclick=reload;$('renderer').onchange=reload;$('group').onchange=()=>{stop();list()};$('cases').onchange=()=>{stop();expected()};
+(async()=>{cases=(await(await fetch('/api/cases')).json()).cases;for(const g of new Set(cases.map(c=>c.group))){const o=document.createElement('option');o.value=g;o.textContent=g;$('group').append(o)}list();await state();$('status').textContent='100件のテストデータを準備しました．最初の送信を選んでください．'})().catch(e=>$('status').textContent=e.message);
+</script></html>

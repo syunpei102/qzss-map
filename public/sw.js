@@ -4,7 +4,7 @@
 // WebSocketや /ingest への送信には一切関与しない(GET以外は素通し)。
 importScripts('./push-display.js');
 
-const CACHE_VERSION = 'qzss-map-v12';
+const CACHE_VERSION = 'qzss-map-v13';
 
 // インストール時に必ず事前キャッシュしておくファイル。以前はmaplibre-gl・
 // pmtilesのライブラリ本体やほとんどのgeojsonデータが含まれておらず、
@@ -24,6 +24,9 @@ const APP_SHELL = [
   './native-map.js',
   './latency-dedup.js',
   './push-display.js',
+  './app-version.js',
+  './report-geography.js',
+  './information-settings.js',
   './main.js',
   './style.css',
   './style.json',

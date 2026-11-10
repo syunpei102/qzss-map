@@ -36,7 +36,7 @@ const infoPath = path.join(root, 'public/info.html');
 const html = fs.readFileSync(infoPath, 'utf8');
 if (!html.includes(start) || !html.includes(end)) throw new Error('紹介ページに履歴マーカーがありません');
 const updated = html.slice(0, html.indexOf(start)) + section + html.slice(html.indexOf(end) + end.length);
-for (const [file, content] of [[path.join(root, 'VERSION'), releases[0].version + '\n'], [infoPath, updated]]) {
+for (const [file, content] of [[path.join(root, 'VERSION'), releases[0].version + '\n'], [infoPath, updated], [path.join(root, 'public/app-version.js'), `self.QZSS_APP_VERSION = ${JSON.stringify(releases[0].version)};\n`]]) {
   if (process.argv.includes('--check')) {
     if (fs.readFileSync(file, 'utf8') !== content) throw new Error(`${path.basename(file)}が履歴と不一致です．npm run release:syncを実行してください`);
   } else fs.writeFileSync(file, content);

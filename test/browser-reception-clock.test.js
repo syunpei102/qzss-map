@@ -28,3 +28,19 @@ for (const classification of [1, 7]) for (const replayAge of [0, 240_000, Report
     assert.equal(ReportTtl.remainingTtlMsForReport(rendered), Math.max(0, ReportTtl.TTL.EEW - replayAge - 1250));
   });
 }
+
+for (const original of require('./fixtures/official-training-20261110.json').reports) {
+  for (const classification of [1,7]) for (const boundary of [false,true]) {
+    test(`captured official payload survives the real receive clock: category=${original.disaster_category_no}, classification=${classification}, expiryBoundary=${boundary}`, async()=>{
+      let listener,rendered,mono=5000,ready;
+      const report={...original,report_classification_no:classification};
+      const ttl=ReportTtl.ttlMsForReport(report);
+      report.replay_age_ms=boundary?ttl-500:0;
+      const context={socket:{addEventListener:(type,fn)=>{listener=fn}},performance:{now:()=>mono},Date:{now:()=>1794283223000},console:{log(){}},mapReady:new Promise(resolve=>{ready=resolve}),renderReport:value=>{rendered=value}};
+      vm.runInNewContext(listenerSource,context);
+      const pending=listener({data:JSON.stringify(report)});mono+=1250;ready();await pending;
+      assert.equal(rendered.replay_age_ms,report.replay_age_ms+1250);
+      assert.equal(ReportTtl.remainingTtlMsForReport(rendered),boundary?0:ttl-1250);
+    });
+  }
+}

@@ -1,5 +1,6 @@
 // 再接続時に同じ表示を復元するための，副作用のない通報保存処理．
 const { ttlMsForReport } = require("./public/report-ttl");
+const ReportGeography = require("./public/report-geography");
 const identity = require("./public/earthquake-identity");
 
 function reportGroupKey(report) {
@@ -69,6 +70,12 @@ function reportScope(report) {
 // 津波は1電文に最大5地域，洪水も複数河川が入る．地域単位で保存し，
 // 一部の地域だけが更新されても他の地域を失わないようにする．
 function splitReport(report) {
+  if (report.disaster_category_no === 10 && report.weather_forecast_regions_raw?.includes(130000)) {
+    const areas = ReportGeography.weatherAreas(report);
+    report = { ...report, weather_forecast_regions_raw: areas.map(area => area.code),
+      weather_forecast_regions: areas.map(area => area.name || String(area.code)),
+      weather_related_disaster_sub_categories: areas.map(area => area.subCategory) };
+  }
   const fields = report.disaster_category_no === 5
     ? ["tsunami_forecast_regions_raw", "tsunami_forecast_regions", "tsunami_heights_raw",
        "tsunami_heights", "expected_tsunami_arrival_times"]

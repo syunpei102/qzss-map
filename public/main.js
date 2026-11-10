@@ -139,21 +139,48 @@ const ALLOWED_CATEGORIES = new Set([1, 2, 3, 5]); // EEW, 震源, 震度, 津波
 // サーバー側(GCS/ローカルファイルに永続化、Discordの
 // /set_training_broadcasts で変更)から起動時に取得する。取得できる
 // までの既定値・取得失敗時のフォールバックはtrue(従来通り表示する)
-let showTrainingBroadcasts = true;
+let showTrainingBroadcasts = false;
 // Lアラート(QzssDcxLAlert・QzssDcxMTInfo)の解析(表示・通知)ON/OFF。
 // showTrainingBroadcastsと同じくサーバー側(Discordの/set_lalertで変更)
 // から起動時に取得する。既定値・取得失敗時のフォールバックはtrue
 let lalertEnabled = true;
+let informationCategorySettings = { ...InformationSettings.defaults };
+let displaySettingsAvailable = false;
+let displaySettingsRetry = null;
 async function loadShowTrainingBroadcastsSetting() {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
   try {
     const url = LOCKED_DEVICE_ID ? `/config?device=${encodeURIComponent(LOCKED_DEVICE_ID)}` : '/config';
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`config HTTP ${res.status}`);
     const data = await res.json();
-    if (typeof data.showTrainingBroadcasts === 'boolean') showTrainingBroadcasts = data.showTrainingBroadcasts;
+    if (typeof data.showTrainingBroadcasts !== 'boolean') throw new Error('invalid display settings');
+    clearTimeout(displaySettingsRetry);
+    displaySettingsAvailable = true;
+    showTrainingBroadcasts = data.showTrainingBroadcasts === true;
+    informationCategorySettings = InformationSettings.normalize(data);
     if (typeof data.lalertEnabled === 'boolean') lalertEnabled = data.lalertEnabled;
   } catch (err) {
-    console.warn('訓練放送表示設定の取得に失敗しました(既定値のまま続行):', err);
-  }
+    displaySettingsAvailable = false;
+    showTrainingBroadcasts = false;
+    informationCategorySettings = { ...InformationSettings.defaults };
+    lalertEnabled = false;
+    clearTimeout(displaySettingsRetry);
+    displaySettingsRetry = setTimeout(async () => {
+      const before = [showTrainingBroadcasts, lalertEnabled, informationCategorySettings.weatherEnabled, informationCategorySettings.volcanoEnabled];
+      await loadShowTrainingBroadcastsSetting();
+      clearActiveTrainingContent();
+      clearActiveLalertContent();
+      clearDisabledInformationCategories();
+      const after = [showTrainingBroadcasts, lalertEnabled, informationCategorySettings.weatherEnabled, informationCategorySettings.volcanoEnabled];
+      if (after.some((enabled, i) => enabled && !before[i]) && socket?.readyState === WebSocket.OPEN) {
+        intentionalReconnect = true;
+        socket.close();
+      }
+    }, 30000);
+    console.warn('表示設定を取得できないため，公式訓練・気象・火山はOFFにし，再取得します．', err);
+  } finally { clearTimeout(timeout); }
 }
 
 // 震度速報の震度コード(1〜7) -> 表示ラベル/色
@@ -1736,6 +1763,31 @@ function clearActiveTrainingContent() {
   }
 }
 
+function clearDisabledInformationCategories() {
+  if (!informationCategorySettings.weatherEnabled) {
+    for (const site of weatherSites.values()) clearTimeout(site.timer);
+    weatherSites.clear();
+    currentPatrolCode = null;
+  }
+  if (!informationCategorySettings.volcanoEnabled) {
+    for (const key of deferredGeoReports.keys()) if (key.startsWith('volcano:')) deferredGeoReports.delete(key);
+    for (const [id, record] of activeEvents) {
+      if ([8, 9].includes(record.disasterCategoryNo) || record.volcanoKey != null) removeActiveEvent(id);
+    }
+    for (const [key, record] of otherReports) {
+      if (key === 9 || String(key).startsWith('volcano:') || String(key).startsWith('ash:')) {
+        clearTimeout(record.timer);
+        otherReports.delete(key);
+      }
+    }
+  }
+  syncActiveEventLayers();
+  updateWeatherDisplay();
+  renderEventsPanel();
+  updateFocusOutline();
+  schedulePatrolNext(0);
+}
+
 // Discordの/set_lalertでOFFにした瞬間、その時点で既に表示中のLアラート
 // (activeEventsのうちlalertKeyを持つもの)を即座に消す。clearActiveTrainingContent
 // と同じ考え方。lalertEnabledがtrueに戻った場合は何もしない
@@ -1851,13 +1903,24 @@ function nearestCoastPoint(lon, lat) {
 
 function earthquakeDisplayBounds(record) {
   const bounds = [];
-  for (const p of record.geo.prefectures || []) {
+  if (record.earthquakeFill?.phase === 'eew' && record.earthquakeFill.cameraBounds) {
+    bounds.push(record.earthquakeFill.cameraBounds);
+  } else for (const p of record.geo.prefectures || []) {
     const feature = prefectureFeaturesById.get(p.id);
     if (feature) bounds.push(mainLandBounds(feature.geometry));
   }
   for (const t of record.geo.tsunami || []) {
     const feature = tsunamiFeaturesByCode.get(t.code);
     if (feature) bounds.push(geometryBounds(feature.geometry));
+  }
+  // 日本周辺のEEWは，深発地震などで対象地域から離れた震源も画角に含める．
+  // 受信直後と自動巡回はこの同じ範囲を使う．遠方地震の既存の沿岸優先は維持する．
+  const h = record.geo.hypocenter;
+  if (bounds.length && h
+    && Number.isFinite(h.lon) && Number.isFinite(h.lat)
+    && h.lon >= JAPAN_VICINITY_BOUNDS[0] && h.lon <= JAPAN_VICINITY_BOUNDS[2]
+    && h.lat >= JAPAN_VICINITY_BOUNDS[1] && h.lat <= JAPAN_VICINITY_BOUNDS[3]) {
+    bounds.push([h.lon, h.lat, h.lon, h.lat]);
   }
   if (!bounds.length && record.geo.hypocenter) {
     const { lon, lat } = record.geo.hypocenter;
@@ -1900,9 +1963,7 @@ function showQuakeLockView() {
 // なるため、通常の上限(maxZoomForBounds)より少し引いた固定値にする
 const WEATHER_PATROL_MAX_ZOOM = 8.5;
 
-// 指定した地域が属する都道府県の、現在アクティブな一次細分区域を
-// 全部まとめた範囲にズームする(同じ都道府県内の複数区域が同時に
-// 対象でも、1回でまとめて見せる)
+// 同じ巡回グループの範囲へズームする．東京地方・伊豆・小笠原は別巡回にする．
 function zoomToWeatherCode(code) {
   const boundsList = weatherSitesForSamePrefecture(code)
     .map((s) => weatherFeaturesByCode.get(s.code))
@@ -2260,7 +2321,18 @@ function isForeignOrDistantEarthquake(report) {
 // 「日本本土がだいたい入る」範囲(北海道〜九州、離島は含まない大まかな枠)
 const JAPAN_MAINLAND_OVERVIEW_BOUNDS = [129.0, 31.0, 146.0, 45.5];
 
+function eewPrefectureCameraBounds(id, report) {
+  if (id === 13) {
+    const regions = ReportGeography.tokyoEewWeatherCodes(report.eew_forecast_regions_raw);
+    const features = regions.map(code => weatherFeaturesByCode.get(code));
+    if (features.length && features.every(Boolean)) return unionBounds(features.map(feature => geometryBounds(feature.geometry)));
+  }
+  const feature = prefectureFeaturesById.get(id);
+  return feature ? mainLandBounds(feature.geometry) : null;
+}
+
 function buildEventFromReport(report) {
+  const eewBoundsList = [];
   const geo = { hypocenter: null, tsunami: [], prefectures: [] };
   const boundsList = [];
 
@@ -2295,8 +2367,8 @@ function buildEventFromReport(report) {
     }
     for (const id of prefIds) {
       geo.prefectures.push({ id, color: '#ff2800', label: null, textColor: '#fff' });
-      const feature = prefectureFeaturesById.get(id);
-      if (feature) boundsList.push(mainLandBounds(feature.geometry));
+      const bounds = eewPrefectureCameraBounds(id, report);
+      if (bounds) { boundsList.push(bounds); eewBoundsList.push(bounds); }
     }
   }
 
@@ -2329,6 +2401,10 @@ function buildEventFromReport(report) {
   }
 
   const earthquakeFill = EarthquakeFill.fromReport(report, geo.prefectures);
+  if (earthquakeFill.phase === 'eew') {
+    if (eewBoundsList.length) earthquakeFill.cameraBounds = unionBounds(eewBoundsList);
+    earthquakeFill.tokyoWeatherCodes = ReportGeography.tokyoEewWeatherCodes(report.eew_forecast_regions_raw);
+  }
   if ([1, 3].includes(report.disaster_category_no)) geo.prefectures = earthquakeFill.prefectures;
 
   const tsunamiCoasts = report.disaster_category_no === 5
@@ -2343,6 +2419,8 @@ function buildEventFromReport(report) {
 
   return {
     epicenterRaw: typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
+    pendingEpicenterCode: !geo.hypocenter && [1, 2, 3].includes(report.disaster_category_no)
+      && typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
     quakeFocusAt: Number.isFinite(Date.parse(report.timestamp))
       ? Math.min(Date.now(), Date.parse(report.timestamp)) : Date.now(),
@@ -2635,6 +2713,38 @@ function updateEpicenterLayer() {
   MapSourceCache.setDataIfChanged(source, JSON.stringify(features), { type: 'FeatureCollection', features });
 }
 
+const prefectureAnchorCache = new WeakMap();
+function prefectureMarkerAnchor(geometry) {
+  if (prefectureAnchorCache.has(geometry)) return prefectureAnchorCache.get(geometry);
+  const bounds = mainLandBounds(geometry);
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+  const rings = polygons.find(coordinates => geometryBounds({ type: 'Polygon', coordinates })
+    .every((value, i) => value === bounds[i]));
+  const land = { type: 'Polygon', coordinates: rings || polygons[0] };
+  const center = [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2];
+  let point = [geometryCentroid(land), center].find(p => p && pointInPolygonGeometry(p, land));
+  // 凹形や穴のある地形では，走査線と陸地の交差区間の中央を使う．
+  if (!point) {
+    let best = null;
+    for (let i = 1; i < 20; i++) {
+      const y = bounds[1] + (bounds[3] - bounds[1]) * i / 20;
+      const xs = [];
+      for (const ring of land.coordinates) for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+        const a = ring[k], b = ring[j];
+        if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + (y-a[1])*(b[0]-a[0])/(b[1]-a[1]));
+      }
+      xs.sort((a,b) => a-b);
+      for (let j = 0; j + 1 < xs.length; j++) {
+        const candidate = [(xs[j] + xs[j+1])/2, y], width = xs[j+1]-xs[j];
+        if (width > 0 && pointInPolygonGeometry(candidate, land) && (!best || width > best.width)) best = { point: candidate, width };
+      }
+    }
+    point = best?.point || land.coordinates[0][0];
+  }
+  prefectureAnchorCache.set(geometry, point);
+  return point;
+}
+
 function createIntensityBadgeMarkers(prefectures) {
   const markers = [];
   const scale = intensityBadgeScaleForZoom(map.getZoom());
@@ -2642,7 +2752,7 @@ function createIntensityBadgeMarkers(prefectures) {
     if (!p.label) continue; // Jアラート(震度のような段階なし)はバッジを付けない
     const feature = prefectureFeaturesById.get(p.id);
     if (!feature) continue;
-    const centroid = geometryCentroid(feature.geometry);
+    const centroid = prefectureMarkerAnchor(feature.geometry);
     if (!centroid) continue;
     const marker = new MapMarker({ element: createIntensityBadgeElement(p.label, p.color, p.textColor), anchor: 'center' })
       .setLngLat(centroid)
@@ -2793,7 +2903,12 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   // (DOM操作はまだしない)、塗りつぶし(syncActiveEventLayers)を
   // 先に反映してから、その後でマーカーのDOM要素を作り直す
   const hypocenterChanged = !!eventData.geo.hypocenter;
-  if (hypocenterChanged) record.geo.hypocenter = eventData.geo.hypocenter;
+  if (hypocenterChanged) {
+    record.geo.hypocenter = eventData.geo.hypocenter;
+    record.pendingEpicenterCode = null;
+  } else if (!record.geo.hypocenter && eventData.pendingEpicenterCode != null) {
+    record.pendingEpicenterCode = eventData.pendingEpicenterCode;
+  }
 
   // 都道府県の塗りつぶしは「統合」ではなく「置き換え」にする。
   // 例えば緊急地震速報(予報区ベースの広い赤塗り)のあとに震度速報
@@ -2953,8 +3068,12 @@ function removeActiveEvent(id) {
 // 常に一致するようにする。
 function clearAllActiveEvents() {
   for (const id of [...activeEvents.keys()]) removeActiveEvent(id);
+  for (const site of weatherSites.values()) clearTimeout(site.timer);
+  for (const record of otherReports.values()) clearTimeout(record.timer);
   weatherSites.clear();
   otherReports.clear();
+  deferredGeoReports.clear();
+  syncActiveEventLayers();
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
@@ -3197,6 +3316,8 @@ function syncActiveEventLayers() {
 
   const tsunamiColorByCode = new Map();
   const prefColorById = new Map();
+  const tokyoParts = new Set();
+  let wholeTokyo = false;
   const municipalityColorByCode = new Map();
   const floodRiverColorByCode = new Map();
   const ellipseFeatures = [];
@@ -3215,7 +3336,14 @@ function syncActiveEventLayers() {
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
     const prefectures = record.earthquakeFill?.phase === 'eew' && record.earthquakeFill.deadline <= Date.now()
       ? [] : record.geo.prefectures;
-    for (const p of prefectures) setIfMoreSevere(prefColorById, p.id, p.color, rank);
+    for (const p of prefectures) {
+      setIfMoreSevere(prefColorById, p.id, p.color, rank);
+      if (p.id === 13) {
+        const codes = record.earthquakeFill?.phase === 'eew' ? record.earthquakeFill.tokyoWeatherCodes : null;
+        if (codes?.length) for (const code of codes) tokyoParts.add(code);
+        else wholeTokyo = true;
+      }
+    }
     if (record.geo.floodRivers) {
       for (const r of record.geo.floodRivers) setIfMoreSevere(floodRiverColorByCode, r.code, r.color, rank);
     }
@@ -3260,6 +3388,16 @@ function syncActiveEventLayers() {
     MapSourceCache.setFilterIfChanged(map, 'tsunami-line', ['in', ['get', 'code'], ['literal', []]]);
     stopTsunamiBlink();
   }
+
+  const tokyoCodes = wholeTokyo ? [] : [...tokyoParts].sort((a,b) => a-b);
+  const tokyoFeatures = tokyoCodes.map(code => weatherFeaturesByCode.get(code));
+  const useTokyoParts = tokyoFeatures.length && tokyoFeatures.every(Boolean);
+  MapSourceCache.setDataIfChanged(map.getSource('prefecture-regions'), JSON.stringify(useTokyoParts ? tokyoCodes : []), () => ({
+    type: 'FeatureCollection',
+    features: [...prefectureFeaturesById.values()].map(feature => feature.properties.id === 13 && useTokyoParts
+      ? { ...feature, geometry: { type: 'MultiPolygon', coordinates: tokyoFeatures.flatMap(part =>
+        part.geometry.type === 'Polygon' ? [part.geometry.coordinates] : part.geometry.coordinates) } } : feature),
+  }));
 
   if (!idle && prefColorById.size) {
     const matchExpr = ['match', ['get', 'id']];
@@ -3421,12 +3559,11 @@ function weatherPrefectureId(code) {
   return Math.floor(code / 10000);
 }
 
-// 指定した地域コードと同じ都道府県に属する、現在アクティブな気象警報の
-// 地域を全部集める(1つの都道府県内で複数の一次細分区域にまたがって
-// 警報・注意報が出ることが多いため)
+// 同じ都県の気象警報をまとめる．東京都は本土と遠方離島を巻き込まないよう
+// 一次細分区域ごとに巡回・パネル・強調範囲を揃える．
 function weatherSitesForSamePrefecture(code) {
-  const prefId = weatherPrefectureId(code);
-  return [...weatherSites.values()].filter((s) => weatherPrefectureId(s.code) === prefId);
+  const group = ReportGeography.weatherPatrolGroup(code);
+  return [...weatherSites.values()].filter(s => ReportGeography.weatherPatrolGroup(s.code) === group);
 }
 
 // 都道府県が属する地方(東北・関東等)のグループIDを返す。/region-groups
@@ -4373,25 +4510,29 @@ function applyTrainingLabel(event, report) {
   return event;
 }
 
+// 画素の表示時刻とは区別し，通報が表示データへ反映されたかを記録する．
+function displayStateSnapshot() {
+  const summarize = record => [record.updatedAt, record.headline, record.rows, record.bounds,
+    record.geo?.hypocenter, record.geo?.prefectures, record.geo?.tsunami, !!record.geo?.ellipse];
+  return JSON.stringify([
+    [...activeEvents].map(([id, record]) => [id, summarize(record)]),
+    [...weatherSites].map(([code, site]) => [code, site.updatedAt, site.subCategories]),
+    [...otherReports].map(([key, record]) => [key, summarize(record)]),
+  ]);
+}
 function renderReport(report) {
-  // 再接続時の再送は元の受信からの経過時間を差し引く．
-  if (Number.isFinite(report.replay_age_ms) && ReportTtl.remainingTtlMsForReport(report) <= 0) return;
-  // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
-  // (月2回程度、DCR=気象庁形式)。DCX(LアラートJアラート)には
-  // report_classification_noという概念自体が無く、代わりにa1_message_type
-  // ==='Test'が同じ役割(公式の訓練/試験配信)を果たす。以前はDCR側の
-  // report_classification_no===7しか見ておらず、Lアラート系の訓練放送
-  // (実機で確認: 十津川村・境町等のend-to-endテスト配信)がshowTrainingBroadcasts
-  // をOFFにしても素通りしてずっと表示され続けていた。isTraining判定
-  // (applyTrainingLabel)と同じ条件に揃える。
-  // showTrainingBroadcasts=trueなら本物と全く同じ経路で表示する
-  // (バッジ・タイトルへの「[訓練]」付与はapplyTrainingLabel、
-  // severityClassが色をsev-training(紫)にする)。取消が来ない場合でも
-  // 各カテゴリの安全策TTLで自動的に消える
-  const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === 'Test';
-  if (isOfficialTrainingBroadcast && !showTrainingBroadcasts) return;
-  if (!TrainingReportFilter.shouldProcess(report)) return;
-
+  let reason = null;
+  if (!InformationSettings.isEnabled(report, informationCategorySettings)) reason = displaySettingsAvailable ? 'category-off' : 'settings-unavailable';
+  else if (Number.isFinite(report.replay_age_ms) && ReportTtl.remainingTtlMsForReport(report) <= 0) reason = 'expired';
+  else if (TrainingReportFilter.isOfficialTraining(report) && !showTrainingBroadcasts) reason = displaySettingsAvailable ? 'training-off' : 'settings-unavailable';
+  else if (!TrainingReportFilter.shouldProcess(report)) reason = 'filtered';
+  if (reason) return { status: 'skipped', reason };
+  const before = displayStateSnapshot();
+  renderReportContent(report);
+  return before === displayStateSnapshot()
+    ? { status: 'unchanged', reason: 'no-change' } : { status: 'applied', reason: 'updated' };
+}
+function renderReportContent(report) {
   if (report.type === 'DecodeError') {
     addActiveEvent({
       isTestData: !!report.is_test_data,
@@ -4448,9 +4589,10 @@ function renderReport(report) {
   // 地域ごとに個別解除されうるため、activeEventsとは別のMapで地域コード
   // 単位に管理する
   if (report.disaster_category_no === 10) {
-    const codes = report.weather_forecast_regions_raw || [];
-    const names = report.weather_forecast_regions || [];
-    const subCats = report.weather_related_disaster_sub_categories || [];
+    const areas = ReportGeography.weatherAreas(report);
+    const codes = areas.map(area => area.code);
+    const names = areas.map(area => area.name || weatherFeaturesByCode.get(area.code)?.properties.name || String(area.code));
+    const subCats = areas.map(area => area.subCategory);
     const resolved = report.information_type_no === 2 || report.weather_warning_state === '解除';
     const newlyAddedCodes = [];
     let removedFocusedRegion = false;
@@ -5031,11 +5173,13 @@ async function initMap() {
   await applyDeviceRegionLock();
   await loadShowTrainingBroadcastsSetting();
 
+  // 地図と通報処理は待たせない．参照表の取得後に未解決の震源だけを補う．
+  loadEpicenterLookupTable();
+
   // 段階2: 使用頻度が低い/主要な情報表示に必須ではないデータは、ここまでの
   // 「警報エリアを塗れる」状態が整った後に、バックグラウンドで読み込む。
   // await しない(=呼び出し元のinitMap完了を待たせない)ことで、地図の
   // 初回表示・操作可能になるタイミングを優先する。
-  loadEpicenterLookupTable();
   markInitialLoad('map-ready');
   loadRegionGroups();
   loadFloodRivers();
@@ -5138,13 +5282,49 @@ function replayDeferredGeoReports(prefix) {
 // 直接含まれない場合の✕マーカー位置決めにのみ使う(地図レイヤーとしては
 // 描画しない)。ほとんどの実際の通報はcoordinates_of_hypocenterに生の
 // 座標を持つため、これが無くても大半のケースは表示できる=優先度低
+let epicenterLookupLoading = false;
+let epicenterLookupRetry = null;
+function resolvePendingEpicenters() {
+  let changed = false;
+  for (const record of activeEvents.values()) {
+    if (record.pendingEpicenterCode == null || record.geo.hypocenter) continue;
+    if (record.earthquakeGeoExpiresAt == null || record.earthquakeGeoExpiresAt <= Date.now()) {
+      record.pendingEpicenterCode = null;
+      continue;
+    }
+    const feature = epicenterFeaturesById.get(record.pendingEpicenterCode);
+    const point = feature && geometryCentroid(feature.geometry);
+    if (!point) continue;
+    record.geo.hypocenter = { lon: point[0], lat: point[1], label: feature.properties.name };
+    record.pendingEpicenterCode = null;
+    const bounds = [point[0], point[1], point[0], point[1]];
+    record.bounds = record.bounds ? unionBounds([record.bounds, bounds]) : bounds;
+    changed = true;
+  }
+  if (changed) {
+    syncActiveEventLayers();
+    // 初回表示の抑制中でも，地震へ追加した震源は画角に直ちに含める．
+    updateCameraForActiveEvents(null);
+  }
+}
 async function loadEpicenterLookupTable() {
+  if (epicenterLookupLoading) return;
+  epicenterLookupLoading = true;
+  clearTimeout(epicenterLookupRetry);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch('./data/epicenter_regions.geojson');
-    const epicenterGeoJSON = await res.json();
-    for (const f of epicenterGeoJSON.features) epicenterFeaturesById.set(f.properties.id, f);
+    const res = await fetch('./data/epicenter_regions.geojson', { signal: controller.signal });
+    if (!res.ok) throw new Error(`epicenter HTTP ${res.status}`);
+    const data = await res.json();
+    for (const feature of data.features) epicenterFeaturesById.set(feature.properties.id, feature);
+    resolvePendingEpicenters();
   } catch (err) {
-    console.error('震央地名データの読み込みに失敗しました:', err);
+    console.warn('震央地名データを再取得します．', err);
+    epicenterLookupRetry = setTimeout(loadEpicenterLookupTable, 30000);
+  } finally {
+    clearTimeout(timeout);
+    epicenterLookupLoading = false;
   }
 }
 
@@ -5373,6 +5553,27 @@ function connectWebSocket() {
       return;
     }
 
+    if (report.type === 'LocalReportsReset') {
+      await mapReady;
+      clearAllActiveEvents();
+      lastCameraFit = null;
+      schedulePatrolNext(0);
+      return;
+    }
+
+    if (report.type === 'InformationCategorySettingChanged') {
+      const before = informationCategorySettings;
+      await loadShowTrainingBroadcastsSetting();
+      await mapReady;
+      clearDisabledInformationCategories();
+      if ((!before.weatherEnabled && informationCategorySettings.weatherEnabled)
+        || (!before.volcanoEnabled && informationCategorySettings.volcanoEnabled)) {
+        intentionalReconnect = true;
+        socket.close();
+      }
+      return;
+    }
+
     // Discordの/set_lalertで設定が変わった通知。TrainingBroadcastSettingChanged
     // と同じ考え方(OFF→ONならactiveReportsの再送を受け直す)
     if (report.type === 'LalertSettingChanged') {
@@ -5390,7 +5591,12 @@ function connectWebSocket() {
     // データ読込待ちも寿命に含める．期限直前の再送を期限後に描画しない．
     report.replay_age_ms = (Number.isFinite(report.replay_age_ms) ? report.replay_age_ms : 0)
       + performance.now() - clientMessageReceivedAt;
-    renderReport(report);
+    let displayResult;
+    try { displayResult = renderReport(report); }
+    catch (err) {
+      console.error('通報の表示処理に失敗しました．', err);
+      displayResult = { status: 'error', reason: 'render-failed' };
+    }
     const timingSequence = ++latestTimedReportSequence;
 
     // ブラウザ内の処理時間だけを単調時計で測る．表示準備はrAFで別に測る．
@@ -5403,6 +5609,8 @@ function connectWebSocket() {
       const timestamps = {
         ...report.client_timestamps,
         client_processing_ms: clientProcessingMs,
+        client_version: window.QZSS_APP_VERSION,
+        display_result: displayResult,
         isTestData: !!report.is_test_data,
         // 同じ電文を複数ブラウザが描画しても，最初の計測だけを履歴へ残す．
         // DCRのrawはプリアンブルと衛星番号を除いた内容なので再送でも一致する．
@@ -5412,7 +5620,7 @@ function connectWebSocket() {
       };
       // 二度目のフレーム要求まで待ち，描画候補が画面へ渡るまでの時間を測る．
       // 非表示タブではrAFが停止するため，計測を省略する．画素の表示時刻ではない．
-      if (timestamps.schema_version === 2 && !document.hidden) {
+      if (timestamps.schema_version === 2 && displayResult.status === 'applied' && !document.hidden) {
         timestamps.client_visual_ready_ms = await new Promise((resolve) => {
           let settled = false;
           const finish = (value) => { if (!settled) { settled = true; resolve(value); } };

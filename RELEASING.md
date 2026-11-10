@@ -3,7 +3,7 @@
 2026-09-21からmajor.minor.patch形式を採用する．修正はpatch，後方互換の機能追加はminor，非互換変更はmajorを上げる．1.9.0は1.8以降の番号未更新の修正と履歴表示の追加をまとめたリリースである．過去に未採番だった変更へ架空のリリース番号を付けない．
 
 1. `public/releases.json`の先頭に新バージョン・日付・利用者向けの変更内容を追加する．過去の履歴を削除しない．
-2. `npm run release:sync`で`VERSION`と`public/info.html`の公開履歴を生成する．生成部分を手修正しない．
+2. `npm run release:sync`で`VERSION`・`public/app-version.js`と`public/info.html`の公開履歴を生成する．生成部分を手修正しない．
 3. `npm run release:check`と変更に必要なテストを実行する．CIでも整合性を検証する．
 4. リリース変更を同じコミットでmainへ反映し，CI成功を確認する．そのコミットに`v<version>`タグを付けてpushする．公開済みタグは移動しない．
 5. Cloud Runは環境変数を保持してデプロイし，意図したリビジョンにトラフィックが向いたことと公開履歴・実際の動作を確認する．
