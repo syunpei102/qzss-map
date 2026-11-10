@@ -428,21 +428,54 @@ let volcanoesByName = new Map(); // 火山名(azarashiのvolcano_nameと同じ�
 // スマホ幅ではパネルが上部に幅いっぱいで表示されるため、
 // 左ではなく上方向にパディングを寄せる(style.cssのメディア
 // クエリと同じ700pxを境目にする)
-const PANEL_LEFT_PADDING = 370;
 const MOBILE_BREAKPOINT = 700;
+function isMobileLayout() { return window.innerWidth <= MOBILE_BREAKPOINT; }
 
-function isMobileLayout() {
-  return window.innerWidth <= MOBILE_BREAKPOINT;
+// パネルを除く右・下・左・上の矩形から，最も広い表示領域を選ぶ．
+function cameraPaddingForPanel(viewport, panel, pad = 24) {
+  const width = viewport.width, height = viewport.height;
+  let free = { left: 0, top: 0, right: width, bottom: height };
+  if (panel && panel.width > 0 && panel.height > 0
+      && panel.right > viewport.left && panel.left < viewport.right
+      && panel.bottom > viewport.top && panel.top < viewport.bottom) {
+    const gap = 16;
+    const left = Math.max(0, panel.left - viewport.left - gap);
+    const right = Math.min(width, panel.right - viewport.left + gap);
+    const top = Math.max(0, panel.top - viewport.top - gap);
+    const bottom = Math.min(height, panel.bottom - viewport.top + gap);
+    const candidates = [
+      { left: right, top: 0, right: width, bottom: height },
+      { left: 0, top: bottom, right: width, bottom: height },
+      { left: 0, top: 0, right: left, bottom: height },
+      { left: 0, top: 0, right: width, bottom: top },
+    ].filter((r) => r.right > r.left && r.bottom > r.top);
+    if (candidates.length) free = candidates.sort((a,b) =>
+      (b.right-b.left)*(b.bottom-b.top) - (a.right-a.left)*(a.bottom-a.top))[0];
+  }
+  const margin = Math.min(pad + 20, (free.right-free.left)/4, (free.bottom-free.top)/4);
+  return { left: free.left+margin, right: width-free.right+margin,
+    top: free.top+margin, bottom: height-free.bottom+margin };
 }
 
-// スマホ版はパネルの高さが中身(バナーの有無など)によって変わるため、
-// 固定値ではなく実際に描画されているパネルの高さを毎回測って使う
-// (津波警報バナーなどでパネルが伸びた時に、地図の対象地域が
-//  パネルの下に隠れてしまうのを防ぐため)
-function getMobileTopPadding() {
-  const panel = document.querySelector('.panel');
-  if (!panel) return 130;
-  return panel.getBoundingClientRect().height + 16;
+function getMapCameraPadding(pad) {
+  const viewport = map.getContainer().getBoundingClientRect();
+  const panel = document.querySelector('.panel')?.getBoundingClientRect();
+  return cameraPaddingForPanel(viewport, panel, pad);
+}
+let lastCameraFit = null;
+let panelCameraFrame = null;
+function schedulePanelCameraRefit() {
+  if (!lastCameraFit || panelCameraFrame != null) return;
+  panelCameraFrame = requestAnimationFrame(() => {
+    panelCameraFrame = null;
+    if (!lastCameraFit) return;
+    const fit = lastCameraFit;
+    const container = map.getContainer();
+    if (container.clientWidth !== fit.width || container.clientHeight !== fit.height
+        || JSON.stringify(getMapCameraPadding(fit.pad)) !== JSON.stringify(fit.padding)) {
+      flyToBounds(fit.bounds, fit.pad, fit.maxZoom, true);
+    }
+  });
 }
 
 // 地図で実際に表示している範囲(mapのmaxBoundsと合わせる)。
@@ -477,33 +510,9 @@ function flyToBounds(bounds, pad = 24, maxZoomOverride = null, instant = false) 
   const clamped = clampBoundsToJapanVicinity(bounds);
   if (!clamped) return;
   bounds = clamped;
-  const rawPadding = isMobileLayout()
-    ? { top: pad + 20 + getMobileTopPadding(), bottom: pad + 20, left: pad + 20, right: pad + 20 }
-    : { top: pad + 20, bottom: pad + 20, left: pad + PANEL_LEFT_PADDING, right: pad + 20 };
-  // PANEL_LEFT_PADDING等は通常のPC/スマホ画面を前提にした固定値のため、
-  // Kiosk用の小さい画面(例: 800x480)だとパディングだけで画面の半分近くを
-  // 占めてしまい、地図がほぼ画面外に押し出されて「表示されていないように
-  // 見える」ことがあった。パディングが画面サイズに対して大きくなりすぎない
-  // よう、コンテナサイズの一定割合を上限にクランプする
-  const container = map.getContainer();
-  const maxHorizontal = container.clientWidth * 0.35;
-  const maxVertical = container.clientHeight * 0.35;
-  // スマホの上方向だけは特別扱いする: getMobileTopPadding()は津波警報
-  // バナー等でパネルの中身が多い時、実際に画面の35%を超える高さになる
-  // ことがある。上と同じ0.35でクランプすると、パネルが実際に隠している
-  // 分より少ないパディングしかfitBoundsに渡らず、対象範囲の一部が
-  // パネルの下に隠れて「表示されていないように見える」問題があった
-  // (指摘を受けて修正)。上限を0.6まで緩め、パネルがどれだけ伸びても
-  // 対象範囲がその下に隠れないようにする(その代わり地図は「少し引いた」
-  // 見た目になるが、それは意図した挙動)。ただし地図が完全に潰れて
-  // 見えなくなるのを防ぐため、地図に最低4割は残す上限は維持する
-  const maxTopMobile = container.clientHeight * 0.6;
-  const padding = {
-    top: Math.min(rawPadding.top, isMobileLayout() ? maxTopMobile : maxVertical),
-    bottom: Math.min(rawPadding.bottom, maxVertical),
-    left: Math.min(rawPadding.left, maxHorizontal),
-    right: Math.min(rawPadding.right, maxHorizontal),
-  };
+  const padding = getMapCameraPadding(pad);
+  lastCameraFit = { bounds: [...bounds], pad, maxZoom: maxZoomOverride, padding,
+    width: map.getContainer().clientWidth, height: map.getContainer().clientHeight };
   map.fitBounds(
     [[bounds[0], bounds[1]], [bounds[2], bounds[3]]],
     {
@@ -4749,7 +4758,9 @@ async function initMap() {
   // ResizeObserverでコンテナのサイズ変化を検知し、明示的にresize()する。
   const mapContainer = document.getElementById('map');
   if (mapContainer && 'ResizeObserver' in window) {
-    new ResizeObserver(() => map.resize()).observe(mapContainer);
+    new ResizeObserver(() => { map.resize(); schedulePanelCameraRefit(); }).observe(mapContainer);
+    const panel = document.querySelector('.panel');
+    if (panel) new ResizeObserver(schedulePanelCameraRefit).observe(panel);
   }
 
   // ズーム後も対象イベントの表示状態だけを同期し，基準座標は動かさない．
