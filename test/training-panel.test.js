@@ -106,7 +106,7 @@ test('a training report never merges into an overlapping live panel', () => {
 });
 
 test('only the most recently updated intensity badge remains for each prefecture', () => {
-  const select = loadFunction('latestIntensityBadgeMarkers', 'function resolveMarkerOverlaps(', {
+  const select = loadFunction('latestIntensityBadgeMarkers', 'function syncIntensityBadgeAnchors(', {
     Map, Set,
   });
   const oldIbaraki = { __prefectureId: 8 };
@@ -217,4 +217,30 @@ test('off Sanriku hypocenter uses an actual Japanese coastline point', () => {
   assert.ok(coast.point[0] < 143 && coast.point[0] > 140);
   assert.ok(coast.point[1] > 37 && coast.point[1] < 41);
   assert.ok(coast.landBounds[0] < coast.point[0] && coast.landBounds[2] >= coast.point[0]);
+});
+
+test('tsunami banner and stripe use one shared color for live, training and test cards', () => {
+  const render = loadFunction('buildReportCardHtml', 'const PANEL_MAX_CARDS', {
+    escapeHtml: (value) => String(value), cardSeverityClass: () => 'sev-training',
+    TSUNAMI_DEFAULT_COLOR: '#00a0e9', SATELLITE_NAMES: {},
+  });
+  for (const color of ['#ff2800', '#c800c8', '#ff9900', null]) for (const isTraining of [false,true]) {
+    const html = render({ tsunamiWarningActive:true, tsunamiWarningColor:color,
+      tsunamiWarningText:'津波警報', isTraining, isTestData:!isTraining, rows:[], headline:'津波警報' });
+    assert.ok(html.includes(`--tsunami-warning-color:${color || '#00a0e9'};border-left-color:var(--tsunami-warning-color)`));
+    assert.ok(html.includes('class="tsunami-alert-banner" style="background:var(--tsunami-warning-color)"'));
+  }
+});
+
+test('merged earthquake and tsunami cards retain the strongest tsunami banner color', () => {
+  const merge = loadFunction('mergedCardForRecords', 'function groupOverlappingRecords(', {
+    recordSeverityRank: () => 0, recordBadges: () => [], Map, Set,
+  });
+  const base = { rows:[], updatedAt:100, isTraining:true };
+  const card = merge([{ ...base, headline:'震度速報' },
+    { ...base, tsunamiWarningActive:true, tsunamiWarningColor:'#ff2800', tsunamiWarningText:'津波警報' },
+    { ...base, tsunamiWarningActive:true, tsunamiWarningColor:'#c800c8', tsunamiWarningText:'大津波警報' }]);
+  assert.equal(card.tsunamiWarningActive,true);
+  assert.equal(card.tsunamiWarningColor,'#c800c8');
+  assert.equal(card.tsunamiWarningText,'大津波警報');
 });

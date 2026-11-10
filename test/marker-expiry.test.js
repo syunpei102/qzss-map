@@ -13,7 +13,7 @@ function harness() {
     clearTimeout: id => timers.delete(id),
     setTimeout: (callback, ms) => { const id = next++; timers.set(id, { callback, at: now + ms }); return id; },
     removeActiveEvent: id => removed.push(id),
-    syncActiveEventLayers: () => {}, resolveMarkerOverlaps: () => {}, renderEventsPanel: () => {},
+    syncActiveEventLayers: () => {}, syncIntensityBadgeAnchors: () => {}, renderEventsPanel: () => {},
   };
   vm.createContext(context);
   vm.runInContext(source.slice(start, end), context);
