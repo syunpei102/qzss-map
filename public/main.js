@@ -551,7 +551,7 @@ function createIntensityBadgeElement(label, color, textColor) {
   return wrapper;
 }
 
-// 震度バッジは画面上のサイズを固定する．重なり回避の半径も同じ倍率を使う．
+// 震度バッジは画面上のサイズを固定する．
 function intensityBadgeScaleForZoom() {
   return 1;
 }
@@ -1881,7 +1881,7 @@ function showQuakeLockView() {
   flyToBounds(earthquakeDisplayBounds(record), 24, record.boundsMaxZoom ?? null);
   syncActiveEventLayers();
   updateWeatherDisplay();
-  resolveMarkerOverlaps();
+  syncIntensityBadgeAnchors();
   updateFocusOutline();
   return true;
 }
@@ -2639,10 +2639,7 @@ function createIntensityBadgeMarkers(prefectures) {
       .setLngLat(centroid)
       .addTo(map);
     applyIntensityBadgeScale(marker, scale);
-    // 都道府県の重心そのもの(基準位置)を別途覚えておく。
-    // resolveMarkerOverlapsが重なり回避のためsetLngLatで動かした後も、
-    // 次に呼ばれた時にこの「本来の位置」から毎回計算し直す(でないと
-    // 押しのけた位置がそのまま基準になり、呼ぶたびにどんどんズレていく)
+    // ズーム倍率に関係なく，同じ都道府県の基準座標へ固定する．
     marker.__basePos = centroid;
     marker.__prefectureId = p.id;
     markers.push(marker);
@@ -2650,45 +2647,9 @@ function createIntensityBadgeMarkers(prefectures) {
   return markers;
 }
 
-// ==================================================
-// 震源(✕)・震度バッジが地図上で重なって見づらくなるのを防ぐ、
-// 画面座標(ピクセル)ベースの簡易衝突回避。
-//
-// 震源(✕)は正確な位置がそのまま情報(震央そのもの)なので動かさず、
-// 震度バッジ側だけを押しのけて避ける。震度バッジの重心が震源と近い
-// (震源のある都道府県が同時に震度バッジの対象でもある、というのは
-// 地震では常に起きる)ケースと、隣接県どうしのバッジが近距離になる
-// ケースの両方をこれで解消する。
-//
-// ズームでピクセル間の距離が変わる(近づいたり離れたりする)ため、
-// マーカーの追加・削除・ズーム変更のたびに、都道府県重心という
-// 「本来の位置」から毎回計算し直す(累積ズレを防ぐため)。
-// ==================================================
-const EPICENTER_CROSS_RADIUS_PX = 16; // ✕アイコンの見た目の半径相当
-const INTENSITY_BADGE_BASE_RADIUS_PX = 17; // 震度バッジの半径。CSSのwidth:30px(半径15)+border 2pxぶんの見た目を含む。ズーム倍率は呼び出し側で掛ける
-const MARKER_OVERLAP_GAP_PX = 4; // これ以上離れていれば「重なっていない」とみなす隙間
-
-function pushMarkerApart(moving, fixedOrOther, otherIsFixed) {
-  const dx = moving.point.x - fixedOrOther.point.x;
-  const dy = moving.point.y - fixedOrOther.point.y;
-  const dist = Math.hypot(dx, dy);
-  const minDist = moving.radius + fixedOrOther.radius + MARKER_OVERLAP_GAP_PX;
-  if (dist >= minDist) return;
-  // 完全に同じ座標(dist=0)だと押しのける向きが決まらないため、適当な向きに逃がす
-  const ux = dist > 0.01 ? dx / dist : 1;
-  const uy = dist > 0.01 ? dy / dist : 0;
-  const overlap = minDist - dist;
-  if (otherIsFixed) {
-    moving.point.x += ux * overlap;
-    moving.point.y += uy * overlap;
-  } else {
-    moving.point.x += (ux * overlap) / 2;
-    moving.point.y += (uy * overlap) / 2;
-    fixedOrOther.point.x -= (ux * overlap) / 2;
-    fixedOrOther.point.y -= (uy * overlap) / 2;
-  }
-}
-
+// 震度バッジは都道府県の基準座標に固定する．
+// 重なり回避で画面座標を押しのけてから緯度経度へ戻すと，ズーム中に
+// 押しのけ量まで拡大され，ズーム終了時には別の位置へ跳ねてしまう．
 // 同じ県に複数の地震の震度が残っている場合，最新の受信情報だけを表示する．
 // 古いマーカーは保持し，最新イベントが消えたら次の再配置で復帰させる．
 function latestIntensityBadgeMarkers(records) {
@@ -2706,58 +2667,15 @@ function latestIntensityBadgeMarkers(records) {
   return new Set([...latestByPrefecture.values()].map(({ marker }) => marker));
 }
 
-function resolveMarkerOverlaps() {
+function syncIntensityBadgeAnchors() {
   if (!map) return;
   const focusedQuake = quakeLockRecords()[0];
-  const scale = intensityBadgeScaleForZoom(map.getZoom());
-  const badgeRadius = INTENSITY_BADGE_BASE_RADIUS_PX * scale;
-
-  // 固定点(押しのけられない側): 全アクティブイベントの震源✕
-  const anchors = [];
-  for (const record of activeEvents.values()) {
-    if (focusedQuake && record.id !== focusedQuake.id) continue;
-    const h = record.geo && record.geo.hypocenter;
-    if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
-      anchors.push({ point: map.project([h.lon, h.lat]), radius: EPICENTER_CROSS_RADIUS_PX });
-    }
-  }
-
-  // 可動点(押しのけられる側): 全アクティブイベントの震度バッジ。
-  // __basePos(都道府県重心、本来の位置)から毎回計算し直す
-  const movable = [];
   const visibleBadges = latestIntensityBadgeMarkers(focusedQuake ? [focusedQuake] : activeEvents.values());
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) {
-      const visible = visibleBadges.has(marker);
-      marker.getElement().style.display = visible ? '' : 'none';
-      if (!visible) continue;
-      if (!marker.__basePos) continue;
-      movable.push({ marker, point: map.project(marker.__basePos), radius: badgeRadius });
+      marker.getElement().style.display = visibleBadges.has(marker) ? '' : 'none';
+      if (marker.__basePos) marker.setLngLat(marker.__basePos);
     }
-  }
-  if (!movable.length) return;
-
-  // 反復して緩和する(1回だけだと3つ以上が絡む重なりが残ることがあるため)。
-  // 表示件数はどんなに多くても数十件程度なので、この程度の反復回数でも
-  // 重くならない
-  for (let pass = 0; pass < 8; pass++) {
-    for (const m of movable) {
-      for (const a of anchors) pushMarkerApart(m, a, true);
-    }
-    for (let i = 0; i < movable.length; i++) {
-      for (let j = i + 1; j < movable.length; j++) pushMarkerApart(movable[i], movable[j], false);
-    }
-  }
-  // 最後にバッジ同士の押し合い(上のループの最終ステップ)で震源✕との間隔が
-  // わずかに崩れることがあるため、震源(動かない側)との間隔だけ最後に
-  // もう一度必ず立て直す。震源は最優先(正確な位置が情報そのもの)なので
-  // これを一番最後にすることで確実に守る
-  for (const m of movable) {
-    for (const a of anchors) pushMarkerApart(m, a, true);
-  }
-
-  for (const m of movable) {
-    m.marker.setLngLat(map.unproject([m.point.x, m.point.y]));
   }
 }
 
@@ -2791,7 +2709,7 @@ function scheduleEarthquakeGeoExpiry(record) {
     record.markers.intensityBadges = [];
     record.earthquakeGeoTimer = null;
     syncActiveEventLayers();
-    resolveMarkerOverlaps();
+    syncIntensityBadgeAnchors();
     renderEventsPanel();
   };
   const remaining = record.earthquakeGeoExpiresAt - Date.now();
@@ -2833,7 +2751,7 @@ function addActiveEvent(eventData, ttlMs = null) {
   // マップへの追加)は塗りより後にすることで、色が先に画面へ反映される
   syncActiveEventLayers(); // この中で updateEpicenterLayer() が震源✕を描画する
   record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
-  resolveMarkerOverlaps(); // 震源✕・震度バッジ・他イベントのバッジと重ならないよう調整
+  syncIntensityBadgeAnchors(); // 対象県の基準位置と最新の震度表示を同期する．
   // 塗りつぶしの反映とカメラのズーム移動を同じフレームで同時に行うと、
   // 色が付いた瞬間が見えないまま(既にズームが始まった状態で)表示されて
   // しまうため、一度そのままの画面で色を見せてから少し遅れてズームする
@@ -2958,7 +2876,7 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     for (const marker of record.markers.intensityBadges) marker.remove();
     record.markers.intensityBadges = createIntensityBadgeMarkers(record.geo.prefectures);
   }
-  resolveMarkerOverlaps(); // 震源✕の位置が更新された場合も含め、重なりを再調整
+  syncIntensityBadgeAnchors(); // 続報で対象県が変わった場合も，基準位置を維持する．
   // 更新された(続報が来た)イベントも「新しく発表された方」として扱い、
   // そちらを優先してズームする(気象警報の巡回フォーカスは解除する)
   if (currentPatrolCode !== null || currentPatrolTrainingId !== null) {
@@ -2987,7 +2905,7 @@ function removeActiveEvent(id) {
   activeEvents.delete(id);
   syncActiveEventLayers(); // 削除後に updateEpicenterLayer() が震源✕からも取り除く
   updateWeatherDisplay(); // EEW終了時に一時的に隠していた気象警報を戻す
-  resolveMarkerOverlaps(); // 消えたことで残りの震度バッジの重なり回避が緩む場合がある
+  syncIntensityBadgeAnchors(); // 古い震度バッジの表示状態を更新する．
   // 巡回が今まさにこのイベントを表示していた場合は、次の巡回の順番を
   // 待たずすぐ次の対象へ進める(気象警報のremovedFocusedRegionと同じ
   // 考え方)。
@@ -3780,8 +3698,9 @@ function buildReportCardHtml(record) {
   const trainingBanner = record.isTraining && !isJAlertTest
     ? `<div class="training-data-banner">${record.isTestData ? '訓練・試験放送（ローカルテスト）' : '訓練・試験放送'}</div>`
     : '';
+  const tsunamiColor = record.tsunamiWarningColor || TSUNAMI_DEFAULT_COLOR;
   const tsunamiBanner = record.tsunamiWarningActive
-    ? `<div class="tsunami-alert-banner" style="background:${escapeHtml(record.tsunamiWarningColor || TSUNAMI_DEFAULT_COLOR)}">${escapeHtml(record.tsunamiWarningText)}</div>`
+    ? `<div class="tsunami-alert-banner" style="background:var(--tsunami-warning-color)">${escapeHtml(record.tsunamiWarningText)}</div>`
     : '';
   const satelliteTag = (record.satellitePrn !== undefined && record.satellitePrn !== null)
     ? `<span class="satellite-tag">🛰️ ${escapeHtml(SATELLITE_NAMES[record.satelliteId] || `PRN${record.satellitePrn}`)}</span>`
@@ -3835,9 +3754,12 @@ function buildReportCardHtml(record) {
   const groupIndicator = record.panelGroupCount > 1
     ? `<button class="panel-group-next" type="button" data-group-next="${escapeHtml(record.panelGroupKey)}" aria-label="同じ災害種別の次の地域を表示">同種の情報 ${record.panelGroupIndex + 1}/${record.panelGroupCount} ›</button>`
     : '';
+  // 訓練色や他の警報の深刻度で，上書きされない共通の津波色を使う．
+  const tsunamiColorAttr = tsunamiBanner
+    ? ` style="--tsunami-warning-color:${escapeHtml(tsunamiColor)};border-left-color:var(--tsunami-warning-color)"` : '';
   const cardKeyAttr = record.cardKey ? ` data-card-key="${escapeHtml(record.cardKey)}"` : '';
   return `
-    <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}>
+    <div class="report-card ${escapeHtml(cardClass)}"${cardKeyAttr}${tsunamiColorAttr}>
       ${testBanner}
       ${headingHtml}
       <div class="report-badge-row">
@@ -3955,6 +3877,11 @@ function mergedCardForRecords(records) {
   if (records.length === 1) return records[0];
   const ranked = [...records].sort((a, b) => recordSeverityRank(b) - recordSeverityRank(a));
   const primary = ranked[0];
+  // 統合パネルでも，最も強い津波警報の見出しと色を保持する．
+  const tsunami = records.filter((r) => r.tsunamiWarningActive).sort((a, b) => {
+    const rank = (r) => r.tsunamiWarningColor === '#c800c8' ? 3 : r.tsunamiWarningColor === '#ff2800' ? 2 : 1;
+    return rank(b) - rank(a);
+  })[0];
   // 「地震 + ミサイル発射」のように1つの文字列へ結合すると、種別ごとの
   // 見出しが読みにくくなる(指摘を受けて修正)。代わりに配列のまま持たせ、
   // buildReportCardHtmlで種別ごとに別々の丸角四角形として並べて表示する
@@ -3977,6 +3904,8 @@ function mergedCardForRecords(records) {
   }
   const badges = [...badgesByText.values()];
   return {
+    ...(tsunami ? { tsunamiWarningActive: true, tsunamiWarningText: tsunami.tsunamiWarningText,
+      tsunamiWarningColor: tsunami.tsunamiWarningColor } : {}),
     isTestData: records.some((r) => r.isTestData),
     isTraining: records.some((r) => r.isTraining),
     satelliteId: primary.satelliteId,
@@ -4823,8 +4752,8 @@ async function initMap() {
     new ResizeObserver(() => map.resize()).observe(mapContainer);
   }
 
-  // サイズは固定し，位置の重なりだけズーム終了後に調整する．
-  map.on('zoomend', resolveMarkerOverlaps);
+  // ズーム後も対象イベントの表示状態だけを同期し，基準座標は動かさない．
+  map.on('zoomend', syncIntensityBadgeAnchors);
 
   // 段階1: 警報エリアの表示に直結するデータを並行取得(3つ合計でも
   // 市区町村データ1つより軽い)。届き次第すぐにレイヤーを追加する

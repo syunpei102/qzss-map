@@ -21,7 +21,7 @@ const context = {
   unionBounds: (bounds) => [Math.min(...bounds.map((b) => b[0])), Math.min(...bounds.map((b) => b[1])),
     Math.max(...bounds.map((b) => b[2])), Math.max(...bounds.map((b) => b[3]))],
   syncActiveEventLayers: () => {}, updateWeatherDisplay: () => {},
-  resolveMarkerOverlaps: () => {}, updateFocusOutline: () => {},
+  syncIntensityBadgeAnchors: () => {}, updateFocusOutline: () => {},
   isEarthquakeOrTsunamiRecord: () => true,
   currentPatrolCode: null, currentPatrolTrainingId: null,
 };
