@@ -5449,7 +5449,7 @@ function connectWebSocket() {
     await mapReady;
     // データ読込待ちも寿命に含める．期限直前の再送を期限後に描画しない．
     report.replay_age_ms = (Number.isFinite(report.replay_age_ms) ? report.replay_age_ms : 0)
-      + Date.now() - clientMessageReceivedAt;
+      + performance.now() - clientMessageReceivedAt;
     renderReport(report);
     const timingSequence = ++latestTimedReportSequence;
 
