@@ -151,7 +151,7 @@ test('client timing v2: only same-clock spans are accepted and summed', () => {
   assert.deepEqual(g.validateClientTiming(v2), {
     schemaVersion: 2, receiverDecodeMs: 4.25, serverProcessingMs: 1.5,
     clientProcessingMs: 6.25, clientVisualReadyMs: 32.5, measuredMs: 38.25,
-    reportSummary: null, isTestData: false, reportKey: 'dcr:ab12:2',
+    reportSummary: null, isTestData: false, reportKey: 'dcr:ab12:2', clientVersion: null, displayResult: null,
   });
   assert.equal(g.validateClientTiming({ ...v2, client_visual_ready_ms: null }).measuredMs, 12);
   for (const patch of [{ receiver_decode_ms: -1 }, { server_processing_ms: Infinity },
@@ -287,4 +287,11 @@ test('device commands: restore normalizes incomplete legacy records', () => {
   assert.equal(record.state, 'pending');
   assert.equal(q.collect('d', { supportsAck: true }).length, 1);
   assert.equal(q.list('d')[0].deliveryCount, 1);
+});
+
+test('client timing stores the screen version and why a signal was applied or skipped', () => {
+ const timing={schema_version:2,receiver_decode_ms:2,server_processing_ms:1,client_processing_ms:3,client_visual_ready_ms:null,client_version:'1.13.0',display_result:{status:'skipped',reason:'training-off'}};
+ const entry=g.validateClientTiming(timing);assert.equal(entry.clientVersion,'1.13.0');assert.deepEqual(entry.displayResult,{status:'skipped',reason:'training-off'});
+ assert.equal(g.validateClientTiming({...timing,client_version:'<script>'}).clientVersion,null);
+ assert.equal(g.validateClientTiming({...timing,display_result:{status:'fake',reason:'fake'}}).displayResult,null);
 });

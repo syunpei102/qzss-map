@@ -115,6 +115,11 @@ function validateClientTiming(ts) {
   const summary = validateReportSummary(ts.reportSummary);
   const reportKey = typeof ts.reportKey === "string" && /^dcr:[0-9a-f]{1,160}:(?:[0-9]{1,2})?$/.test(ts.reportKey)
     ? ts.reportKey : null;
+  const clientVersion = typeof ts.client_version === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(ts.client_version) ? ts.client_version : null;
+  const result = ts.display_result;
+  const displayResult = result && ["applied", "unchanged", "skipped", "error"].includes(result.status)
+    && ["category-off", "settings-unavailable", "expired", "training-off", "filtered", "no-change", "updated", "render-failed"].includes(result.reason)
+    ? { status: result.status, reason: result.reason } : null;
   if (ts.schema_version === 2) {
     const decode = ts.receiver_decode_ms, server = ts.server_processing_ms;
     const client = ts.client_processing_ms, visual = ts.client_visual_ready_ms;
@@ -123,7 +128,7 @@ function validateClientTiming(ts) {
     return { schemaVersion: 2, receiverDecodeMs: decode, serverProcessingMs: server,
       clientProcessingMs: client, clientVisualReadyMs: visual ?? null,
       measuredMs: decode + server + (visual ?? client),
-      reportSummary: summary, isTestData: !!ts.isTestData, reportKey };
+      reportSummary: summary, isTestData: !!ts.isTestData, reportKey, clientVersion, displayResult };
   }
   const { t0_received_ms: t0, t1_decoded_ms: t1, t2_server_received_ms: t2, t3_dispatched_ms: t3, client_processing_ms: render } = ts;
   const nums = [t0, t1, t2, t3, render];

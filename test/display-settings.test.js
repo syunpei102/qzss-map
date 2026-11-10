@@ -1,0 +1,5 @@
+const{test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const source=fs.readFileSync(require.resolve('../public/main.js'),'utf8');
+for(const response of [{ok:false,status:503},{ok:true,json:async()=>({})}])test('missing or failed config never enables official training',async()=>{
+ const context={LOCKED_DEVICE_ID:null,AbortController,setTimeout:()=>1,clearTimeout(){},fetch:async()=>response,showTrainingBroadcasts:true,informationCategorySettings:{weatherEnabled:true,volcanoEnabled:true},InformationSettings:{defaults:{weatherEnabled:false,volcanoEnabled:false}},lalertEnabled:true,console:{warn(){}},displaySettingsAvailable:true,displaySettingsRetry:null};
+ const start=source.indexOf('async function loadShowTrainingBroadcastsSetting(');vm.runInNewContext(source.slice(start,source.indexOf('// 震度速報の震度コード',start)),context);await context.loadShowTrainingBroadcastsSetting();assert.equal(context.showTrainingBroadcasts,false);assert.equal(context.displaySettingsAvailable,false);assert.equal(context.informationCategorySettings.weatherEnabled,false);
+});

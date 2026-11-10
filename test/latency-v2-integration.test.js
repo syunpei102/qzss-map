@@ -65,6 +65,14 @@ test('v2 ingest to websocket to timing history preserves local intervals', { tim
     assert.equal(history.length, 1);
     assert.equal(history[0].schemaVersion, 2);
     assert.ok(Math.abs(history[0].measuredMs - (34.25 + report.client_timestamps.server_processing_ms)) < 1e-9);
+    const duplicate=await fetch(`${base}/client-timing`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...report.client_timestamps,client_processing_ms:3,client_visual_ready_ms:null,reportKey:'dcr:ab12:2',isTestData:true,client_version:'1.13.0',display_result:{status:'skipped',reason:'training-off'}})});
+    assert.equal(duplicate.status,204);
+    const updated=await(await fetch(`${base}/api/latency-history`)).json();
+    assert.equal(updated.length,1);
+    assert.equal(updated[0].measuredMs,history[0].measuredMs);
+    assert.deepEqual(updated[0].displayObservations[0].displayResult,{status:'skipped',reason:'training-off'});
+    assert.equal(updated[0].displayObservations[0].clientVersion,'1.13.0');
+
   } finally {
     ws?.close();
     child.kill('SIGTERM');

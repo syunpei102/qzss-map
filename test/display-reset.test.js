@@ -1,0 +1,5 @@
+const{test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const source=fs.readFileSync(require.resolve('../public/main.js'),'utf8');
+test('reconnection and local reset clear old timers, deferred reports and overlay data',()=>{
+ const cleared=[];let synced=0;const context={activeEvents:new Map(),weatherSites:new Map([[130010,{timer:1}]]),otherReports:new Map([['ash:x',{timer:2}]]),deferredGeoReports:new Map([['volcano:x',{}]]),clearTimeout:id=>cleared.push(id),syncActiveEventLayers:()=>synced++,updateWeatherDisplay(){},updateFocusOutline(){},renderEventsPanel(){}};
+ const start=source.indexOf('function clearAllActiveEvents(');vm.runInNewContext(source.slice(start,source.indexOf('// 津波警報が出ている間',start)),context);context.clearAllActiveEvents();assert.deepEqual(cleared,[1,2]);assert.equal(context.weatherSites.size,0);assert.equal(context.otherReports.size,0);assert.equal(context.deferredGeoReports.size,0);assert.equal(synced,1);
+});

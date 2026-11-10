@@ -1,0 +1,6179 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "description": "ローカル目視確認用．デコード後の合成データ．本番送信禁止．",
+  "cases": [
+    {
+      "id": "case-001",
+      "name": "東京本土のみ／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-001:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-002",
+      "name": "東京本土のみ／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-002:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-002:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-003",
+      "name": "東京本土のみ／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-003:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-003:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-004",
+      "name": "東京本土のみ／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-004:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-005",
+      "name": "東京本土のみ／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東京本土のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 36.000000000000085,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "東京本土のみ"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-005:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-006",
+      "name": "深発・東京のみ／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-006:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-007",
+      "name": "深発・東京のみ／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-007:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-007:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-008",
+      "name": "深発・東京のみ／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-008:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-008:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-009",
+      "name": "深発・東京のみ／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-009:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-010",
+      "name": "深発・東京のみ／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "深発・東京のみ",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 30,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "深発・東京のみ"
+          ],
+          "depth_of_hypocenter": "600km",
+          "depth_of_hypocenter_raw": 600,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-010:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-011",
+      "name": "千島列島・代表点／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-011:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-012",
+      "name": "千島列島・代表点／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-012:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-012:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-013",
+      "name": "千島列島・代表点／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-013:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-013:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-014",
+      "name": "千島列島・代表点／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-014:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-015",
+      "name": "千島列島・代表点／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "千島列島・代表点",
+          "seismic_epicenter_raw": 912,
+          "eew_forecast_regions_raw": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            19,
+            20,
+            21,
+            22,
+            24,
+            25,
+            26,
+            27,
+            28
+          ],
+          "eew_forecast_regions": [
+            "千島列島・代表点"
+          ],
+          "depth_of_hypocenter": "140km",
+          "depth_of_hypocenter_raw": 140,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-015:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-016",
+      "name": "伊豆諸島のみ／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-016:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-017",
+      "name": "伊豆諸島のみ／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-017:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-017:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-018",
+      "name": "伊豆諸島のみ／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-018:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-018:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-019",
+      "name": "伊豆諸島のみ／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-019:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-020",
+      "name": "伊豆諸島のみ／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆諸島のみ",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 139,
+            "lon_m": 30,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            17
+          ],
+          "eew_forecast_regions": [
+            "伊豆諸島のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-020:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-021",
+      "name": "小笠原のみ／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-021:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-022",
+      "name": "小笠原のみ／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-022:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-022:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-023",
+      "name": "小笠原のみ／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-023:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-023:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-024",
+      "name": "小笠原のみ／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-024:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-025",
+      "name": "小笠原のみ／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原のみ",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 27,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            18
+          ],
+          "eew_forecast_regions": [
+            "小笠原のみ"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-025:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-026",
+      "name": "関東地方／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-026:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-027",
+      "name": "関東地方／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-027:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-027:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-028",
+      "name": "関東地方／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-028:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-028:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-029",
+      "name": "関東地方／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-029:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-030",
+      "name": "関東地方／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "関東地方",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 141,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            59
+          ],
+          "eew_forecast_regions": [
+            "関東地方"
+          ],
+          "depth_of_hypocenter": "80km",
+          "depth_of_hypocenter_raw": 80,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-030:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-031",
+      "name": "伊豆地方コード／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-031:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-032",
+      "name": "伊豆地方コード／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-032:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-032:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-033",
+      "name": "伊豆地方コード／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-033:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-033:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-034",
+      "name": "伊豆地方コード／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-034:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-035",
+      "name": "伊豆地方コード／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "伊豆地方コード",
+          "seismic_epicenter_raw": 390,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            60
+          ],
+          "eew_forecast_regions": [
+            "伊豆地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-035:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-036",
+      "name": "小笠原地方コード／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-036:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-037",
+      "name": "小笠原地方コード／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-037:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-037:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-038",
+      "name": "小笠原地方コード／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-038:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-038:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-039",
+      "name": "小笠原地方コード／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-039:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-040",
+      "name": "小笠原地方コード／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "小笠原地方コード",
+          "seismic_epicenter_raw": 391,
+          "coordinates_of_hypocenter": {
+            "lat_d": 26,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 142,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            61
+          ],
+          "eew_forecast_regions": [
+            "小笠原地方コード"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-040:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-041",
+      "name": "座標・震央コード不明／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-041:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-042",
+      "name": "座標・震央コード不明／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-042:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-042:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-043",
+      "name": "座標・震央コード不明／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-043:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-043:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-044",
+      "name": "座標・震央コード不明／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-044:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-045",
+      "name": "座標・震央コード不明／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "座標・震央コード不明",
+          "seismic_epicenter_raw": 9999,
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "座標・震央コード不明"
+          ],
+          "depth_of_hypocenter": "30km",
+          "depth_of_hypocenter_raw": 30,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-045:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-046",
+      "name": "遠方太平洋／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-046:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-047",
+      "name": "遠方太平洋／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-047:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-047:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-048",
+      "name": "遠方太平洋／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-048:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-048:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-049",
+      "name": "遠方太平洋／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-049:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-050",
+      "name": "遠方太平洋／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "遠方太平洋",
+          "seismic_epicenter_raw": 9998,
+          "coordinates_of_hypocenter": {
+            "lat_d": 40,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 178,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            16
+          ],
+          "eew_forecast_regions": [
+            "遠方太平洋"
+          ],
+          "depth_of_hypocenter": "50km",
+          "depth_of_hypocenter_raw": 50,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-050:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": false,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-051",
+      "name": "九州／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-051:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-052",
+      "name": "九州／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-052:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-052:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-053",
+      "name": "九州／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-053:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-053:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-054",
+      "name": "九州／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-054:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-055",
+      "name": "九州／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "九州",
+          "seismic_epicenter_raw": 760,
+          "coordinates_of_hypocenter": {
+            "lat_d": 32,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 131,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            40,
+            41,
+            42,
+            43,
+            44,
+            45,
+            46,
+            47,
+            48,
+            49,
+            50,
+            51
+          ],
+          "eew_forecast_regions": [
+            "九州"
+          ],
+          "depth_of_hypocenter": "100km",
+          "depth_of_hypocenter_raw": 100,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-055:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-056",
+      "name": "東日本広域・深発／発表",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-056:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-057",
+      "name": "東日本広域・深発／続報",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-057:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "7.0",
+          "magnitude_raw": 70,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-057:1"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-058",
+      "name": "東日本広域・深発／取消",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-058:0"
+        },
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 2,
+          "information_type": "取消",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-058:1"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-059",
+      "name": "東日本広域・深発／公式訓練OFF",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 7,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "raw": "local-review:case-059:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-060",
+      "name": "東日本広域・深発／期限切れ",
+      "group": "緊急地震速報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+          "disaster_category_no": 1,
+          "disaster_category": "緊急地震速報",
+          "seismic_epicenter": "東日本広域・深発",
+          "seismic_epicenter_raw": 350,
+          "coordinates_of_hypocenter": {
+            "lat_d": 28,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "eew_forecast_regions_raw": [
+            57,
+            58,
+            59,
+            62,
+            63,
+            64
+          ],
+          "eew_forecast_regions": [
+            "東日本広域・深発"
+          ],
+          "depth_of_hypocenter": "500km",
+          "depth_of_hypocenter_raw": 500,
+          "magnitude": "6.8",
+          "magnitude_raw": 68,
+          "seismic_intensity_lower_limit": "震度5弱",
+          "seismic_intensity_lower_limit_raw": 5,
+          "seismic_intensity_upper_limit": "震度6弱",
+          "seismic_intensity_upper_limit_raw": 7,
+          "replay_age_ms": 960000,
+          "raw": "local-review:case-060:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "originAndAffectedRegions": true,
+        "note": "東京本土コードだけでは離島をズームに含めない．震源が離島側にある場合は震源を含める．"
+      }
+    },
+    {
+      "id": "case-061",
+      "name": "気象 130010／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010
+          ],
+          "weather_forecast_regions": [
+            "130010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-061:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-062",
+      "name": "気象 130010／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010
+          ],
+          "weather_forecast_regions": [
+            "130010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-062:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-063",
+      "name": "気象 130020／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130020
+          ],
+          "weather_forecast_regions": [
+            "130020"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-063:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-064",
+      "name": "気象 130020／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130020
+          ],
+          "weather_forecast_regions": [
+            "130020"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-064:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-065",
+      "name": "気象 130030／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130030
+          ],
+          "weather_forecast_regions": [
+            "130030"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-065:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-066",
+      "name": "気象 130030／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130030
+          ],
+          "weather_forecast_regions": [
+            "130030"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-066:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-067",
+      "name": "気象 130040／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-067:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-068",
+      "name": "気象 130040／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-068:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-069",
+      "name": "気象 130000／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130000
+          ],
+          "weather_forecast_regions": [
+            "130000"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-069:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-070",
+      "name": "気象 130000／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130000
+          ],
+          "weather_forecast_regions": [
+            "130000"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報"
+          ],
+          "raw": "local-review:case-070:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-071",
+      "name": "気象 130010＋130040／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-071:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-072",
+      "name": "気象 130010＋130040／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-072:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-073",
+      "name": "気象 130010＋130020＋130030＋130040／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            130020,
+            130030,
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "130020",
+            "130030",
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報",
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-073:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-074",
+      "name": "気象 130010＋130020＋130030＋130040／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            130020,
+            130030,
+            130040
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "130020",
+            "130030",
+            "130040"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報",
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-074:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-075",
+      "name": "気象 130010＋140010／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            140010
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "140010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-075:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-076",
+      "name": "気象 130010＋140010／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130010,
+            140010
+          ],
+          "weather_forecast_regions": [
+            "130010",
+            "140010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-076:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-077",
+      "name": "気象 130020＋130030／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130020,
+            130030
+          ],
+          "weather_forecast_regions": [
+            "130020",
+            "130030"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-077:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-078",
+      "name": "気象 130020＋130030／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130020,
+            130030
+          ],
+          "weather_forecast_regions": [
+            "130020",
+            "130030"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-078:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-079",
+      "name": "気象 130000＋140010／OFF",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130000,
+            140010
+          ],
+          "weather_forecast_regions": [
+            "130000",
+            "140010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-079:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "気象の塗り・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-080",
+      "name": "気象 130000＋140010／ON",
+      "group": "気象情報",
+      "settings": {
+        "weatherEnabled": true,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaWeather",
+          "disaster_category_no": 10,
+          "disaster_category": "気象情報",
+          "weather_forecast_regions_raw": [
+            130000,
+            140010
+          ],
+          "weather_forecast_regions": [
+            "130000",
+            "140010"
+          ],
+          "weather_related_disaster_sub_categories": [
+            "大雨警報",
+            "大雨警報"
+          ],
+          "raw": "local-review:case-080:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "東京都の区域は別々に巡回する．"
+      }
+    },
+    {
+      "id": "case-081",
+      "name": "桜島／噴火警報／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "桜島",
+          "volcano_name_raw": "桜島",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-081:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-082",
+      "name": "桜島／噴火警報／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "桜島",
+          "volcano_name_raw": "桜島",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-082:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-083",
+      "name": "桜島／降灰／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "桜島",
+          "volcano_name_raw": "桜島",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-083:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-084",
+      "name": "桜島／降灰／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "桜島",
+          "volcano_name_raw": "桜島",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-084:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-085",
+      "name": "浅間山／噴火警報／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "浅間山",
+          "volcano_name_raw": "浅間山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-085:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-086",
+      "name": "浅間山／噴火警報／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "浅間山",
+          "volcano_name_raw": "浅間山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-086:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-087",
+      "name": "浅間山／降灰／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "浅間山",
+          "volcano_name_raw": "浅間山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-087:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-088",
+      "name": "浅間山／降灰／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "浅間山",
+          "volcano_name_raw": "浅間山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-088:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-089",
+      "name": "富士山／噴火警報／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "富士山",
+          "volcano_name_raw": "富士山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-089:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-090",
+      "name": "富士山／噴火警報／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "富士山",
+          "volcano_name_raw": "富士山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-090:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-091",
+      "name": "富士山／降灰／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "富士山",
+          "volcano_name_raw": "富士山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-091:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-092",
+      "name": "富士山／降灰／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "富士山",
+          "volcano_name_raw": "富士山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-092:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-093",
+      "name": "未登録火山／噴火警報／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "未登録火山",
+          "volcano_name_raw": "未登録火山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-093:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-094",
+      "name": "未登録火山／噴火警報／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaVolcano",
+          "disaster_category_no": 8,
+          "disaster_category": "火山",
+          "volcano_name": "未登録火山",
+          "volcano_name_raw": "未登録火山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-094:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-095",
+      "name": "未登録火山／降灰／OFF",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "未登録火山",
+          "volcano_name_raw": "未登録火山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-095:0"
+        }
+      ],
+      "expected": {
+        "visible": false,
+        "note": "火山・降灰の図形・カード・通知を出さない．"
+      }
+    },
+    {
+      "id": "case-096",
+      "name": "未登録火山／降灰／ON",
+      "group": "火山情報",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": true
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaAshFall",
+          "disaster_category_no": 9,
+          "disaster_category": "降灰",
+          "volcano_name": "未登録火山",
+          "volcano_name_raw": "未登録火山",
+          "volcanic_warning_code_raw": 14,
+          "volcanic_warning_code": "噴火警報（居住地域）",
+          "ash_fall_warning_codes_raw": [
+            2
+          ],
+          "ash_fall_warning_codes": [
+            "多量の降灰"
+          ],
+          "local_governments_raw": [
+            1310100
+          ],
+          "local_governments": [
+            "千代田区"
+          ],
+          "expected_ash_fall_times": [
+            1
+          ],
+          "raw": "local-review:case-096:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "火山位置が不明なら文字情報を残す．"
+      }
+    },
+    {
+      "id": "case-097",
+      "name": "他種別の回帰／分類2",
+      "group": "地震・津波・洪水",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaControl",
+          "disaster_category_no": 2,
+          "disaster_category": "震源",
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "seismic_epicenter": "東京湾",
+          "seismic_epicenter_raw": 350,
+          "prefectures_raw": [],
+          "seismic_intensities_raw": [
+            4
+          ],
+          "tsunami_warning_code": "津波警報",
+          "tsunami_forecast_regions_raw": [],
+          "tsunami_forecast_regions": [
+            "東京湾内湾"
+          ],
+          "flood_forecast_regions_raw": [],
+          "flood_forecast_regions": [
+            "利根川"
+          ],
+          "flood_warning_levels_raw": [
+            3
+          ],
+          "flood_warning_levels": [
+            "氾濫危険情報"
+          ],
+          "raw": "local-review:case-097:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "気象・火山OFFでもこの種別は処理する．"
+      }
+    },
+    {
+      "id": "case-098",
+      "name": "他種別の回帰／分類3",
+      "group": "地震・津波・洪水",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaControl",
+          "disaster_category_no": 3,
+          "disaster_category": "震度",
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "seismic_epicenter": "東京湾",
+          "seismic_epicenter_raw": 350,
+          "prefectures_raw": [
+            13
+          ],
+          "seismic_intensities_raw": [
+            4
+          ],
+          "tsunami_warning_code": "津波警報",
+          "tsunami_forecast_regions_raw": [],
+          "tsunami_forecast_regions": [
+            "東京湾内湾"
+          ],
+          "flood_forecast_regions_raw": [],
+          "flood_forecast_regions": [
+            "利根川"
+          ],
+          "flood_warning_levels_raw": [
+            3
+          ],
+          "flood_warning_levels": [
+            "氾濫危険情報"
+          ],
+          "raw": "local-review:case-098:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "気象・火山OFFでもこの種別は処理する．"
+      }
+    },
+    {
+      "id": "case-099",
+      "name": "他種別の回帰／分類5",
+      "group": "地震・津波・洪水",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaControl",
+          "disaster_category_no": 5,
+          "disaster_category": "津波",
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "seismic_epicenter": "東京湾",
+          "seismic_epicenter_raw": 350,
+          "prefectures_raw": [],
+          "seismic_intensities_raw": [
+            4
+          ],
+          "tsunami_warning_code_raw": 3,
+          "tsunami_warning_code": "津波警報",
+          "tsunami_forecast_regions_raw": [
+            320
+          ],
+          "tsunami_forecast_regions": [
+            "東京湾内湾"
+          ],
+          "flood_forecast_regions_raw": [],
+          "flood_forecast_regions": [
+            "利根川"
+          ],
+          "flood_warning_levels_raw": [
+            3
+          ],
+          "flood_warning_levels": [
+            "氾濫危険情報"
+          ],
+          "raw": "local-review:case-099:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "気象・火山OFFでもこの種別は処理する．"
+      }
+    },
+    {
+      "id": "case-100",
+      "name": "他種別の回帰／分類11",
+      "group": "地震・津波・洪水",
+      "settings": {
+        "weatherEnabled": false,
+        "volcanoEnabled": false
+      },
+      "reports": [
+        {
+          "is_test_data": true,
+          "report_classification_no": 1,
+          "report_classification": "最優先",
+          "information_type_no": 0,
+          "information_type": "発表",
+          "satellite_id": 56,
+          "satellite_prn": 184,
+          "type": "QzssDcReportJmaControl",
+          "disaster_category_no": 11,
+          "disaster_category": "洪水",
+          "coordinates_of_hypocenter": {
+            "lat_d": 35,
+            "lat_m": 0,
+            "lat_s": 0,
+            "lat_ns": 0,
+            "lon_d": 140,
+            "lon_m": 0,
+            "lon_s": 0,
+            "lon_ew": 0
+          },
+          "seismic_epicenter": "東京湾",
+          "seismic_epicenter_raw": 350,
+          "prefectures_raw": [],
+          "seismic_intensities_raw": [
+            4
+          ],
+          "tsunami_warning_code": "津波警報",
+          "tsunami_forecast_regions_raw": [],
+          "tsunami_forecast_regions": [
+            "東京湾内湾"
+          ],
+          "flood_forecast_regions_raw": [
+            8303060001
+          ],
+          "flood_forecast_regions": [
+            "利根川"
+          ],
+          "flood_warning_levels_raw": [
+            3
+          ],
+          "flood_warning_levels": [
+            "氾濫危険情報"
+          ],
+          "raw": "local-review:case-100:0"
+        }
+      ],
+      "expected": {
+        "visible": true,
+        "note": "気象・火山OFFでもこの種別は処理する．"
+      }
+    }
+  ]
+}

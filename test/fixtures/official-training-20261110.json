@@ -1,0 +1,286 @@
+{
+  "description": "2026年11月10日（火）に実受信した公式訓練のデコード済み電文．受信ログから抽出．本番へ再送しない．",
+  "reports": [
+    {
+      "sentence": "$QZQSM,56,9aaf8da88000db24000051000548c5e2c000000003dff8001c000010737d168*2E",
+      "raw": "af8da88000db24000051000548c5e2c000000003dff8001c000010",
+      "timestamp": "2026-11-10T13:00:21.700187",
+      "message": "9aaf8da88000db24000051000548c5e2c000000003dff8001c000010737d1680",
+      "nmea": "$QZQSM,56,9AAF8DA88000DB24000051000548C5E2C000000003DFF8001C000010737D168*0E",
+      "message_header": "$QZQSM",
+      "satellite_id": 56,
+      "satellite_prn": 184,
+      "preamble": "B",
+      "message_type": "DCR",
+      "version": 1,
+      "report_classification": "訓練/試験",
+      "report_classification_en": "Training/Test",
+      "report_classification_no": 7,
+      "disaster_category": "緊急地震速報",
+      "disaster_category_en": "Earthquake Early Warning",
+      "disaster_category_no": 1,
+      "report_time": "2026-11-10T04:00:00",
+      "information_type": "発表",
+      "information_type_en": "Issue",
+      "information_type_no": 0,
+      "long_period_ground_motion_lower_limit": "長周期地震動階級2",
+      "long_period_ground_motion_lower_limit_raw": 3,
+      "long_period_ground_motion_upper_limit": "長周期地震動階級2",
+      "long_period_ground_motion_upper_limit_raw": 3,
+      "notifications_on_disaster_prevention": [
+        "強い揺れに警戒してください。"
+      ],
+      "notifications_on_disaster_prevention_raw": [
+        201
+      ],
+      "occurrence_time_of_earthquake": "2026-11-10T04:00:00",
+      "depth_of_hypocenter": "10km",
+      "depth_of_hypocenter_raw": 10,
+      "magnitude": "7.2",
+      "magnitude_raw": 72,
+      "assumptive": false,
+      "seismic_epicenter": "日向灘",
+      "seismic_epicenter_raw": 791,
+      "seismic_intensity_lower_limit": "震度6弱",
+      "seismic_intensity_lower_limit_raw": 8,
+      "seismic_intensity_upper_limit": "〜程度以上",
+      "seismic_intensity_upper_limit_raw": 11,
+      "eew_forecast_regions": [
+        "島根",
+        "岡山",
+        "広島",
+        "山口",
+        "香川",
+        "愛媛",
+        "高知",
+        "福岡",
+        "佐賀",
+        "長崎",
+        "熊本",
+        "大分",
+        "宮崎",
+        "鹿児島",
+        "中国",
+        "四国",
+        "九州"
+      ],
+      "eew_forecast_regions_raw": [
+        37,
+        38,
+        39,
+        40,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        66,
+        67,
+        68
+      ],
+      "type": "QzssDcReportJmaEarthquakeEarlyWarning",
+      "description": "防災気象情報(緊急地震速報)(発表)(訓練/試験)\n*** これは訓練です ***\n緊急地震速報\n強い揺れに警戒してください。\n\n発表時刻: 11月10日13時0分\n\n震央地名: 日向灘\n地震発生時刻: 10日13時0分\n深さ: 10km\nマグニチュード: 7.2\n震度(下限): 震度6弱\n震度(上限): 〜程度以上\n長周期地震動階級(下限): 長周期地震動階級2\n長周期地震動階級(上限): 長周期地震動階級2\n島根、岡山、広島、山口、香川、愛媛、高知、福岡、佐賀、長崎、熊本、大分、宮崎、鹿児島、中国、四国、九州",
+      "client_timestamps": {
+        "schema_version": 2,
+        "receiver_decode_ms": 5.389
+      }
+    },
+    {
+      "sentence": "$QZQSM,56,9aaf95a882800388000051051440c5c82a01083000000000000000133bfd288*7B",
+      "raw": "af95a882800388000051051440c5c82a0108300000000000000010",
+      "timestamp": "2026-11-10T13:05:21.825599",
+      "message": "9aaf95a882800388000051051440c5c82a01083000000000000000133bfd2880",
+      "nmea": "$QZQSM,56,9AAF95A882800388000051051440C5C82A01083000000000000000133BFD288*7B",
+      "message_header": "$QZQSM",
+      "satellite_id": 56,
+      "satellite_prn": 184,
+      "preamble": "B",
+      "message_type": "DCR",
+      "version": 1,
+      "report_classification": "訓練/試験",
+      "report_classification_en": "Training/Test",
+      "report_classification_no": 7,
+      "disaster_category": "震源",
+      "disaster_category_en": "Hypocenter",
+      "disaster_category_no": 2,
+      "report_time": "2026-11-10T04:05:00",
+      "information_type": "発表",
+      "information_type_en": "Issue",
+      "information_type_no": 0,
+      "notifications_on_disaster_prevention": [
+        "震源の近傍で津波発生の可能性があります。"
+      ],
+      "notifications_on_disaster_prevention_raw": [
+        226
+      ],
+      "occurrence_time_of_earthquake": "2026-11-10T04:05:00",
+      "depth_of_hypocenter": "40km",
+      "depth_of_hypocenter_raw": 40,
+      "magnitude": "6.4",
+      "magnitude_raw": 64,
+      "seismic_epicenter": "日向灘",
+      "seismic_epicenter_raw": 791,
+      "coordinates_of_hypocenter": {
+        "lat_ns": 0,
+        "lat_d": 32,
+        "lat_m": 42,
+        "lat_s": 0,
+        "lon_ew": 0,
+        "lon_d": 132,
+        "lon_m": 6,
+        "lon_s": 0
+      },
+      "type": "QzssDcReportJmaHypocenter",
+      "description": "防災気象情報(震源)(発表)(訓練/試験)\n*** これは訓練です ***\n10日13時5分ころ、地震がありました。\n震源の近傍で津波発生の可能性があります。\n\n発表時刻: 11月10日13時5分\n\n震央地名: 日向灘\n緯度・経度: 北緯32度42分0秒 東経132度6分0秒\n深さ: 40km\nマグニチュード: 6.4",
+      "client_timestamps": {
+        "schema_version": 2,
+        "receiver_decode_ms": 7.192
+      }
+    },
+    {
+      "sentence": "$QZQSM,56,53af9da8828002882cb25ae775a8d4ca854ab800000000000000001070143b0*2C",
+      "raw": "af9da8828002882cb25ae775a8d4ca854ab8000000000000000010",
+      "timestamp": "2026-11-10T13:05:41.531554",
+      "message": "53af9da8828002882cb25ae775a8d4ca854ab800000000000000001070143b00",
+      "nmea": "$QZQSM,56,53AF9DA8828002882CB25AE775A8D4CA854AB800000000000000001070143B0*0C",
+      "message_header": "$QZQSM",
+      "satellite_id": 56,
+      "satellite_prn": 184,
+      "preamble": "A",
+      "message_type": "DCR",
+      "version": 1,
+      "report_classification": "訓練/試験",
+      "report_classification_en": "Training/Test",
+      "report_classification_no": 7,
+      "disaster_category": "震度",
+      "disaster_category_en": "Seismic Intensity",
+      "disaster_category_no": 3,
+      "report_time": "2026-11-10T04:05:00",
+      "information_type": "発表",
+      "information_type_en": "Issue",
+      "information_type_no": 0,
+      "occurrence_time_of_earthquake": "2026-11-10T04:05:00",
+      "seismic_intensities": [
+        "5強",
+        "5強",
+        "5弱",
+        "5弱",
+        "4",
+        "4",
+        "4",
+        "4",
+        "4"
+      ],
+      "seismic_intensities_raw": [
+        4,
+        4,
+        3,
+        3,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "prefectures": [
+        "大分県",
+        "宮崎県",
+        "高知県",
+        "熊本県",
+        "山口県",
+        "愛媛県",
+        "福岡県",
+        "佐賀県",
+        "鹿児島県"
+      ],
+      "prefectures_raw": [
+        44,
+        45,
+        39,
+        43,
+        35,
+        38,
+        40,
+        41,
+        46
+      ],
+      "type": "QzssDcReportJmaSeismicIntensity",
+      "description": "防災気象情報(震度)(発表)(訓練/試験)\n*** これは訓練です ***\n10日13時5分ころ、地震による強い揺れを感じました。\n\n発表時刻: 11月10日13時5分\n\n震度: 5強\n大分県\n\n震度: 5強\n宮崎県\n\n震度: 5弱\n高知県\n\n震度: 5弱\n熊本県\n\n震度: 4\n山口県\n\n震度: 4\n愛媛県\n\n震度: 4\n福岡県\n\n震度: 4\n佐賀県\n\n震度: 4\n鹿児島県",
+      "client_timestamps": {
+        "schema_version": 2,
+        "receiver_decode_ms": 3.606
+      }
+    },
+    {
+      "sentence": "$QZQSM,56,9aafada8828001e8f67c31053960414e621053be00000000000000108b92e98*71",
+      "raw": "afada8828001e8f67c31053960414e621053be0000000000000010",
+      "timestamp": "2026-11-10T13:05:45.446585",
+      "message": "9aafada8828001e8f67c31053960414e621053be00000000000000108b92e980",
+      "nmea": "$QZQSM,56,9AAFADA8828001E8F67C31053960414E621053BE00000000000000108B92E98*71",
+      "message_header": "$QZQSM",
+      "satellite_id": 56,
+      "satellite_prn": 184,
+      "preamble": "B",
+      "message_type": "DCR",
+      "version": 1,
+      "report_classification": "訓練/試験",
+      "report_classification_en": "Training/Test",
+      "report_classification_no": 7,
+      "disaster_category": "津波",
+      "disaster_category_en": "Tsunami",
+      "disaster_category_no": 5,
+      "report_time": "2026-11-10T04:05:00",
+      "information_type": "発表",
+      "information_type_en": "Issue",
+      "information_type_no": 0,
+      "notifications_on_disaster_prevention": [
+        "＜津波警報＞\n津波による被害が発生します。\n沿岸部や川沿いにいる人はただちに高台や避難ビルなど安全な場所へ避難してください。\n津波は繰り返し襲ってきます。警報が解除されるまで安全な場所から離れないでください。",
+        "＜津波注意報＞\n海の中や海岸付近は危険です。\n海の中にいる人はただちに海から上がって、海岸から離れてください。\n潮の流れが速い状態が続きますので、注意報が解除されるまで海に入ったり海岸に近づいたりしないようにしてください。",
+        "＜津波予報(若干の海面変動)＞\n若干の海面変動が予想されますが、被害の心配はありません。"
+      ],
+      "notifications_on_disaster_prevention_raw": [
+        122,
+        123,
+        124
+      ],
+      "tsunami_warning_code": "津波警報",
+      "tsunami_warning_code_raw": 3,
+      "expected_tsunami_arrival_times": [
+        "2026-11-10T04:05:00",
+        "2026-11-10T04:05:00",
+        "2026-11-10T04:05:00"
+      ],
+      "tsunami_heights": [
+        "3m",
+        "3m",
+        "3m"
+      ],
+      "tsunami_heights_raw": [
+        3,
+        3,
+        3
+      ],
+      "tsunami_forecast_regions": [
+        "愛媛県宇和海沿岸",
+        "高知県",
+        "宮崎県"
+      ],
+      "tsunami_forecast_regions_raw": [
+        600,
+        610,
+        760
+      ],
+      "type": "QzssDcReportJmaTsunami",
+      "description": "防災気象情報(津波)(発表)(訓練/試験)\n*** これは訓練です ***\n津波警報を発表しました。\n＜津波警報＞\n津波による被害が発生します。\n沿岸部や川沿いにいる人はただちに高台や避難ビルなど安全な場所へ避難してください。\n津波は繰り返し襲ってきます。警報が解除されるまで安全な場所から離れないでください。\n＜津波注意報＞\n海の中や海岸付近は危険です。\n海の中にいる人はただちに海から上がって、海岸から離れてください。\n潮の流れが速い状態が続きますので、注意報が解除されるまで海に入ったり海岸に近づいたりしないようにしてください。\n＜津波予報(若干の海面変動)＞\n若干の海面変動が予想されますが、被害の心配はありません。\n\n発表時刻: 11月10日13時5分\n\n津波到達予想時刻: 10日13時5分\n津波の高さ: 3m\n愛媛県宇和海沿岸\n\n津波到達予想時刻: 10日13時5分\n津波の高さ: 3m\n高知県\n\n津波到達予想時刻: 10日13時5分\n津波の高さ: 3m\n宮崎県",
+      "client_timestamps": {
+        "schema_version": 2,
+        "receiver_decode_ms": 3.581
+      }
+    }
+  ]
+}

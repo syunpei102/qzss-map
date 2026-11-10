@@ -87,6 +87,14 @@ const commands = [
     ],
   },
   {
+    name: "set_information_categories",
+    description: "気象情報と火山・降灰の表示・通知を全体で切り替える．初期値は両方OFF．",
+    options: [
+      { name: "weather", description: "気象情報の表示・通知", type: BOOLEAN_OPTION_TYPE, required: true },
+      { name: "volcano", description: "火山・降灰の表示・通知", type: BOOLEAN_OPTION_TYPE, required: true },
+    ],
+  },
+  {
     name: "set_lalert",
     description: "Lアラート(避難情報等の自治体配信)の解析(表示・通知)を行うか設定する。deviceを指定すればその拠点だけ、省略すれば全体に適用",
     options: [

@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY server.js report-state.js persist-queue.js request-guards.js device-commands.js device-status.js ash-notification.js region_groups.json ./
+COPY VERSION ./VERSION
 COPY public ./public
 
 ENV PORT=8080

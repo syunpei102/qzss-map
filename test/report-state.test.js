@@ -223,3 +223,15 @@ test('server and browser share one TTL table; prune boundaries', () => {
   assert.equal(remainingTtlMsForReport({ ...trainingReplay, replay_age_ms: 20 * 60 * 1000 }), 0);
   assert.equal(remainingTtlMsForReport({ ...trainingReplay, replay_age_ms: 0 }), 20 * 60 * 1000);
 });
+
+
+test('Tokyo-wide weather storage supports partial island cancellation without restoring cleared areas', () => {
+  const report = {disaster_category_no:10,weather_forecast_regions_raw:[130000],weather_forecast_regions:['東京都'],weather_related_disaster_sub_categories:['大雨警報']};
+  let state = put([],report);
+  assert.deepEqual(state.map(e=>e.report.weather_forecast_regions_raw[0]),[130010,130020,130030,130040]);
+  state=put(state,{...report,weather_forecast_regions_raw:[130040]},true);
+  assert.deepEqual(state.map(e=>e.report.weather_forecast_regions_raw[0]),[130010,130020,130030]);
+  const legacy=[{report,receivedAt:50}];
+  assert.deepEqual(put(legacy,{...report,weather_forecast_regions_raw:[130040]},true).map(e=>e.report.weather_forecast_regions_raw[0]),[130010,130020,130030]);
+  assert.equal(put(state,report,true).length,0);
+});
