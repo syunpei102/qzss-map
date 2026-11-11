@@ -2,10 +2,12 @@
 // ブラウザ(public/main.js)とサーバー(server.js)の両方がこのファイルを使い，
 // 再接続時に古い情報が復活したり，継続中の情報が早く消えたりしないようにする．
 (function (root, factory) {
-  const api = factory();
+  const filter = typeof module === 'object' && module.exports
+    ? require('./training-report-filter') : root.TrainingReportFilter;
+  const api = factory(filter);
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.ReportTtl = api;
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof self !== 'undefined' ? self : this, function (TrainingReportFilter) {
   const H = 60 * 60 * 1000;
   const TTL = {
     EEW: 20 * 60 * 1000,
@@ -29,7 +31,7 @@
   function ttlMsForReport(report) {
     if (!report) return TTL.OTHER;
     if (report.is_test_data) return TTL.TEST_DATA;
-    if (report.report_classification_no === 7 || report.a1_message_type === 'Test') return TTL.OFFICIAL_TRAINING;
+    if (TrainingReportFilter.isOfficialTraining(report)) return TTL.OFFICIAL_TRAINING;
     if (report.type === 'QzssDcxJAlert') return TTL.JALERT;
     if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
       return LALERT_DURATION_TTL_MS[report.a8_hazard_duration] || TTL.LALERT_UNKNOWN;

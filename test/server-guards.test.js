@@ -166,10 +166,11 @@ test('client timing: browser report objects survive storage and dashboard render
   const vm = require('node:vm');
   const html = fs.readFileSync(path.join(__dirname, '../public/latency.html'), 'utf8');
   const context = vm.createContext({ formatDateTime: v => v, hazardTypeJa: r => r.a4_hazard_type,
-    hazardDurationJa: v => v });
+    hazardDurationJa: v => v, TrainingReportFilter: require('../public/training-report-filter') });
   vm.runInContext(html.slice(html.indexOf('function reportBadgeText('), html.indexOf('const LATENCY_SEGMENTS')), context);
   vm.runInContext(html.slice(html.indexOf('function isProductionEntry('), html.indexOf('async function refresh(')), context);
   const reports = [
+    { type: 'QzssDcxJAlert', a4_hazard_type: 'Test alert', a1_message_type: 'Alert' },
     { type: 'QzssDcxLAlert', a4_hazard_type: 'Flood', a1_message_type: 'Test', a5_severity: 'Severe', ex1_target_area_ja: '東京都' },
     { type: 'QzssDcxJAlert', a4_hazard_type: 'Missile', a1_message_type: 'Alert', ex9_target_area_list_ja: ['東京都'] },
     { type: 'QzssDcxMTInfo', a4_hazard_type: 'Flood', a1_message_type: 'Alert' },
@@ -186,7 +187,7 @@ test('client timing: browser report objects survive storage and dashboard render
     assert.notEqual(context.reportTitle(entry.reportSummary), '(内容なし)');
     assert.deepEqual(JSON.parse(JSON.stringify(context.reportRows(entry.reportSummary))),
       JSON.parse(JSON.stringify(context.reportRows(reportSummary))));
-    const isProduction = !(reportSummary.is_test_data === true || reportSummary.a1_message_type === 'Test' || reportSummary.report_classification_no === 7);
+    const isProduction = !(reportSummary.is_test_data === true || require('../public/training-report-filter').isOfficialTraining(reportSummary));
     assert.equal(context.isProductionEntry(entry), isProduction);
     assert.equal(context.latencySourceLabel(entry), isProduction ? '📡 実データ' : '🧪 テストデータ');
   }

@@ -9,7 +9,8 @@
   const TSUNAMI_CODES = new Set([1, 2, 3, 4, 5]);
 
   function isOfficialTraining(report) {
-    return report?.report_classification_no === 7 || report?.a1_message_type === 'Test';
+    return report?.report_classification_no === 7 || report?.a1_message_type === 'Test'
+      || (report?.type === 'QzssDcxJAlert' && report.a4_hazard_type === 'Test alert');
   }
 
   function shouldProcess(report) {
@@ -17,7 +18,7 @@
     if (report?.type === 'QzssDcxLAlert' || report?.type === 'QzssDcxMTInfo') return false;
     if (!isOfficialTraining(report)) return true;
     // Jアラートの試験電文は訓練として表示・通知する．
-    if (report?.type === 'QzssDcxJAlert' && report.a1_message_type === 'Test') return true;
+    if (report?.type === 'QzssDcxJAlert' && isOfficialTraining(report)) return true;
     if (report?.report_classification_no !== 7) return false; // DCXの試験・Lアラートを除外
     if (!TRAINING_CATEGORIES.has(report.disaster_category_no)) return false;
     if (report.disaster_category_no !== 5) return true;

@@ -888,7 +888,7 @@ function buildEventFromJAlert(report) {
   // 入ることがある(黄色に見えて誤解を招く)ため、Jアラートは常に最高度
   // (濃い赤)の色で表示する(市区町村ごとに深刻度が様々なLアラートとは
   // 扱いを分ける)
-  const color = report.a1_message_type === 'Test' ? '#7a4fd1' : JALERT_SEVERITY_COLOR.Extreme;
+  const color = TrainingReportFilter.isOfficialTraining(report) ? '#7a4fd1' : JALERT_SEVERITY_COLOR.Extreme;
   // ミサイル発射等、対象地域が「全国」として一括で発表されることがある。
   // prefectures.geojsonには都道府県ごとの地物しか無く「全国」という
   // 地物は存在しないため、そのままではどこにも塗られず「対象地域なのに
@@ -912,10 +912,10 @@ function buildEventFromJAlert(report) {
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
     // 上のcolorと同じ理由でバッジも常にsev-emergency(濃い赤)固定
-    badgeClass: `report-badge ${report.a1_message_type === 'Test' ? 'sev-training' : 'sev-emergency'}`,
+    badgeClass: `report-badge ${TrainingReportFilter.isOfficialTraining(report) ? 'sev-training' : 'sev-emergency'}`,
     // 災害種別名(例: ミサイル発射)は、丸角の見出しとして一番目立つ
     // 位置に表示する(気象警報カードと同じ見た目に統一)
-    headline: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    headline: TrainingReportFilter.isOfficialTraining(report) ? `${hazardJa}(訓練)` : hazardJa,
     title: '',
     meta: `受信 ${nowTimeString()}`,
     // a11(指示ライブラリ)はLアラートだけでなくJアラートにも同じ
@@ -1053,7 +1053,7 @@ function buildEventFromLAlert(report) {
     // バッジの両方に同じ災害種別名が出て冗長という指摘を受けて入れ替えた
     showBadges: false,
     headline: report.type === 'QzssDcxMTInfo' ? '自治体情報' : 'Lアラート',
-    title: report.a1_message_type === 'Test' ? `${hazardJa}(訓練)` : hazardJa,
+    title: TrainingReportFilter.isOfficialTraining(report) ? `${hazardJa}(訓練)` : hazardJa,
     meta: `受信 ${nowTimeString()}`,
     // 「指示」(例: 河口から離れてください)は避難行動に直結しうる自由文
     // なので、dt/ddの1行に埋もれさせず独立したメッセージブロックで見せる
@@ -2663,6 +2663,7 @@ function findMatchingGroup(report, eventData) {
   if (eventData.lalertKey || eventData.jalertKey || eventData.floodRiverKey || eventData.volcanoKey) {
     for (const record of activeEvents.values()) {
       if (record.isTransientNotice) continue;
+      if (!!record.isTestData !== !!eventData.isTestData || !!record.isTraining !== !!eventData.isTraining) continue;
       if (eventData.lalertKey && record.lalertKey === eventData.lalertKey) return record;
       if (eventData.jalertKey && record.jalertKey === eventData.jalertKey) return record;
       if (eventData.floodRiverKey && record.floodRiverKey === eventData.floodRiverKey) return record;
@@ -2684,6 +2685,7 @@ function findMatchingGroup(report, eventData) {
     // イベントにも安全策としてttlMsを持たせるようになったため、
     // 「短時間通知カードかどうか」を表す専用フラグに切り出した)
     if (record.isTransientNotice) continue;
+    if (!!record.isTestData !== !!eventData.isTestData || !!record.isTraining !== !!eventData.isTraining) continue;
     if (now - record.updatedAt > RECENT_MS) continue;
     if (eventData.bounds && record.bounds && !boundsAreNear(eventData.bounds, record.bounds)) continue;
     if (!best || record.updatedAt > best.updatedAt) best = record;
@@ -4502,7 +4504,7 @@ function isRelevantToTargetRegion(eventData) {
 // (訓練放送1件が本番の警報と同列にカメラを占有し続け、何時間も巡回が
 // 始まらなくなる不具合が実機で発生したため)
 function applyTrainingLabel(event, report) {
-  const isTraining = report.report_classification_no === 7 || report.a1_message_type === 'Test';
+  const isTraining = TrainingReportFilter.isOfficialTraining(report);
   if (isTraining) event.isTraining = true;
   if (report.report_classification_no !== 7) return event;
   if (event.title) event.title = `[訓練] ${event.title}`;
@@ -4552,7 +4554,7 @@ function renderReportContent(report) {
     if (report.a1_message_type === 'All Clear') {
       const key = jalertMatchKey(report);
       for (const [id, record] of activeEvents) {
-        if (record.jalertKey === key) removeActiveEvent(id);
+        if (record.jalertKey === key && TrainingReportFilter.sameDisplayScope(record, report)) removeActiveEvent(id);
       }
       return;
     }
@@ -4576,7 +4578,7 @@ function renderReportContent(report) {
     if (report.a1_message_type === 'All Clear') {
       const key = lalertMatchKey(report);
       for (const [id, record] of activeEvents) {
-        if (record.lalertKey === key) removeActiveEvent(id);
+        if (record.lalertKey === key && TrainingReportFilter.sameDisplayScope(record, report)) removeActiveEvent(id);
       }
       return;
     }
