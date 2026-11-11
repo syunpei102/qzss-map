@@ -11,7 +11,7 @@ test('information defaults disable only weather, volcano warnings and ash', () =
 });
 test('server notification gate follows independent category switches', () => {
   const start=source.indexOf('function shouldNotify('),end=source.indexOf('// public/main.jsの同名関数',start);
-  const context={PUSH_ENABLED:true,InformationSettings:Settings,informationCategorySettings:{weatherEnabled:false,volcanoEnabled:false},isStaleForNotification:()=>false,globalShowTrainingBroadcasts:true,TrainingReportFilter:{shouldProcess:()=>true},isEndSignal:()=>false,tsunamiInfoHasLocation:()=>true,globalLalertEnabled:true,PUSH_NOTIFY_CATEGORY_NOS:new Set([1,2,3,5,8,9,10,11])};
+  const context={PUSH_ENABLED:true,InformationSettings:Settings,informationCategorySettings:{weatherEnabled:false,volcanoEnabled:false},isStaleForNotification:()=>false,globalShowTrainingBroadcasts:true,TrainingReportFilter:require('../public/training-report-filter'),isEndSignal:()=>false,tsunamiInfoHasLocation:()=>true,globalLalertEnabled:true,PUSH_NOTIFY_CATEGORY_NOS:new Set([1,2,3,5,8,9,10,11])};
   vm.runInNewContext(source.slice(start,end),context);
   for(const weather of [false,true])for(const volcano of [false,true]){
     context.informationCategorySettings={weatherEnabled:weather,volcanoEnabled:volcano};

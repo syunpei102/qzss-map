@@ -10,7 +10,7 @@ const titleEnd = server.indexOf('function notificationBodyFor(report) {', titleS
 assert.ok(titleStart !== -1 && titleEnd > titleStart);
 const notificationTitleFor = vm.runInNewContext(
   `${server.slice(titleStart, titleEnd)}; notificationTitleFor`,
-  { JALERT_HAZARD_JA: {}, LALERT_HAZARD_JA: {} },
+  { JALERT_HAZARD_JA: {}, LALERT_HAZARD_JA: {}, TrainingReportFilter: require('../public/training-report-filter') },
 );
 const start = server.indexOf('function notificationBodyFor(report) {');
 const end = server.indexOf('function notificationBodyDetail(report) {', start);

@@ -1,6 +1,7 @@
 // 再接続時に同じ表示を復元するための，副作用のない通報保存処理．
 const { ttlMsForReport } = require("./public/report-ttl");
 const ReportGeography = require("./public/report-geography");
+const TrainingReportFilter = require("./public/training-report-filter");
 const identity = require("./public/earthquake-identity");
 
 function reportGroupKey(report) {
@@ -64,7 +65,7 @@ function sameGroup(a, b) {
 
 function reportScope(report) {
   return report.is_test_data ? "test" :
-    (report.report_classification_no === 7 || report.a1_message_type === "Test") ? "training" : "live";
+    TrainingReportFilter.isOfficialTraining(report) ? "training" : "live";
 }
 
 // 津波は1電文に最大5地域，洪水も複数河川が入る．地域単位で保存し，

@@ -232,7 +232,7 @@ function shouldNotify(report) {
   // (=通知とmapの表示が食い違う)という紛らわしい状態になっていたため、
   // 通知も同じ設定に従わせる。通知には拠点(device)の紐付けが無いため、
   // 全体設定(globalShowTrainingBroadcasts)を見る
-  const isOfficialTrainingBroadcast = report.report_classification_no === 7 || report.a1_message_type === "Test";
+  const isOfficialTrainingBroadcast = TrainingReportFilter.isOfficialTraining(report);
   if (isOfficialTrainingBroadcast && !globalShowTrainingBroadcasts) return false;
   if (!TrainingReportFilter.shouldProcess(report)) return false;
   // 北西太平洋津波情報(6)は、沿岸域・高さ・到達予想時刻が全て「不明」だと
@@ -346,7 +346,7 @@ function notificationTitleFor(report) {
   if (report.is_test_data) return `[テスト]${title}`;
   // report_classification_no===7は衛星から実際に配信される公式の訓練/試験放送
   // (自分で送るテストデータとは別物)。本物の警報と見分けがつくようにする
-  if (report.report_classification_no === 7 || report.a1_message_type === "Test") return `[訓練]${title}`;
+  if (TrainingReportFilter.isOfficialTraining(report)) return `[訓練]${title}`;
   return title;
 }
 

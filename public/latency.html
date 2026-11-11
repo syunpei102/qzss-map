@@ -92,6 +92,7 @@
   <div class="empty" id="empty-msg" style="display:none">本番データの計測はまだありません．通報を受信すると自動的に記録されます．</div>
 </div>
 
+<script src="./training-report-filter.js"></script>
 <script src="./latency-dedup.js"></script>
 <script>
 async function fetchHistory() {
@@ -303,7 +304,7 @@ function reportBadgeText(r) {
 
 function reportSeverityClass(r) {
   if (!r) return 'sev-info';
-  const isTraining = r.report_classification_no === 7 || r.a1_message_type === 'Test';
+  const isTraining = TrainingReportFilter.isOfficialTraining(r);
   if (isTraining) return 'sev-training';
   if (r.disaster_category_no === 1 || r.disaster_category_no === 5) return 'sev-emergency';
   if (r.disaster_category_no === 2 || r.disaster_category_no === 3) return 'sev-warning';
@@ -319,7 +320,7 @@ function reportTitle(r) {
       ? `${r.disaster_category}(${r.information_type})`
       : r.disaster_category;
   }
-  if (r.a4_hazard_type) return r.a1_message_type === 'Test' ? `${hazardTypeJa(r)}(訓練)` : hazardTypeJa(r);
+  if (r.a4_hazard_type) return TrainingReportFilter.isOfficialTraining(r) ? `${hazardTypeJa(r)}(訓練)` : hazardTypeJa(r);
   return r.type || '(種別不明)';
 }
 
@@ -421,7 +422,7 @@ if (REPLAY_VIEW) {
 function isProductionEntry(h) {
   if (h.isTestData) return false;
   const r = h.reportSummary;
-  const isOfficialTrainingBroadcast = r && (r.is_test_data === true || r.report_classification_no === 7 || r.a1_message_type === 'Test');
+  const isOfficialTrainingBroadcast = r && (r.is_test_data === true || TrainingReportFilter.isOfficialTraining(r));
   // 過去の手動テスト履歴にはisTestDataが保存されていないものがある．
   // 説明文・震央名が明示的なテスト表記の場合だけ補完する．
   const isLegacyTestData = r && (
