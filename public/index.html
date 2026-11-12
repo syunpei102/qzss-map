@@ -30,6 +30,10 @@
   <link rel="icon" href="./icons/icon-192.png">
 
   <script>
+    // テスト画面は実際の受信・通知から隔離する．main.jsより先に読み込む．
+    if (new URLSearchParams(location.search).get('sandbox') === '1') {
+      document.write('<script src="./test-sandbox.js"><\/script>');
+    }
     // 公開Webは独自エンジンを既定にする．?renderer=maplibreで即座に旧方式へ戻せる．
     // ラズパイのlocalhost表示は実機検証が終わるまで旧方式を維持する．
     window.QZSS_NATIVE_RENDERER = new URLSearchParams(location.search).get('renderer') === 'native'
@@ -120,7 +124,8 @@
       try{
         // キオスク実機(オフラインlocalhost / 拠点署名URL ?device=)には出さない
         var isKiosk = ['localhost','127.0.0.1'].indexOf(location.hostname) >= 0
-          || new URLSearchParams(location.search).has('device');
+          || new URLSearchParams(location.search).has('device')
+          || new URLSearchParams(location.search).get('sandbox') === '1';
         if (isKiosk) return;
         var KEY = 'qzss-map-disclaimer-v1';
         var seen = null;

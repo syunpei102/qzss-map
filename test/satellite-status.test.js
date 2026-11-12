@@ -9,12 +9,13 @@ const start = source.indexOf('const HEARTBEAT_TIMEOUT_MS =');
 const end = source.indexOf('setInterval(refreshStatusPill, 5000);', start);
 assert.ok(start >= 0 && end > start);
 
-function createStatusHarness(local = false) {
+function createStatusHarness(local = false, sandbox = false) {
   let now = 100_000;
   const status = { textContent: '', className: '' };
   const satellite = { textContent: '' };
   const context = vm.createContext({
     IS_LOCAL_KIOSK: local,
+    IS_TEST_SANDBOX: sandbox,
     SATELLITE_NAMES: { 57: 'みちびき4号機', 61: 'みちびき3号機' },
     Date: { now: () => now },
     document: { getElementById: (id) => id === 'status' ? status : satellite },
@@ -30,6 +31,13 @@ function createStatusHarness(local = false) {
     evaluate: (code) => vm.runInContext(code, context),
   };
 }
+
+test('sandbox status never claims real satellite reception', () => {
+  const view = createStatusHarness(false, true);
+  view.evaluate('refreshStatusPill()');
+  assert.equal(view.status.textContent, '🧪 テスト画面');
+  assert.match(view.satellite.textContent, /実受信ではありません/);
+});
 
 test('public page does not claim a receiver is online before its first heartbeat', () => {
   const view = createStatusHarness();

@@ -4,6 +4,7 @@
 // ?web-preview=1 はローカルで公開Web版の操作感を確認するための指定．
 const IS_LOCAL_KIOSK = ['localhost', '127.0.0.1'].includes(location.hostname)
   && !(location.port !== '8080' && new URLSearchParams(location.search).get('web-preview') === '1');
+const IS_TEST_SANDBOX = new URLSearchParams(location.search).get('sandbox') === '1';
 if (IS_LOCAL_KIOSK) document.body.classList.add('is-kiosk');
 const IS_NATIVE_RENDERER = window.QZSS_NATIVE_RENDERER;
 const MapMarker = IS_NATIVE_RENDERER ? QzssNativeMarker : maplibregl.Marker;
@@ -72,6 +73,12 @@ function noteReceiverHeartbeat(report, ageMs = 0) {
 function refreshStatusPill() {
   const statusEl = document.getElementById('status');
   const satelliteEl = document.getElementById('satellite_info');
+  if (IS_TEST_SANDBOX) {
+    statusEl.textContent = '🧪 テスト画面';
+    statusEl.className = 'status-pill status-reconnecting';
+    if (satelliteEl) satelliteEl.textContent = '疑似データによる検証／衛星の実受信ではありません';
+    return;
+  }
   if (wsState === 'reconnecting') {
     statusEl.textContent = '🟡 再接続中';
     statusEl.className = 'status-pill status-reconnecting';
@@ -5480,6 +5487,8 @@ function reconnectNow() {
 }
 
 function connectWebSocket() {
+  // bootstrapの読込失敗時も，本番WebSocketへ接続しない．
+  if (IS_TEST_SANDBOX) return;
   socket = new WebSocket(`${wsProtocol}//${location.host}`);
 
   socket.addEventListener('open', () => {
@@ -5664,7 +5673,7 @@ let swRegistration = null;
 // ローカルキオスクはホーム画面追加もプッシュ通知も使わないため、
 // Service Worker登録自体を省略する(インストール・キャッシュ管理の
 // バックグラウンド処理が無くなる分、非力な端末には軽くなる)
-if ('serviceWorker' in navigator && !IS_LOCAL_KIOSK) {
+if ('serviceWorker' in navigator && !IS_LOCAL_KIOSK && !IS_TEST_SANDBOX) {
   window.addEventListener('load', async () => {
     try {
       swRegistration = await navigator.serviceWorker.register('./sw.js');
@@ -5673,6 +5682,23 @@ if ('serviceWorker' in navigator && !IS_LOCAL_KIOSK) {
       console.warn('Service Workerの登録に失敗しました:', err);
     }
   });
+}
+
+if (IS_TEST_SANDBOX && window.QzssSandbox) {
+  window.QzssSandbox.attach(async (command) => {
+    await mapReady;
+    await loadShowTrainingBroadcastsSetting();
+    isInitialLoad = false;
+    if (command.reset) {
+      clearAllActiveEvents();
+      lastCameraFit = null;
+      const view = getDefaultView();
+      map.jumpTo({ center: view.center, zoom: view.zoom });
+    }
+    const results = (command.reports || []).map(report => renderReport(report));
+    refreshStatusPill();
+    return results;
+  }, mapReady);
 }
 
 // ==================================================
