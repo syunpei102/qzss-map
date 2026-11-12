@@ -49,7 +49,7 @@
       $('menu').hidden = true; $('playback').hidden = false;
       $('cancel').textContent = '中止・選び直す';
       const issued = new Date().toISOString();
-      let index = 0, due = performance.now() + 10000;
+      let index = 0, due = performance.now() + 3000;
       const tick = async () => {
         if (run !== generation) return;
         const seconds = Math.max(0, Math.ceil((due - performance.now()) / 1000));
