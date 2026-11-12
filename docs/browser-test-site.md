@@ -10,6 +10,12 @@
 
 ## 分離
 
+### 本番との一致範囲
+
+公開中の本番v1.13.1と，独立テストサイトの配信ファイルを照合した．`native-map.js`，`style.css`，`earthquake-fill.js`，`earthquake-identity.js`，`map-source-cache.js`，`report-geography.js`，`report-ttl.js`，`training-report-filter.js`，`information-settings.js`，`data/native-base-tiles.bin` はSHA-256が一致する．通常の公開マップとテスト画面はいずれも独自Canvas描画を使う．
+
+`main.js` はテストモードの状態表示，WebSocket接続抑止，通知購読抑止，疑似データ受け渡し・リセットの分岐を追加しているため，ファイル全体のハッシュは異なる．ズーム・図形・マーカー・パネルの描画処理は変更していない．通常の本番受信経路とシステム全体が同一であるとは表現しない．手動テストは60秒の表示期限を使うため，実際の通報の長い有効期限や再送・通知・デコードの確認は別の統合試験が必要．
+
 - 通報は合成したデコード済みJSON．RF受信や電文デコードの試験ではなく，地図・パネル・ズームの表示試験．
 - テスト用iframeは実際のWebSocketを開かず，表示設定はローカルの固定値で返す．POSTなどの書込みと通知購読・計測送信を無効化する．
 - 親フレーム・同一オリジン・ページごとのnonceが一致する操作のみ受け付け，全通報を強制的に `is_test_data: true` とする．テスト用スクリプトの読込失敗時もmain.jsはWebSocketへ接続しない．
