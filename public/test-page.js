@@ -19,7 +19,7 @@
     if (event.data.type === 'qzss-test-ready') {
       ready = true;
       buttons.forEach(button => { button.disabled = false; });
-      $('ready-status').textContent = '地図の準備ができました．試すパターンを選んでください．';
+      $('ready-status').textContent = '';
     }
     if (event.data.type === 'qzss-test-error') $('ready-status').textContent = event.data.error;
     const entry = pending.get(event.data.id);
@@ -74,10 +74,10 @@
       fail(error);
     } finally { buttons.forEach(button => { button.disabled = !ready; }); }
   }
-  for (const [index, test] of window.QzssTestCases.entries()) {
+  for (const test of window.QzssTestCases) {
     const button = document.createElement('button');
     button.type = 'button'; button.disabled = true; button.dataset.case = test.id;
-    for (const [className, value] of [['case-number', `PATTERN 0${index + 1}`], ['case-name', test.name], ['case-detail', test.detail]]) {
+    for (const [className, value] of [['case-name', test.name], ['case-detail', test.detail], ['case-action', '開始']]) {
       const text = document.createElement('span'); text.className = className; text.textContent = value; button.append(text);
     }
     button.addEventListener('click', () => play(test));
