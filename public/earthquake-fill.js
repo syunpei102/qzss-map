@@ -1,11 +1,11 @@
 // 緊急地震速報の予測範囲と観測震度の塗りを，地震ごとに独立して管理する．
-// カード自体のTTLとは別に，予測範囲だけを最後の速報から5分で消す．
+// カード自体のTTLとは別に，予測範囲だけを初回受信から10分で消す．
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.EarthquakeFill = api;
 })(typeof self !== 'undefined' ? self : this, function () {
-  const EEW_FILL_TTL_MS = 5 * 60 * 1000;
+  const EEW_FILL_TTL_MS = 10 * 60 * 1000;
 
   function fromReport(report, prefectures, now = Date.now()) {
     if (report.disaster_category_no === 3) {

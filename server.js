@@ -1,5 +1,5 @@
 const express = require("express");
-const { reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const { EarthquakeReceptions, reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
 const InformationSettings = require("./public/information-settings");
 const TrainingReportFilter = require("./public/training-report-filter");
 const { ashIssueKey, ashNotificationBody } = require("./ash-notification");
@@ -714,6 +714,8 @@ function sendPushNotifications(report) {
 //
 // { report, receivedAt } の配列で保持する(receivedAtは下記の安全策用)。
 let activeReports = [];
+let earthquakeReceptions = new EarthquakeReceptions();
+const EARTHQUAKE_RECEIPTS_FILE = "earthquake_first_receipts.json";
 
 // 安全策: 取消・解除信号を万一受信し損ねた場合、その通報が永久に
 // activeReportsに居座り新規接続の全員に配信され続けてしまう
@@ -854,9 +856,18 @@ function handleIncomingLine(line, receivedMono = performance.now()) {
   pruneStaleActiveReports();
   if (report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report)) return;
 
+  let displayReceivedAt = Date.now();
+  if (report && [1, 2, 3].includes(report.disaster_category_no) && !report.is_test_data && !TrainingReportFilter.isOfficialTraining(report) && !isEndSignal(report)) {
+    const receipt = earthquakeReceptions.observe(report, displayReceivedAt);
+    if (receipt.changed) persistJson(EARTHQUAKE_RECEIPTS_FILE, earthquakeReceptions.entries, { nonBlockingLocal: true });
+    if (receipt.rejected || displayReceivedAt - receipt.at >= 10 * 60 * 1000) return;
+    report = { ...report, replay_age_ms: Math.max(0, displayReceivedAt - receipt.at) };
+    displayReceivedAt = receipt.at;
+    line = JSON.stringify(report);
+  }
   const shouldPersist = isEndSignal(report) || isReplayable(report);
   if (shouldPersist) {
-    activeReports = updateActiveReports(activeReports, report, Date.now(), isEndSignal(report));
+    activeReports = updateActiveReports(activeReports, report, displayReceivedAt, isEndSignal(report));
     pruneStaleActiveReports();
   }
   // ローカル専用機は従来どおり送信前に同期保存する．クラウド側は送信開始を
@@ -1485,9 +1496,16 @@ function persistRegionConfig() {
 const ACTIVE_REPORTS_STATE_FILE = "active_reports.json";
 
 async function loadActiveReports() {
+  earthquakeReceptions = new EarthquakeReceptions(await loadPersistedJson(EARTHQUAKE_RECEIPTS_FILE));
   const restored = await loadPersistedJson(ACTIVE_REPORTS_STATE_FILE);
   if (Array.isArray(restored)) {
     activeReports = restored;
+    for (const entry of activeReports) {
+      if ([1, 2, 3].includes(entry.report?.disaster_category_no) && !entry.report.is_test_data && !TrainingReportFilter.isOfficialTraining(entry.report)) {
+        earthquakeReceptions.observe(entry.report, entry.receivedAt);
+      }
+    }
+    persistJson(EARTHQUAKE_RECEIPTS_FILE, earthquakeReceptions.entries, { nonBlockingLocal: true });
     pruneStaleActiveReports(); // 長期間落ちていた場合、復元直後に古いものを除く
     console.log(`♻️  アクティブな通報を復元しました(${activeReports.length}件)`);
     seedNotifiedFromActiveReports();

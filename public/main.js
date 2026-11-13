@@ -1861,8 +1861,11 @@ function quakeLockRecords() {
     // 同時に本番情報が有効なら，後から来た訓練や手動テストで覆わない．
     const priority = !record.isTraining && !record.isTestData ? 1 : 0;
     const latestPriority = latest && !latest.isTraining && !latest.isTestData ? 1 : 0;
+    const eewPriority = record.disasterCategoryNo === 1 ? 1 : 0;
+    const latestEewPriority = latest?.disasterCategoryNo === 1 ? 1 : 0;
     if (!latest || priority > latestPriority
-      || (priority === latestPriority && receivedAt >= (latest.quakeFocusAt || latest.updatedAt))) latest = record;
+      || (priority === latestPriority && (eewPriority > latestEewPriority
+        || (eewPriority === latestEewPriority && receivedAt >= (latest.quakeFocusAt || latest.updatedAt))))) latest = record;
   }
   return latest ? [latest] : [];
 }
@@ -2937,6 +2940,11 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     record.geo.prefectures = record.earthquakeFill.prefectures;
     prefecturesChanged = true; // 震度の対象県が空でも赤塗りを全解除する
     scheduleEewFillExpiry(record);
+  } else if (report.disaster_category_no === 2) {
+    record.earthquakeFill = eventData.earthquakeFill;
+    record.geo.prefectures = eventData.geo.prefectures;
+    prefecturesChanged = true;
+    scheduleEewFillExpiry(record);
   } else if (prefecturesChanged) record.geo.prefectures = eventData.geo.prefectures;
 
   let mergedTsunamiCoasts = null;
@@ -2972,6 +2980,13 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
     : (eventData.bounds || record.bounds);
 
   // 通報の種類ごとのバッジ(緊急地震速報/震源/震度/津波)を統合する。
+  if ([1, 2, 3].includes(report.disaster_category_no)) {
+    if ([1, 2, 3].includes(record.disasterCategoryNo) && report.disaster_category_no > record.disasterCategoryNo) {
+      record.badges = record.badges.filter(b => !['緊急地震速報', '震源情報', '震度情報', '震源', '震度'].includes(b.text));
+      record.rows = record.tsunamiSnapshot?.rows ? [...record.tsunamiSnapshot.rows] : [];
+    }
+    record.disasterCategoryNo = report.disaster_category_no;
+  }
   // 同じ種類の続報が来た場合は内容を更新し、新しい種類なら追加する
   const badgeIdx = record.badges.findIndex((b) => b.text === eventData.badgeText);
   if (badgeIdx >= 0) record.badges[badgeIdx] = { text: eventData.badgeText, class: eventData.badgeClass };
@@ -3345,7 +3360,13 @@ function syncActiveEventLayers() {
   // 「実イベント」として扱われる。handleFloodReport参照)
   const eewPriority = hasVisibleEewFill();
   for (const record of [...activeEvents.values(), ...(eewPriority || focusedQuake ? [] : otherReports.values())]) {
-    if (focusedQuake && record.id !== focusedQuake.id) continue;
+    if (focusedQuake && record.id !== focusedQuake.id) {
+      // 新しい地震へ切り替えても，既存の津波沿岸線と点滅は保持する．
+      for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color,
+        SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0);
+      if (record.tsunamiWarningActive) tsunamiActive = true;
+      continue;
+    }
     if (eewPriority && !isEarthquakeOrTsunamiRecord(record)) continue;
     const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);

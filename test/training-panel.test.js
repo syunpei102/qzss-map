@@ -262,3 +262,17 @@ test('tsunami and J-alert focus lasts twenty minutes but never outlives expiry',
     assert.equal(select().length, 0);
   }
 });
+
+
+test('repeated old tsunami cannot displace a new EEW during its ten minute focus', () => {
+  const now=Date.now();
+  const eew={disasterCategoryNo:1,bounds:[1,1,2,2],updatedAt:now-60000,expiresAt:now+540000};
+  const tsunami={disasterCategoryNo:5,bounds:[5,5,6,6],updatedAt:now,expiresAt:now+1200000};
+  const select=loadFunction('quakeLockRecords','function isQuakeLockActive(',{
+    activeEvents:new Map([[1,eew],[2,tsunami]]),QUAKE_LOCK_CATEGORY_NOS:new Set([1,2,3,5,6]),
+    QUAKE_FOCUS_HOLD_MS:600000,isTsunamiRelatedRecord:()=>false,Date,
+  });
+  assert.equal(select()[0],eew);
+  eew.expiresAt=now;
+  assert.equal(select()[0],tsunami);
+});

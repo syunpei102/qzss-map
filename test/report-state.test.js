@@ -11,12 +11,12 @@ test('two volcanoes survive replay and a targeted cancellation', () => {
   state = put(state, a, true);
   assert.deepEqual(state.map(e => e.report.volcano_name), ['B']);
 });
-test('earthquake replay retains EEW, hypocenter and intensity; cancellation clears group', () => {
+test('earthquake replay advances to intensity and ignores earlier stages; cancellation clears group', () => {
   let state = [];
   for (const cat of [1, 2, 3]) state = put(state, { disaster_category_no: cat, seismic_epicenter_raw: 123 });
-  assert.deepEqual(state.map(e => e.report.disaster_category_no), [1, 2, 3]);
+  assert.deepEqual(state.map(e => e.report.disaster_category_no), [3]);
   state = put(state, { disaster_category_no: 2, seismic_epicenter_raw: 123, magnitude: 6 });
-  assert.equal(state.length, 3);
+  assert.equal(state.length, 1);
   assert.equal(put(state, { disaster_category_no: 1, seismic_epicenter_raw: 123 }, true).length, 0);
 });
 test('an aftershock replaces older earthquake replay while retaining tsunami reports', () => {
@@ -138,9 +138,9 @@ test('earthquake without epicenter or occurrence time falls back to an unknown b
   const a = { disaster_category_no: 1 };
   const b = { disaster_category_no: 2 };
   let state = put(put([], a), b);
-  assert.equal(state.length, 2, 'both group under eq|unknown but storageKey keeps EEW/hypocenter distinct by kind');
+  assert.equal(state.length, 1, 'later phase replaces the earlier unknown phase');
   state = put(state, { disaster_category_no: 1, note: 'updated' });
-  assert.equal(state.length, 2, 'a same-kind replay still replaces only its own kind');
+  assert.equal(state.length, 1, 'late EEW does not restore the earlier phase');
   assert.equal(put(state, a, true).length, 0, 'cancellation matches on the coarser eq|unknown group and clears both');
 });
 test('a newer EEW supersedes an older earthquake at the same epicenter', () => {
@@ -197,7 +197,7 @@ test('server and browser share one TTL table; prune boundaries', () => {
   const { ttlMsForReport, remainingTtlMsForReport, TTL } = require('../public/report-ttl');
   const H = 3600 * 1000;
   const cases = [
-    [{ disaster_category_no: 1 }, 20 * 60 * 1000],
+    [{ disaster_category_no: 1 }, 10 * 60 * 1000],
     [{ disaster_category_no: 8 }, 12 * H],
     [{ disaster_category_no: 5 }, 20 * 60 * 1000],
     [{ disaster_category_no: 5, report_classification_no: 7 }, 20 * 60 * 1000],
@@ -258,4 +258,29 @@ test('ten minute earthquake and twenty minute last reception deadlines survive r
     assert.equal(remainingTtlMsForReport({...replay,replay_age_ms:ttl}),0);
     assert.equal(updateActiveReports(state,report,302000,true).length,0);
   }
+});
+
+
+test('first reception survives expiry, repeats and server restart; later phase gets its own ten minutes', () => {
+  const {EarthquakeReceptions,pruneExpiredReports}=require('../report-state');
+  const history=new EarthquakeReceptions();
+  const eew={disaster_category_no:1,raw:'eew',seismic_epicenter_raw:123,occurrence_time_of_earthquake:'T1'};
+  assert.equal(history.observe(eew,1000).at,1000);
+  assert.equal(history.observe({...eew,timestamp:'later',satellite_id:61},301000).at,1000);
+  assert.equal(history.observe(eew,601000).at,1000,'expired RF repeat cannot restart TTL');
+  const restored=new EarthquakeReceptions(JSON.parse(JSON.stringify(history.entries)));
+  assert.equal(restored.observe(eew,901000).at,1000);
+  const hypo={...eew,raw:'hypo',disaster_category_no:2};
+  const intensity={...eew,raw:'intensity',disaster_category_no:3};
+  assert.equal(restored.observe(hypo,121000).at,121000);
+  assert.equal(restored.observe(intensity,241000).at,241000);
+  assert.equal(restored.observe(hypo,541000).rejected,true);
+  let state=updateActiveReports([],eew,1000,false);
+  state=updateActiveReports(state,hypo,121000,false);
+  state=updateActiveReports(state,intensity,241000,false);
+  assert.deepEqual(state.map(e=>e.report.disaster_category_no),[3]);
+  assert.equal(pruneExpiredReports(state,840999).length,1);
+  assert.equal(pruneExpiredReports(state,841000).length,0);
+  const next={...eew,raw:'aftershock',occurrence_time_of_earthquake:'T2'};
+  assert.equal(restored.observe(next,541000).at,541000,'new earthquake can interrupt intensity');
 });

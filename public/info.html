@@ -320,8 +320,12 @@
 <section class="band" id="updates" aria-labelledby="updates-title">
   <div class="wrap">
     <span class="eyebrow">アップデート履歴</span>
-    <h2 id="updates-title">現在のバージョン 1.14.3</h2>
+    <h2 id="updates-title">現在のバージョン 1.14.4</h2>
     <p class="sub">変更内容を新しい順に掲載しています．旧バージョンの日付はコードの更新日です．</p>
+    <article class="release-entry">
+      <h3>v1.14.4 <time datetime="2026-11-13">2026年11月13日（金）</time></h3>
+      <ul><li>地震系は各情報の初回受信から10分で失効し，同じ電文の再受信では延長しないようにしました．後続の震源・震度情報へ表示を切り替えます．</li><li>新しい緊急地震速報では前の震源・震度を消し，津波沿岸線と点滅を残します．津波・Jアラートは最終受信から20分を維持します．</li></ul>
+    </article>
     <article class="release-entry">
       <h3>v1.14.3 <time datetime="2026-11-13">2026年11月13日（金）</time></h3>
       <ul><li>震源・震度情報の表示期限を最後の受信から10分に変更しました．津波・Jアラートは20分で期限切れになります．</li><li>地点ズームの優先保持を地震10分，津波・Jアラート20分に揃え，再接続で保持時間が延びないようにしました．</li></ul>

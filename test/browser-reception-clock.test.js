@@ -25,7 +25,7 @@ for (const classification of [1, 7]) for (const replayAge of [0, 240_000, Report
     assert.equal(rendered, undefined, 'wait for the map before rendering');
     mono += 1250; ready(); await pending;
     assert.equal(rendered.replay_age_ms, replayAge + 1250);
-    assert.equal(ReportTtl.remainingTtlMsForReport(rendered), Math.max(0, ReportTtl.TTL.EEW - replayAge - 1250));
+    assert.equal(ReportTtl.remainingTtlMsForReport(rendered), Math.max(0, ReportTtl.ttlMsForReport({ disaster_category_no: 1, report_classification_no: classification }) - replayAge - 1250));
   });
 }
 

@@ -157,6 +157,12 @@ function updateActiveReports(entries, report, receivedAt, isEnd) {
           && !sameEarthquake(entry.report, part)
         ));
       }
+      if (isEarthquake(part)) {
+        if (result.some(entry => reportScope(entry.report) === reportScope(part) && sameEarthquake(entry.report, part)
+          && entry.report.disaster_category_no > part.disaster_category_no)) continue;
+        result = result.filter(entry => !(isEarthquake(entry.report) && reportScope(entry.report) === reportScope(part)
+          && sameEarthquake(entry.report, part) && entry.report.disaster_category_no < part.disaster_category_no));
+      }
       if (storageKey(part) !== null) result = result.filter(entry => !sameStorage(entry.report, part));
       result.push({ report: part, receivedAt });
     }
@@ -170,3 +176,28 @@ function pruneExpiredReports(entries, now) {
 }
 
 module.exports = { isSupersededEarthquakeReport, pruneExpiredReports, sameEarthquake, sameGroup, reportGroupKey, splitReport, storageKey, updateActiveReports };
+
+
+// Keep first receipts after display expiry so RF repeats cannot resurrect old earthquakes．
+class EarthquakeReceptions {
+  constructor(saved = []) { this.entries = Array.isArray(saved) ? saved.filter(e => e && e.report && typeof e.key === 'string' && Number.isFinite(e.at)) : []; }
+  observe(report, now) {
+    this.entries = this.entries.filter(e => Number.isFinite(e.at) && now - (e.lastSeen || e.at) < 48 * 3600000);
+    const scope = reportScope(report);
+    const key = report.raw || JSON.stringify(Object.fromEntries(Object.entries(report)
+      .filter(([k]) => !['timestamp','sentence','nmea','message','preamble','satellite_id','satellite_prn','client_timestamps','replay_age_ms'].includes(k)).sort(([a],[b]) => a.localeCompare(b))));
+    if (this.entries.some(e => reportScope(e.report) === scope && sameEarthquake(e.report, report)
+      && e.report.disaster_category_no > report.disaster_category_no)) return { rejected: true };
+    const existing = this.entries.find(e => e.key === key && reportScope(e.report) === scope
+      && e.report.disaster_category_no === report.disaster_category_no);
+    if (existing) { existing.lastSeen = now; return { at: existing.at, changed: true }; }
+    this.entries.push({ key, at: now, lastSeen: now, report: {
+      disaster_category_no: report.disaster_category_no, occurrence_time_of_earthquake: report.occurrence_time_of_earthquake,
+      seismic_epicenter_raw: report.seismic_epicenter_raw, is_test_data: report.is_test_data,
+      report_classification_no: report.report_classification_no,
+    }});
+    this.entries = this.entries.slice(-5000);
+    return { at: now, changed: true };
+  }
+}
+module.exports.EarthquakeReceptions = EarthquakeReceptions;

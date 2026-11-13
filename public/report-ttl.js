@@ -10,7 +10,7 @@
 })(typeof self !== 'undefined' ? self : this, function (TrainingReportFilter) {
   const H = 60 * 60 * 1000;
   const TTL = {
-    EEW: 20 * 60 * 1000,
+    EEW: 10 * 60 * 1000,
     HYPOCENTER_INTENSITY: 10 * 60 * 1000,
     TSUNAMI: 20 * 60 * 1000,
     OFFICIAL_TRAINING: 20 * 60 * 1000,
