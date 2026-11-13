@@ -19,18 +19,16 @@ test('earthquake replay advances to intensity and ignores earlier stages; cancel
   assert.equal(state.length, 1);
   assert.equal(put(state, { disaster_category_no: 1, seismic_epicenter_raw: 123 }, true).length, 0);
 });
-test('an aftershock replaces older earthquake replay while retaining tsunami reports', () => {
-  const old = { disaster_category_no: 3, seismic_epicenter_raw: 123, occurrence_time_of_earthquake: '2026-10-19T00:00:00' };
-  const aftershock = { disaster_category_no: 1, seismic_epicenter_raw: 123, occurrence_time_of_earthquake: '2026-10-19T00:03:00' };
-  const tsunami = { disaster_category_no: 5, tsunami_forecast_regions_raw: [100] };
-  let state = put(put([], old), tsunami);
-  state = put(state, aftershock);
-  assert.deepEqual(state.map(e => e.report.disaster_category_no), [5, 1]);
-  assert.equal(isSupersededEarthquakeReport(state, old), true);
-  assert.deepEqual(put(state, old), state, 'a delayed older intensity is not restored');
-  const olderEew = { ...old, disaster_category_no: 1 };
-  assert.equal(isSupersededEarthquakeReport(state, olderEew), true);
-  assert.deepEqual(put(state, olderEew), state, 'a delayed older EEW is not restored');
+test('aftershock is stored independently and old intensity survives alongside tsunami', () => {
+  const old={disaster_category_no:3,seismic_epicenter_raw:123,occurrence_time_of_earthquake:'T1'};
+  const next={...old,disaster_category_no:1,occurrence_time_of_earthquake:'T2'};
+  const coast={disaster_category_no:5,tsunami_forecast_regions_raw:[100]};
+  let state=put(put(put([],old),coast),next);
+  assert.deepEqual(state.map(e=>e.report.disaster_category_no),[3,5,1]);
+  assert.equal(isSupersededEarthquakeReport(state,old),false); // fixture times T1/T2 are not parseable; notification gate is separate
+  state=put(state,old);
+  assert.equal(state.filter(e=>e.report.disaster_category_no===3).length,1);
+  assert.equal(state.filter(e=>e.report.disaster_category_no===1).length,1);
 });
 test('a test aftershock does not remove a live earthquake from replay', () => {
   const live = { disaster_category_no: 3, seismic_epicenter_raw: 123, occurrence_time_of_earthquake: 'T1' };
@@ -138,12 +136,12 @@ test('earthquake without epicenter or occurrence time falls back to an unknown b
   const a = { disaster_category_no: 1 };
   const b = { disaster_category_no: 2 };
   let state = put(put([], a), b);
-  assert.equal(state.length, 1, 'later phase replaces the earlier unknown phase');
+  assert.equal(state.length, 2, 'without identity there is no safe cross-phase match');
   state = put(state, { disaster_category_no: 1, note: 'updated' });
-  assert.equal(state.length, 1, 'late EEW does not restore the earlier phase');
-  assert.equal(put(state, a, true).length, 0, 'cancellation matches on the coarser eq|unknown group and clears both');
+  assert.equal(state.length, 3, 'ambiguous new content remains separate');
+  assert.equal(put(state, a, true).length, 3, 'unidentified cancellation is ignored');
 });
-test('a newer EEW supersedes an older earthquake at the same epicenter', () => {
+test('two EEWs at the same epicenter but different times remain independent', () => {
   const first = {
     disaster_category_no: 1,
     seismic_epicenter_raw: 123,
@@ -156,7 +154,7 @@ test('a newer EEW supersedes an older earthquake at the same epicenter', () => {
   let state = put(put([], first), second);
   assert.deepEqual(
     state.map(({ report }) => report.occurrence_time_of_earthquake),
-    [second.occurrence_time_of_earthquake]
+    [first.occurrence_time_of_earthquake, second.occurrence_time_of_earthquake]
   );
   state = put(state, first, true);
   assert.deepEqual(
@@ -184,10 +182,10 @@ test('L-Alert ellipse key needs both finite coordinates', () => {
   assert.equal(reportGroupKey({ ...base, a12_ellipse_centre_latitude: 35.123, a13_ellipse_centre_longitude: 139.456 }),
     'lalert|Flood|ellipse:35.12,139.46');
 });
-test('earthquake compares every field present on both sides; missing fields fall back', () => {
+test('display identity uses occurrence time first and allows corrected epicenters', () => {
   const { sameEarthquake } = require('../report-state');
   const t = 'T1';
-  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { occurrence_time_of_earthquake: t, seismic_epicenter_raw: 2 }), false, 'same time, different epicenter');
+  assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { occurrence_time_of_earthquake: t, seismic_epicenter_raw: 2 }), true, 'same time, corrected epicenter');
   assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { occurrence_time_of_earthquake: 'T2', seismic_epicenter_raw: 1 }), false);
   assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t, seismic_epicenter_raw: 1 }, { seismic_epicenter_raw: 1 }), true);
   assert.equal(sameEarthquake({ occurrence_time_of_earthquake: t }, { seismic_epicenter_raw: 1 }), false);

@@ -1849,25 +1849,9 @@ let isInitialLoad = true;
 const QUAKE_LOCK_CATEGORY_NOS = new Set([1, 2, 3, 5, 6]);
 const QUAKE_FOCUS_HOLD_MS = 10 * 60 * 1000;
 
+const displayViewCycle = new DisplayEvents.ViewCycle();
 function quakeLockRecords() {
-  let latest = null;
-  for (const record of activeEvents.values()) {
-    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) && !isTsunamiRelatedRecord(record) && !record.jalertKey) continue;
-    if (!record.bounds) continue;
-    const receivedAt = record.quakeFocusAt || record.updatedAt;
-    const holdMs = record.jalertKey || [5, 6].includes(record.disasterCategoryNo) || isTsunamiRelatedRecord(record)
-      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
-    if (!receivedAt || Date.now() - receivedAt >= holdMs || (record.expiresAt != null && record.expiresAt <= Date.now())) continue;
-    // 同時に本番情報が有効なら，後から来た訓練や手動テストで覆わない．
-    const priority = !record.isTraining && !record.isTestData ? 1 : 0;
-    const latestPriority = latest && !latest.isTraining && !latest.isTestData ? 1 : 0;
-    const eewPriority = record.disasterCategoryNo === 1 ? 1 : 0;
-    const latestEewPriority = latest?.disasterCategoryNo === 1 ? 1 : 0;
-    if (!latest || priority > latestPriority
-      || (priority === latestPriority && (eewPriority > latestEewPriority
-        || (eewPriority === latestEewPriority && receivedAt >= (latest.quakeFocusAt || latest.updatedAt))))) latest = record;
-  }
-  return latest ? [latest] : [];
+  return displayViewCycle.select(activeEvents.values(), Date.now());
 }
 
 function isQuakeLockActive() {
@@ -1955,15 +1939,16 @@ function earthquakeDisplayBounds(record) {
 function showQuakeLockView() {
   const records = quakeLockRecords();
   if (!records.length) return false;
-  const record = records[0];
   currentPatrolCode = null;
   currentPatrolTrainingId = null;
   currentPatrolEventId = null;
-  focusedEventIds = new Set([record.id]);
-  // fitBoundsが参照するスマホの上部パディングは実際のパネルの高さ．
-  // 新しいカードを描画してから測らないと，震源がカードの下に隠れる．
+  focusedEventIds = new Set(records.map(record => record.id));
   renderEventsPanel();
-  flyToBounds(earthquakeDisplayBounds(record), 24, record.boundsMaxZoom ?? null);
+  const boxes = records.map(earthquakeDisplayBounds).filter(Boolean);
+  if (boxes.length) {
+    const limits = records.map(r => r.boundsMaxZoom).filter(Number.isFinite);
+    flyToBounds(unionBounds(boxes), 24, limits.length ? Math.min(...limits) : null);
+  }
   syncActiveEventLayers();
   updateWeatherDisplay();
   syncIntensityBadgeAnchors();
@@ -2092,13 +2077,10 @@ function returnToWholeJapanSafely() {
 function patrolStep() {
   // 受信後10分間は最新の地震・津波だけを表示し，通常巡回を止める．
   // 期限または取消で対象が無くなれば通常巡回へ戻る．
-  const focusedQuake = quakeLockRecords()[0];
-  if (focusedQuake) {
+  if (quakeLockRecords().length) {
     showQuakeLockView();
-    const holdMs = focusedQuake.jalertKey || [5, 6].includes(focusedQuake.disasterCategoryNo) || isTsunamiRelatedRecord(focusedQuake)
-      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
-    const remaining = holdMs - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
-    schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
+    const untilNext = displayViewCycle.nextAt - Date.now();
+    schedulePatrolNext(Math.max(1, untilNext > 0 ? Math.min(DisplayEvents.ROTATION_MS, untilNext) : DisplayEvents.ROTATION_MS));
     return;
   }
   // 初回読み込み中(WebSocket接続直後、既存のアクティブな通報が
@@ -2228,13 +2210,10 @@ function interruptPatrolForNewRegion(code, manual = false) {
 function interruptPatrolForNewEvent(id, manual = false) {
   const record = activeEvents.get(id);
   const isQuakeCategory = !!record && (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) || isTsunamiRelatedRecord(record) || !!record.jalertKey);
-  const focusedQuake = !manual && quakeLockRecords()[0];
-  if (focusedQuake) {
+  if (!manual && quakeLockRecords().length) {
     showQuakeLockView();
-    const holdMs = focusedQuake.jalertKey || [5, 6].includes(focusedQuake.disasterCategoryNo) || isTsunamiRelatedRecord(focusedQuake)
-      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
-    const remaining = holdMs - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
-    schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
+    const untilNext = displayViewCycle.nextAt - Date.now();
+    schedulePatrolNext(Math.max(1, untilNext > 0 ? Math.min(DisplayEvents.ROTATION_MS, untilNext) : DisplayEvents.ROTATION_MS));
     return;
   }
   // 初回読み込み直後は、地震・津波以外の情報でカメラを動かさず、日本
@@ -2500,19 +2479,53 @@ function getDefaultView() {
 
 let activeEvents = new Map();
 let nextEventId = 1;
-let retiredEarthquakes = [];
-
-function isRetiredEarthquake(report) {
-  const now = Date.now();
-  retiredEarthquakes = retiredEarthquakes.filter((entry) => now - entry.at < TTL_HYPOCENTER_INTENSITY_MS);
-  return retiredEarthquakes.some((entry) =>
-    entry.isTestData === !!report.is_test_data
-    && entry.isTraining === (report.report_classification_no === 7)
-    && EarthquakeIdentity.sameEarthquake(
-      { epicenter: entry.epicenterRaw, time: entry.occurrenceTime },
-      { epicenter: report.seismic_epicenter_raw, time: report.occurrence_time_of_earthquake },
-      { allowUnknown: false }
-    ));
+let reconcilingDisplay = false;
+const displayStore = new DisplayEvents.EventStore({onChange: reconcileDisplayEvents});
+function receiveDisplayEvent(report) {
+  const build = part => applyTrainingLabel(part.type === 'QzssDcxJAlert'
+    ? buildEventFromJAlert(part) : buildEventFromReport(part), part);
+  const event = build(report);
+  if (!isRelevantToTargetRegion(event)) return;
+  displayStore.receive(report, build);
+}
+function reconcileDisplayEvents() {
+  if (reconcilingDisplay) return;
+  reconcilingDisplay = true;
+  try {
+    for (const [id, record] of [...activeEvents]) {
+      if (record.displayManaged && !displayStore.events.has(id)) removeActiveEvent(id);
+    }
+    for (const state of displayStore.events.values()) {
+      const data = {...state.presentation, displayManaged:true, displayEventId:state.id, displayKind:state.kind,
+        receivedAt:state.receivedAt,firstReceivedAt:state.firstReceivedAt,lastReceivedAt:state.lastReceivedAt,
+        phaseFirstReceivedAt:state.phaseFirstReceivedAt,expiresAt:state.expiresAt,status:state.status,
+        quakeFocusAt:state.kind==='earthquake' ? state.phaseFirstReceivedAt : state.lastReceivedAt,
+        meta:'受信 '+new Date(state.lastReceivedAt).toLocaleTimeString('ja-JP',{hour12:false}),
+        earthquakeGeoExpiresAt:state.kind==='earthquake' ? state.expiresAt : null};
+      if (data.earthquakeFill?.phase==='eew') data.earthquakeFill={...data.earthquakeFill,deadline:state.expiresAt};
+      const existing=activeEvents.get(state.id);
+      if (!existing) addActiveEvent(data,null);
+      else {
+        const oldGeo=existing.geo;
+        const resolved = !data.geo.hypocenter && existing.pendingEpicenterCode === data.pendingEpicenterCode ? oldGeo.hypocenter : null;
+        for(const marker of existing.markers.intensityBadges)marker.remove();
+        Object.assign(existing,data,{updatedAt:state.lastReceivedAt,badges:[{text:data.badgeText,class:data.badgeClass}],
+          geo:{...data.geo,hypocenter:data.geo.hypocenter || resolved}});
+        existing.markers.intensityBadges=createIntensityBadgeMarkers(existing.geo.prefectures);
+      }
+    }
+    syncActiveEventLayers();
+    syncIntensityBadgeAnchors();
+    renderEventsPanel();
+    if (displayStore.events.size) {
+      showQuakeLockView();
+      const untilNext=displayViewCycle.nextAt-Date.now();
+      schedulePatrolNext(Math.max(1,untilNext>0?Math.min(DisplayEvents.ROTATION_MS,untilNext):DisplayEvents.ROTATION_MS));
+    } else {
+      displayViewCycle.current=null;
+      schedulePatrolNext(0);
+    }
+  } finally {reconcilingDisplay=false;}
 }
 
 function hasVisibleEewFill() {
@@ -2533,6 +2546,7 @@ function isEarthquakeOrTsunamiRecord(record) {
 function scheduleEewFillExpiry(record) {
   clearTimeout(record.eewFillTimer);
   record.eewFillTimer = null;
+  if (record.displayManaged) return;
   const deadline = record.earthquakeFill?.deadline;
   if (!deadline) return;
   record.eewFillTimer = setTimeout(() => {
@@ -2570,54 +2584,6 @@ function tsunamiRowsWithCoasts(rows, coasts) {
   if (names.length) merged.set('対象沿岸', summarizeList(names));
   if (heights.length) merged.set('津波の高さ', summarizeList(heights));
   return [...merged.entries()];
-}
-
-// 別の地震のEEWが来たときは前の震度表示だけを退ける．
-// 統合カードに津波が含まれる場合は津波部分を独立したカードとして残す．
-function retirePreviousEarthquakes(incomingEvent) {
-  for (const [id, record] of [...activeEvents]) {
-    if (![1, 2, 3].includes(record.disasterCategoryNo)) continue;
-    if (!!record.isTestData !== !!incomingEvent.isTestData || !!record.isTraining !== !!incomingEvent.isTraining) continue;
-    if (record.epicenterRaw != null || record.occurrenceTime) {
-      retiredEarthquakes.push({
-        epicenterRaw: record.epicenterRaw,
-        occurrenceTime: record.occurrenceTime,
-        isTestData: !!record.isTestData,
-        isTraining: !!record.isTraining,
-        at: Date.now(),
-      });
-    }
-    if (!record.geo.tsunami.length && !record.tsunamiSnapshot) {
-      removeActiveEvent(id);
-      continue;
-    }
-    const tsunami = record.tsunamiSnapshot;
-    if (!tsunami) {
-      // 旧状態の再生など，津波の本文がない場合も沿岸の線は保持する．
-      record.geo.prefectures = [];
-      record.geo.hypocenter = null;
-      record.disasterCategoryNo = 5;
-      record.earthquakeFill = null;
-    } else {
-      Object.assign(record, {
-        ...tsunami,
-        id,
-        disasterCategoryNo: 5,
-        epicenterRaw: null,
-        occurrenceTime: null,
-        updatedAt: record.updatedAt,
-      });
-    }
-    clearTimeout(record.eewFillTimer);
-    clearTimeout(record.earthquakeGeoTimer);
-    record.earthquakeGeoExpiresAt = null;
-    record.eewFillTimer = null;
-    for (const marker of record.markers.intensityBadges) marker.remove();
-    record.markers.intensityBadges = [];
-  }
-  syncActiveEventLayers();
-  updateWeatherDisplay();
-  renderEventsPanel();
 }
 
 // 2つの範囲がおおむね近い(重なる、またはmarginDeg度以内)かどうか。
@@ -2715,9 +2681,10 @@ function findMatchingGroup(report, eventData) {
 function updateEpicenterLayer() {
   if (!map || !map.getSource('epicenters')) return;
   const features = [];
-  const focusedQuake = quakeLockRecords()[0];
+  const focusedRecords = quakeLockRecords();
+  const visibleIds = new Set(focusedRecords.map(r => r.id));
   for (const record of activeEvents.values()) {
-    if (focusedQuake && record.id !== focusedQuake.id) continue;
+    if (visibleIds.size && !visibleIds.has(record.id)) continue;
     const h = record.geo && record.geo.hypocenter;
     if (h && Number.isFinite(h.lon) && Number.isFinite(h.lat)) {
       features.push({
@@ -2806,8 +2773,8 @@ function latestIntensityBadgeMarkers(records) {
 
 function syncIntensityBadgeAnchors() {
   if (!map) return;
-  const focusedQuake = quakeLockRecords()[0];
-  const visibleBadges = latestIntensityBadgeMarkers(focusedQuake ? [focusedQuake] : activeEvents.values());
+  const focusedRecords = quakeLockRecords();
+  const visibleBadges = latestIntensityBadgeMarkers(focusedRecords.length ? focusedRecords : activeEvents.values());
   for (const record of activeEvents.values()) {
     for (const marker of record.markers.intensityBadges) {
       marker.getElement().style.display = visibleBadges.has(marker) ? '' : 'none';
@@ -2823,6 +2790,7 @@ const CAMERA_ZOOM_DELAY_MS = 400;
 // 統合カードは絶対期限を比較する．残り時間の最大値を毎回数え直さない．
 function scheduleActiveEventExpiry(record, eventData, ttlMs) {
   clearTimeout(record.timer);
+  if (record.displayManaged) { record.expiresAt = eventData.expiresAt; record.timer = null; return; }
   if (ttlMs != null) {
     const incomingDeadline = eventData.expiresAt ?? Date.now() + ttlMs;
     record.expiresAt = Math.max(record.expiresAt || 0, incomingDeadline);
@@ -2835,7 +2803,7 @@ function scheduleActiveEventExpiry(record, eventData, ttlMs) {
 function scheduleEarthquakeGeoExpiry(record) {
   clearTimeout(record.earthquakeGeoTimer);
   record.earthquakeGeoTimer = null;
-  if (record.earthquakeGeoExpiresAt == null) return;
+  if (record.displayManaged || record.earthquakeGeoExpiresAt == null) return;
   const expire = () => {
     if (!activeEvents.has(record.id)) return;
     record.geo.hypocenter = null;
@@ -2856,7 +2824,7 @@ function scheduleEarthquakeGeoExpiry(record) {
 
 // ttlMsがnullの通知は明示的な解除まで保持する．0は期限切れを意味する．
 function addActiveEvent(eventData, ttlMs = null) {
-  const id = nextEventId++;
+  const id = eventData.displayEventId ?? nextEventId++;
   const record = {
     id,
     ...eventData,
@@ -3050,6 +3018,10 @@ function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
 }
 
 function removeActiveEvent(id) {
+  if (typeof displayStore !== 'undefined' && !reconcilingDisplay && displayStore.events.has(id)) {
+    displayStore.remove(id);
+    return;
+  }
   const record = activeEvents.get(id);
   if (!record) return;
   clearTimeout(record.eewFillTimer);
@@ -3097,6 +3069,7 @@ function removeActiveEvent(id) {
 // サーバーから届く内容だけで組み直すことで、複数端末間の表示が
 // 常に一致するようにする。
 function clearAllActiveEvents() {
+  if (typeof displayStore !== 'undefined') displayStore.clear();
   for (const id of [...activeEvents.keys()]) removeActiveEvent(id);
   for (const site of weatherSites.values()) clearTimeout(site.timer);
   for (const record of otherReports.values()) clearTimeout(record.timer);
@@ -3341,7 +3314,9 @@ function syncActiveEventLayers() {
   // 非力なハードウェアの制約が無いためポリゴンのまま出し続ける。
   // 津波(tsunami-line)だけは対象数が元々少なく命に関わる重要度が
   // 高いため、kiosk/idleでも通常通り描画する(意図的に対象外)
-  const focusedQuake = quakeLockRecords()[0];
+  const focusedRecords = quakeLockRecords();
+  const visibleIds = new Set(focusedRecords.map(r => r.id));
+  const focusedQuake = focusedRecords[0];
   const idle = shouldUseLightweightIdleView() && !focusedQuake;
 
   const tsunamiColorByCode = new Map();
@@ -3360,15 +3335,9 @@ function syncActiveEventLayers() {
   // 「実イベント」として扱われる。handleFloodReport参照)
   const eewPriority = hasVisibleEewFill();
   for (const record of [...activeEvents.values(), ...(eewPriority || focusedQuake ? [] : otherReports.values())]) {
-    if (focusedQuake && record.id !== focusedQuake.id) {
-      // 新しい地震へ切り替えても，既存の津波沿岸線と点滅は保持する．
-      for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color,
-        SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0);
-      if (record.tsunamiWarningActive) tsunamiActive = true;
-      continue;
-    }
-    if (eewPriority && !isEarthquakeOrTsunamiRecord(record)) continue;
-    const rank = SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0;
+    if (visibleIds.size && !visibleIds.has(record.id)) continue;
+    if (eewPriority && !isEarthquakeOrTsunamiRecord(record) && !record.jalertKey) continue;
+    const rank = record.jalertKey ? 100 : (SEVERITY_RANK[cardSeverityClass(record.badges || [{ class: record.badgeClass }])] ?? 0);
     for (const t of record.geo.tsunami) setIfMoreSevere(tsunamiColorByCode, t.code, t.color, rank);
     const prefectures = record.earthquakeFill?.phase === 'eew' && record.earthquakeFill.deadline <= Date.now()
       ? [] : record.geo.prefectures;
@@ -3496,6 +3465,7 @@ let focusedEventIds = new Set();
 
 function updateCameraForActiveEvents(preferredRecord) {
   if (!map) return;
+  if (typeof quakeLockRecords === 'function' && quakeLockRecords().length) { showQuakeLockView(); return; }
 
   // 明示的な優先イベントが指定されていない場合(再接続時の一括再送や、
   // 市区町村データの遅延読み込み完了時など)は、直近に更新されたイベントを
@@ -4262,9 +4232,9 @@ function renderEventsPanel() {
   const focusedRealEvent = currentPatrolEventId !== null ? activeEvents.get(currentPatrolEventId) : null;
 
   let visibleRecords;
-  const focusedQuake = quakeLockRecords()[0];
-  if (focusedQuake) {
-    visibleRecords = [focusedQuake];
+  const focusedRecords = quakeLockRecords();
+  if (focusedRecords.length) {
+    visibleRecords = focusedRecords;
   } else if (hasVisibleEewFill()) {
     // 速報の赤塗りを表示中は，竜巻など他の警報カードも一時的に退ける．
     // 津波は沿岸線とカードの両方を引き続き表示する．
@@ -4557,6 +4527,10 @@ function displayStateSnapshot() {
   ]);
 }
 function renderReport(report) {
+  if (typeof DisplayEvents !== 'undefined' && DisplayEvents.kind(report) && DisplayEvents.cancelled(report)) {
+    const removed = displayStore.receive(report);
+    return {status: removed.length ? 'applied' : 'unchanged', reason:'cancel'};
+  }
   let reason = null;
   if (!InformationSettings.isEnabled(report, informationCategorySettings)) reason = displaySettingsAvailable ? 'category-off' : 'settings-unavailable';
   else if (Number.isFinite(report.replay_age_ms) && ReportTtl.remainingTtlMsForReport(report) <= 0) reason = 'expired';
@@ -4569,6 +4543,10 @@ function renderReport(report) {
     ? { status: 'unchanged', reason: 'no-change' } : { status: 'applied', reason: 'updated' };
 }
 function renderReportContent(report) {
+  if (typeof DisplayEvents !== 'undefined' && DisplayEvents.kind(report)) {
+    receiveDisplayEvent(report);
+    return;
+  }
   if (report.type === 'DecodeError') {
     addActiveEvent({
       isTestData: !!report.is_test_data,
@@ -4584,26 +4562,6 @@ function renderReportContent(report) {
     return;
   }
 
-  if (report.type === 'QzssDcxJAlert') {
-    if (report.a1_message_type === 'All Clear') {
-      const key = jalertMatchKey(report);
-      for (const [id, record] of activeEvents) {
-        if (record.jalertKey === key && TrainingReportFilter.sameDisplayScope(record, report)) removeActiveEvent(id);
-      }
-      return;
-    }
-    const event = applyTrainingLabel(buildEventFromJAlert(report), report);
-    if (isRelevantToTargetRegion(event)) addActiveEvent(event, ReportTtl.remainingTtlMsForReport(report));
-    return;
-  }
-
-  // QzssDcxLAlert(a3=1、消防庁経由の標準配信)とQzssDcxMTInfo(a3=4、
-  // 自治体からの直接配信)はazarashi側でもフィールド構成が完全に同一
-  // (どちらもQzssDcXtendedMessageBaseの単純なサブクラス)。デコーダー側
-  // (read_legacy_dual.py)も両方を"lalert"として送ってくるようにしたため、
-  // ここでも同じ経路で扱う。当初LAlertだけしか見ておらず、自治体が直接
-  // テスト配信した通報(奈良県十津川村の実例)が地図に何も描画されない
-  // 不具合になっていた
   if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
     // Discordの/set_lalertでOFFにされている場合は解析(表示・通知)自体を
     // 行わない。取消(All Clear)も含めて無視する(OFF中は元々何も
@@ -4825,46 +4783,7 @@ function renderReportContent(report) {
     return;
   }
 
-  // 新しい余震のEEWで退けた古い地震の遅延通報を再描画しない．
-  if ([1, 2, 3].includes(report.disaster_category_no) && isRetiredEarthquake(report)) return;
 
-  // 津波警報の解除・「津波なし」は危険な状況が収束したサインなので、
-  // 画面をリセットする(取消と同様、絞り込みの影響を受けない)
-  if (report.disaster_category_no === 5 && [1, 2].includes(report.tsunami_warning_code_raw)) {
-    handleTsunamiResolution(report);
-    return;
-  }
-
-  // 緊急地震速報・震源・震度速報・津波関連 以外は重要度が低いため
-  // 画面はそのまま(前回の重要な通報の表示を維持する)
-  if (!ALLOWED_CATEGORIES.has(report.disaster_category_no)) return;
-
-  if (ReportTtl.remainingTtlMsForReport(report) <= 0) return;
-  const event = applyTrainingLabel(buildEventFromReport(report), report);
-  if (!isRelevantToTargetRegion(event)) return;
-
-  // 立て続けの地震(余震)対応: 新しい緊急地震速報が届いた時、既に表示中の
-  // 近隣の地震イベント(前の地震の震度速報など)が残っていると、古い震度の
-  // 塗りつぶしと新しい速報の塗りつぶしが混ざって紛らわしい。同じ地震
-  // グループ、または地理的に近い既存の地震イベントは一旦取り下げて、
-  // 最新の緊急地震速報の表示に切り替える
-  if (report.disaster_category_no === 1) {
-    const match = event.epicenterRaw != null || event.occurrenceTime
-      ? findMatchingGroup(report, event) : null;
-    if (match && [1, 2, 3].includes(match.disasterCategoryNo)) {
-      mergeIntoActiveEvent(match, event, report, ReportTtl.remainingTtlMsForReport(report));
-    } else {
-      retirePreviousEarthquakes(event);
-      addActiveEvent(event, ReportTtl.remainingTtlMsForReport(report));
-    }
-    updateWeatherDisplay();
-    return;
-  }
-
-  const match = findMatchingGroup(report, event);
-  const ttlMs = ttlMsForReport(report);
-  if (match) mergeIntoActiveEvent(match, event, report, ttlMs);
-  else addActiveEvent(event, ttlMs);
 }
 
 // ==================================================
@@ -5627,8 +5546,9 @@ function connectWebSocket() {
 
     await mapReady;
     // データ読込待ちも寿命に含める．期限直前の再送を期限後に描画しない．
+    report.display_transport_delay_ms = performance.now() - clientMessageReceivedAt;
     report.replay_age_ms = (Number.isFinite(report.replay_age_ms) ? report.replay_age_ms : 0)
-      + performance.now() - clientMessageReceivedAt;
+      + report.display_transport_delay_ms;
     let displayResult;
     try { displayResult = renderReport(report); }
     catch (err) {

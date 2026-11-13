@@ -3,6 +3,7 @@ const { ttlMsForReport } = require("./public/report-ttl");
 const ReportGeography = require("./public/report-geography");
 const TrainingReportFilter = require("./public/training-report-filter");
 const identity = require("./public/earthquake-identity");
+const DisplayEvents = require("./public/display-events");
 
 function reportGroupKey(report) {
   if (!report) return null;
@@ -53,8 +54,7 @@ const isEarthquake = report => [1, 2, 3].includes(report?.disaster_category_no);
 // 共通して存在する識別子へフォールバックし，手掛かりが無ければ未知同士として扱う．
 // server.js の通知キーとpublic/main.jsの照合も同じ規則にする．
 function sameEarthquake(a, b) {
-  const id = r => ({ time: r.occurrence_time_of_earthquake, epicenter: r.seismic_epicenter_raw });
-  return identity.sameEarthquake(id(a), id(b), { allowUnknown: true });
+  return DisplayEvents.sameIdentity(a, b);
 }
 
 function sameGroup(a, b) {
@@ -111,32 +111,37 @@ function storageKey(report) {
 }
 
 function sameStorage(a, b) {
+  if (a.type === "QzssDcxJAlert" && b.type === a.type) return reportScope(a) === reportScope(b) && DisplayEvents.warningId(a) === DisplayEvents.warningId(b);
   if (isEarthquake(a) && isEarthquake(b)) {
     return a.disaster_category_no === b.disaster_category_no && reportScope(a) === reportScope(b)
-      && sameEarthquake(a, b) && storageDetail(a) === storageDetail(b);
+      && (a.display_event_id || DisplayEvents.resolveEarthquakeId(a)) === (b.display_event_id || DisplayEvents.resolveEarthquakeId(b)) && storageDetail(a) === storageDetail(b);
   }
   const key = storageKey(a);
   return key !== null && key === storageKey(b);
 }
 
+// 通知の従来の遅延通報抑止にのみ使う．表示状態はこの判定で削除しない．
 function isSupersededEarthquakeReport(entries, report) {
   if (!isEarthquake(report)) return false;
   const incomingTime = Date.parse(report.occurrence_time_of_earthquake || '');
   if (!Number.isFinite(incomingTime)) return false;
-  return entries.some(entry => {
-    const active = entry.report;
-    if (active.disaster_category_no !== 1 || reportScope(active) !== reportScope(report)) return false;
-    if (sameEarthquake(active, report)) return false;
-    const activeTime = Date.parse(active.occurrence_time_of_earthquake || '');
-    return Number.isFinite(activeTime) && activeTime > incomingTime;
-  });
+  return entries.some(entry => entry.report.disaster_category_no === 1
+    && reportScope(entry.report) === reportScope(report)
+    && !sameEarthquake(entry.report, report)
+    && Date.parse(entry.report.occurrence_time_of_earthquake || '') > incomingTime);
 }
 
-function updateActiveReports(entries, report, receivedAt, isEnd) {
+function updateActiveReports(entries, report, receivedAt, isEnd, lastReceivedAt = receivedAt) {
   // 旧形式の永続データも最初の更新時に地域単位へ展開する．
   let result = entries.flatMap(entry => splitReport(entry.report).map(part => ({ ...entry, report: part })));
-  for (const part of splitReport(report)) {
-    if (!isEnd && isSupersededEarthquakeReport(result, part)) continue;
+  for (let part of splitReport(report)) {
+    if (isEarthquake(part)) {
+      const candidates = result.filter(e => isEarthquake(e.report)).map(e => ({ ...e, id: e.report.display_event_id }));
+      const id = DisplayEvents.resolveEarthquakeId(part, candidates);
+      part = { ...part, display_event_id: id };
+    } else if (part.type === 'QzssDcxJAlert') {
+      part = {...part, display_event_id: DisplayEvents.resolveWarningId(part, result.filter(e => e.report.type === 'QzssDcxJAlert'))};
+    }
     const group = reportGroupKey(part);
     if (isEnd) {
       if (group !== null) result = result.filter(entry => {
@@ -145,26 +150,25 @@ function updateActiveReports(entries, report, receivedAt, isEnd) {
         if (part.disaster_category_no === 11 && !part.flood_forecast_regions_raw?.length) {
           return entry.report.disaster_category_no !== 11;
         }
+        if (isEarthquake(part)) {
+          if (!DisplayEvents.identity(report).time && DisplayEvents.identity(report).epicenter == null && !report.display_event_id) return true;
+          return (entry.report.display_event_id || DisplayEvents.resolveEarthquakeId(entry.report)) !== part.display_event_id;
+        }
+        if (part.type === 'QzssDcxJAlert') return DisplayEvents.warningId(entry.report) !== DisplayEvents.warningId(part);
+        if (part.disaster_category_no === 5 && part.tsunami_forecast_regions_raw?.length) {
+          return entry.report.disaster_category_no !== 5 || !(entry.report.tsunami_forecast_regions_raw || []).some(c => part.tsunami_forecast_regions_raw.includes(c));
+        }
         return !sameGroup(entry.report, part);
       });
     } else {
-      if (part.disaster_category_no === 1) {
-        // 新しい地震のEEWが始まったら，前の地震の震度・震源・EEWを
-        // 再接続時に再生しない．津波通報は別カテゴリなので保持する．
-        result = result.filter(entry => !(
-          isEarthquake(entry.report)
-          && reportScope(entry.report) === reportScope(part)
-          && !sameEarthquake(entry.report, part)
-        ));
-      }
       if (isEarthquake(part)) {
-        if (result.some(entry => reportScope(entry.report) === reportScope(part) && sameEarthquake(entry.report, part)
+        if (result.some(entry => reportScope(entry.report) === reportScope(part) && (entry.report.display_event_id || DisplayEvents.resolveEarthquakeId(entry.report)) === part.display_event_id
           && entry.report.disaster_category_no > part.disaster_category_no)) continue;
         result = result.filter(entry => !(isEarthquake(entry.report) && reportScope(entry.report) === reportScope(part)
-          && sameEarthquake(entry.report, part) && entry.report.disaster_category_no < part.disaster_category_no));
+          && (entry.report.display_event_id || DisplayEvents.resolveEarthquakeId(entry.report)) === part.display_event_id && entry.report.disaster_category_no < part.disaster_category_no));
       }
       if (storageKey(part) !== null) result = result.filter(entry => !sameStorage(entry.report, part));
-      result.push({ report: part, receivedAt });
+      result.push({ report: part, receivedAt, lastReceivedAt, firstReceivedAt: lastReceivedAt - (Number(part.display_first_received_age_ms) || (lastReceivedAt - receivedAt)) });
     }
   }
   return result;
@@ -180,24 +184,35 @@ module.exports = { isSupersededEarthquakeReport, pruneExpiredReports, sameEarthq
 
 // Keep first receipts after display expiry so RF repeats cannot resurrect old earthquakes．
 class EarthquakeReceptions {
-  constructor(saved = []) { this.entries = Array.isArray(saved) ? saved.filter(e => e && e.report && typeof e.key === 'string' && Number.isFinite(e.at)) : []; }
+  constructor(saved = []) {
+    this.entries = [];
+    for (const entry of Array.isArray(saved) ? saved : []) {
+      if (!entry?.report || !Number.isFinite(entry.at)) continue;
+      if (entry.phaseFirst && entry.id) this.entries.push(entry);
+      else this.observe({ ...entry.report, raw: entry.key }, entry.at);
+    }
+  }
   observe(report, now) {
-    this.entries = this.entries.filter(e => Number.isFinite(e.at) && now - (e.lastSeen || e.at) < 48 * 3600000);
-    const scope = reportScope(report);
-    const key = report.raw || JSON.stringify(Object.fromEntries(Object.entries(report)
-      .filter(([k]) => !['timestamp','sentence','nmea','message','preamble','satellite_id','satellite_prn','client_timestamps','replay_age_ms'].includes(k)).sort(([a],[b]) => a.localeCompare(b))));
-    if (this.entries.some(e => reportScope(e.report) === scope && sameEarthquake(e.report, report)
-      && e.report.disaster_category_no > report.disaster_category_no)) return { rejected: true };
-    const existing = this.entries.find(e => e.key === key && reportScope(e.report) === scope
-      && e.report.disaster_category_no === report.disaster_category_no);
-    if (existing) { existing.lastSeen = now; return { at: existing.at, changed: true }; }
-    this.entries.push({ key, at: now, lastSeen: now, report: {
-      disaster_category_no: report.disaster_category_no, occurrence_time_of_earthquake: report.occurrence_time_of_earthquake,
-      seismic_epicenter_raw: report.seismic_epicenter_raw, is_test_data: report.is_test_data,
-      report_classification_no: report.report_classification_no,
-    }});
-    this.entries = this.entries.slice(-5000);
-    return { at: now, changed: true };
+    this.entries = this.entries.filter(e => now - (e.lastSeen ?? e.at) < 172800000);
+    const ownTime = DisplayEvents.identity(report).time;
+    const candidates = this.entries.filter(e => ownTime && DisplayEvents.identity(e.report).time === ownTime || now - (e.phaseFirst?.[e.highest] ?? e.at) < 600000);
+    const id = DisplayEvents.resolveEarthquakeId(report, candidates);
+    let existing = this.entries.find(e => e.id === id);
+    if (!existing) {
+      existing = {id, at:now, phaseFirst:{}, highest:0, report:{}, lastSeen:now};
+      this.entries.push(existing);
+    }
+    existing.lastSeen=now;
+    const phase=report.disaster_category_no;
+    if (phase < existing.highest) return {rejected:true};
+    existing.phaseFirst[phase] ??= now;
+    existing.at = Math.min(...Object.values(existing.phaseFirst));
+    existing.highest = Math.max(existing.highest,phase);
+    existing.report = {disaster_category_no:phase,occurrence_time_of_earthquake:report.occurrence_time_of_earthquake || existing.report.occurrence_time_of_earthquake,
+      seismic_epicenter_raw:report.seismic_epicenter_raw ?? existing.report.seismic_epicenter_raw,
+      is_test_data:report.is_test_data,report_classification_no:report.report_classification_no};
+    this.entries=this.entries.slice(-5000);
+    return {at:existing.phaseFirst[phase], firstAt:existing.at, eventId:id, changed:true};
   }
 }
 module.exports.EarthquakeReceptions = EarthquakeReceptions;

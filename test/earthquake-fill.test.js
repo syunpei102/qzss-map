@@ -41,57 +41,6 @@ test('reconnect uses original reception age instead of restarting ten minutes', 
   assert.deepEqual(stale.prefectures, []);
 });
 
-test('a new earthquake retires old intensity but keeps tsunami coast and card', () => {
-  const source = fs.readFileSync(require.resolve('../public/main.js'), 'utf8');
-  const start = source.indexOf('function retirePreviousEarthquakes(incomingEvent) {');
-  const end = source.indexOf('\n}\n', start) + 3;
-  assert.ok(start >= 0 && end > start);
-  const oldIntensity = {
-    id: 1, disasterCategoryNo: 3,
-    epicenterRaw: 350, occurrenceTime: '2026-10-19T04:40:00',
-    geo: { prefectures: observed, tsunami: [], hypocenter: { lon: 1, lat: 1 } },
-    markers: { intensityBadges: [] },
-  };
-  let removedBadge = false;
-  const oldTsunami = {
-    id: 2, disasterCategoryNo: 1,
-    geo: { prefectures: red, tsunami: [{ code: 123, color: '#c800c8' }], hypocenter: { lon: 2, lat: 2 } },
-    tsunamiSnapshot: {
-      disasterCategoryNo: 5, geo: { prefectures: [], tsunami: [{ code: 123, color: '#c800c8' }], hypocenter: null },
-      rows: [['津波の高さ', '3m']], headline: '大津波警報', bounds: [1, 2, 3, 4],
-    },
-    markers: { intensityBadges: [{ remove() { removedBadge = true; } }] },
-    updatedAt: 50,
-  };
-  const activeEvents = new Map([[1, oldIntensity], [2, oldTsunami]]);
-  let synced = 0;
-  const context = {
-    activeEvents,
-    retiredEarthquakes: [],
-    TTL_HYPOCENTER_INTENSITY_MS: 20 * 60_000,
-    EarthquakeIdentity: require('../public/earthquake-identity'),
-    removeActiveEvent(id) { activeEvents.delete(id); },
-    syncActiveEventLayers() { synced++; },
-    updateWeatherDisplay() {}, renderEventsPanel() {}, clearTimeout() {},
-  };
-  vm.runInNewContext(source.slice(start, end) + '\nretirePreviousEarthquakes({ isTestData: false, isTraining: false });', context);
-  assert.equal(activeEvents.has(1), false);
-  assert.equal(activeEvents.get(2).disasterCategoryNo, 5);
-  assert.deepEqual(activeEvents.get(2).geo.tsunami, oldTsunami.tsunamiSnapshot.geo.tsunami);
-  assert.deepEqual(activeEvents.get(2).geo.prefectures, []);
-  assert.equal(activeEvents.get(2).rows[0][0], '津波の高さ');
-  assert.equal(removedBadge, true);
-  assert.ok(synced);
-
-  const retiredStart = source.indexOf('function isRetiredEarthquake(report) {');
-  const retiredEnd = source.indexOf('\n}\n', retiredStart) + 3;
-  vm.runInNewContext(source.slice(retiredStart, retiredEnd) + '\nresult = [\n'
-    + "isRetiredEarthquake({ seismic_epicenter_raw: 350, occurrence_time_of_earthquake: '2026-10-19T04:40:00' }),\n"
-    + "isRetiredEarthquake({ seismic_epicenter_raw: 350, occurrence_time_of_earthquake: '2026-10-19T04:42:00' })\n];", context);
-  assert.deepEqual([...context.result], [true, false], 'late reports from the retired earthquake stay hidden');
-});
-
-
 test('new EEW focus preserves existing tsunami line and blinking but hides older intensity', () => {
   const source=fs.readFileSync(require.resolve('../public/main.js'),'utf8');
   const start=source.indexOf('  const eewPriority = hasVisibleEewFill();',source.indexOf('function syncActiveEventLayers('));
@@ -100,7 +49,7 @@ test('new EEW focus preserves existing tsunami line and blinking but hides older
   const coast={id:2,geo:{tsunami:[{code:123,color:'purple'}],prefectures:[]},tsunamiWarningActive:true,badgeClass:'sev-warning'};
   const old={id:3,geo:{tsunami:[],prefectures:[{id:2,color:'yellow'}]},badgeClass:'sev-warning'};
   const result=vm.runInNewContext(`let tsunamiActive=false;const tsunamiColorByCode=new Map(),prefColorById=new Map(),tokyoParts=new Set(),municipalityColorByCode=new Map(),floodRiverColorByCode=new Map(),ellipseFeatures=[];let wholeTokyo=false;${source.slice(start,end)};({coasts:[...tsunamiColorByCode.keys()],prefectures:[...prefColorById.keys()],blink:tsunamiActive})`,{
-    activeEvents:new Map([[1,fresh],[2,coast],[3,old]]),otherReports:new Map(),focusedQuake:fresh,
+    activeEvents:new Map([[1,fresh],[2,coast],[3,old]]),otherReports:new Map(),focusedQuake:fresh,visibleIds:new Set([1,2]),
     hasVisibleEewFill:()=>true,isEarthquakeOrTsunamiRecord:r=>r===fresh||r===coast,
     SEVERITY_RANK:{'sev-warning':2},cardSeverityClass:()=> 'sev-warning',
     setIfMoreSevere:(map,key,color)=>map.set(key,{color}),Date,

@@ -123,20 +123,11 @@ test('named and nearby events never merge across live, training and manual test 
 });
 
 test('J-Alert cancellation preserves displays from other scopes', () => {
-  const source = fs.readFileSync(require.resolve('../public/main.js'), 'utf8');
-  const start = source.indexOf("  if (report.type === 'QzssDcxJAlert') {", source.indexOf('function renderReportContent('));
-  const end = source.indexOf('// QzssDcxLAlert', start);
-  const records = new Map([
-    ['live', { jalertKey: 'Missile|東京都' }],
-    ['manual', { jalertKey: 'Missile|東京都', isTestData: true }],
-    ['training', { jalertKey: 'Missile|東京都', isTraining: true }],
-  ]);
-  const cancel = vm.runInNewContext(`(function(report) { ${source.slice(start, end)} })`, {
-    activeEvents: records, TrainingReportFilter, jalertMatchKey: () => 'Missile|東京都',
-    removeActiveEvent: id => records.delete(id),
-  });
-  cancel({ type: 'QzssDcxJAlert', a1_message_type: 'All Clear' });
-  assert.equal(records.has('live'), false);
-  assert.equal(records.has('manual'), true);
-  assert.equal(records.has('training'), true);
+  const {EventStore}=require('../public/display-events');
+  const store=new EventStore({setTimer:()=>null,clearTimer:()=>{}});
+  const live={...captured,a4_hazard_type:'Missile'};
+  store.receive(live);store.receive({...live,is_test_data:true});store.receive({...live,report_classification_no:7});
+  store.receive({...live,a1_message_type:'All Clear'});
+  assert.equal(store.events.size,2);
+  assert.ok([...store.events.values()].every(e=>e.scope!=='live'));
 });

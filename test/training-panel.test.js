@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../public/main.js'), 'utf8');
 function loadFunction(name, nextMarker, context) {
+  if (name === "quakeLockRecords") context.displayViewCycle = new (require("../public/display-events").ViewCycle)();
   const start = source.indexOf(`function ${name}(`);
   const end = source.indexOf(nextMarker, start);
   assert.ok(start >= 0 && end > start);
@@ -121,11 +122,11 @@ test('only the most recently updated intensity badge remains for each prefecture
   assert.equal(selected.has(tochigi), true);
 });
 
-test('earthquake focus selects only the newest event during the ten minute hold', () => {
+test('earthquake and tsunami are derived together while expired events are excluded', () => {
   const now = Date.now();
-  const old = { disasterCategoryNo: 3, bounds: [1, 1, 2, 2], updatedAt: now - 11 * 60 * 1000 };
-  const recent = { disasterCategoryNo: 3, bounds: [3, 3, 4, 4], updatedAt: now - 2 * 60 * 1000 };
-  const latest = { disasterCategoryNo: 5, bounds: [5, 5, 6, 6], updatedAt: now };
+  const old = { disasterCategoryNo: 3, bounds: [1, 1, 2, 2], updatedAt: now - 11 * 60 * 1000,expiresAt:now-1 };
+  const recent = { disasterCategoryNo: 3, bounds: [3, 3, 4, 4], updatedAt: now - 2 * 60 * 1000,expiresAt:now+480000 };
+  const latest = { disasterCategoryNo: 5, bounds: [5, 5, 6, 6], updatedAt: now,expiresAt:now+1200000 };
   const select = loadFunction('quakeLockRecords', 'function isQuakeLockActive(', {
     activeEvents: new Map([[1, old], [2, recent], [3, latest]]),
     QUAKE_LOCK_CATEGORY_NOS: new Set([1, 2, 3, 5, 6]),
@@ -133,10 +134,11 @@ test('earthquake focus selects only the newest event during the ten minute hold'
     isTsunamiRelatedRecord: () => false,
     Date,
   });
-  assert.equal(select().length, 1);
-  assert.equal(select()[0], latest);
+  assert.equal(select().length, 2);
+  assert.ok(select().includes(latest));
   latest.updatedAt = now - 21 * 60 * 1000;
   recent.updatedAt = now - 11 * 60 * 1000;
+  recent.expiresAt=now; latest.expiresAt=now;
   assert.equal(select().length, 0);
 });
 
@@ -256,6 +258,7 @@ test('tsunami and J-alert focus lasts twenty minutes but never outlives expiry',
     });
     assert.equal(select()[0], record);
     record.quakeFocusAt = now - 20 * 60_000;
+    record.expiresAt=now;
     assert.equal(select().length, 0);
     record.quakeFocusAt = now - 60_000;
     record.expiresAt = now;
@@ -273,6 +276,7 @@ test('repeated old tsunami cannot displace a new EEW during its ten minute focus
     QUAKE_FOCUS_HOLD_MS:600000,isTsunamiRelatedRecord:()=>false,Date,
   });
   assert.equal(select()[0],eew);
+  assert.equal(select().length,2);
   eew.expiresAt=now;
   assert.equal(select()[0],tsunami);
 });

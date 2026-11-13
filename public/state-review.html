@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex"><title>表示状態の再生検証</title>
+  <link rel="stylesheet" href="./test-page.css">
+  <script src="./state-replay-cases.js" defer></script><script src="./state-review.js" defer></script>
+</head>
+<body>
+  <iframe id="test-map" title="疑似受信用のテスト地図" sandbox="allow-scripts allow-same-origin"></iframe>
+  <div id="playback" class="playback" hidden><span id="progress" role="status" aria-live="polite"></span><button id="cancel" type="button">中止・選び直す</button></div>
+  <div id="menu" class="menu"><main>
+    <div class="site-name">QZSSマップ</div><h1>表示状態の再生検証</h1>
+    <p>確認する情報を選んでください．地図に戻り，3秒後にテストデータを受信します．</p>
+    <div id="cases" class="cases"></div>
+    <p id="ready-status" class="ready-status" role="status">地図を準備しています…</p>
+    <p class="note">架空データをこのページだけで再生します．実際の災害情報ではありません．画面確認用の表示期限は60秒です．10分・20分の境界は再生スクリプトで検証します．</p>
+    <a href="https://eq.shum10.com/">通常のマップへ戻る</a>
+  </main></div>
+</body></html>

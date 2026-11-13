@@ -49,7 +49,9 @@
 
   function remainingTtlMsForReport(report) {
     const age = Number(report?.replay_age_ms);
-    return Math.max(0, ttlMsForReport(report) - (Number.isFinite(age) && age > 0 ? age : 0));
+    const phaseAge = Number(report?.display_phase_age_ms);
+    return Math.max(0, ttlMsForReport(report) - (Number.isFinite(age) && age > 0 ? age : 0)
+      - (Number.isFinite(phaseAge) && phaseAge > 0 ? phaseAge : 0));
   }
 
   return { TTL, LALERT_DURATION_TTL_MS, ttlMsForReport, remainingTtlMsForReport };

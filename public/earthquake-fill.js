@@ -17,7 +17,8 @@
     }
     const replayAgeMs = Number.isFinite(report.replay_age_ms) && report.replay_age_ms >= 0
       ? report.replay_age_ms : 0;
-    const remainingMs = EEW_FILL_TTL_MS - replayAgeMs;
+    const phaseAgeMs = Number.isFinite(report.display_phase_age_ms) && report.display_phase_age_ms > 0 ? report.display_phase_age_ms : 0;
+    const remainingMs = EEW_FILL_TTL_MS - replayAgeMs - phaseAgeMs;
     if (remainingMs <= 0) return { phase: 'expired', prefectures: [], deadline: null };
     return { phase: 'eew', prefectures, deadline: now + remainingMs };
   }

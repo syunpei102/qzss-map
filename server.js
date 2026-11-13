@@ -1,5 +1,6 @@
 const express = require("express");
 const { EarthquakeReceptions, reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const DisplayEvents = require("./public/display-events");
 const InformationSettings = require("./public/information-settings");
 const TrainingReportFilter = require("./public/training-report-filter");
 const { ashIssueKey, ashNotificationBody } = require("./ash-notification");
@@ -851,23 +852,29 @@ function handleIncomingLine(line, receivedMono = performance.now()) {
     return;
   }
 
-  // 余震の速報後に，前の地震の遅延通報が届いても配信・保存しない．
-  // 取消は別途処理し，津波は地震の発生時刻では抑制しない．
+  // 別地震は独立して保持する．表示上の優先順位はイベント一覧から導出する．
   pruneStaleActiveReports();
-  if (report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report)) return;
+  const suppressOlderNotification = report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report);
 
   let displayReceivedAt = Date.now();
   if (report && [1, 2, 3].includes(report.disaster_category_no) && !report.is_test_data && !TrainingReportFilter.isOfficialTraining(report) && !isEndSignal(report)) {
     const receipt = earthquakeReceptions.observe(report, displayReceivedAt);
     if (receipt.changed) persistJson(EARTHQUAKE_RECEIPTS_FILE, earthquakeReceptions.entries, { nonBlockingLocal: true });
-    if (receipt.rejected || displayReceivedAt - receipt.at >= 10 * 60 * 1000) return;
-    report = { ...report, replay_age_ms: Math.max(0, displayReceivedAt - receipt.at) };
+    if (receipt.rejected) return;
+    report = { ...report, display_event_id: receipt.eventId,
+      display_first_received_age_ms: Math.max(0, displayReceivedAt - receipt.firstAt),
+      display_last_received_age_ms: 0, display_phase_age_ms: Math.max(0, displayReceivedAt - receipt.at), replay_age_ms: 0 };
     displayReceivedAt = receipt.at;
+    line = JSON.stringify(report);
+  }
+  if (report?.type === 'QzssDcxJAlert') {
+    report = {...report, display_event_id: DisplayEvents.resolveWarningId(report,
+      activeReports.filter(e => e.report.type === 'QzssDcxJAlert'))};
     line = JSON.stringify(report);
   }
   const shouldPersist = isEndSignal(report) || isReplayable(report);
   if (shouldPersist) {
-    activeReports = updateActiveReports(activeReports, report, displayReceivedAt, isEndSignal(report));
+    activeReports = updateActiveReports(activeReports, report, displayReceivedAt, isEndSignal(report), Date.now());
     pruneStaleActiveReports();
   }
   // ローカル専用機は従来どおり送信前に同期保存する．クラウド側は送信開始を
@@ -885,7 +892,7 @@ function handleIncomingLine(line, receivedMono = performance.now()) {
       line = JSON.stringify(report);
     }
     broadcast(line);
-    return sendPushNotifications(report);
+    return suppressOlderNotification ? undefined : sendPushNotifications(report);
   } finally {
     if (shouldPersist && !LOCAL_STATE_ONLY) persistActiveReports();
   }
@@ -2013,7 +2020,9 @@ wss.on("connection", (ws) => {
     const { client_timestamps, ...report } = entry.report;
     // EEWの赤い予測範囲は元の受信から5分で消す．再接続時に
     // ブラウザの接続時刻から5分を数え直さないよう，保存時刻からの経過を渡す．
-    ws.send(JSON.stringify({ ...report, replay_age_ms: Math.max(0, Date.now() - entry.receivedAt) }));
+    ws.send(JSON.stringify({ ...report, display_phase_age_ms: 0, replay_age_ms: Math.max(0, Date.now() - entry.receivedAt),
+      display_first_received_age_ms: Math.max(0, Date.now() - (entry.firstReceivedAt ?? entry.receivedAt)),
+      display_last_received_age_ms: Math.max(0, Date.now() - (entry.lastReceivedAt ?? entry.receivedAt)) }));
   }
 });
 

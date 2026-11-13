@@ -12,7 +12,7 @@ function section(from, to) {
   return source.slice(start, end);
 }
 
-const helpers = section('function tsunamiSnapshotForEvent(', '// 別の地震のEEWが来たとき');
+const helpers = section('function tsunamiSnapshotForEvent(', '// 2つの範囲がおおむね近い');
 const merger = section('function mergeIntoActiveEvent(', 'function removeActiveEvent(');
 const context = {
   Map, Set, Date, clearTimeout: () => {}, setTimeout: () => null,
