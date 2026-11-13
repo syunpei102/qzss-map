@@ -11,5 +11,15 @@ class Journal{
  async rows(name){if(!this.files().includes(name))throw Error('unknown recording');const text=await fs.promises.readFile(path.join(this.root,name),'utf8');return text.split('\n').filter(Boolean).map(s=>{try{return JSON.parse(s)}catch{return null}}).filter(Boolean);}
  async prune(days=30){const cutoff=day(this.now()-days*86400000);for(const n of this.files())if(n.slice(0,10)<cutoff)await fs.promises.unlink(path.join(this.root,n));}
 }
-function compare(rows,now=Date.now(),grace=120000){const groups=new Map();for(const r of rows){if(['Heartbeat','DecodeError'].includes(r.report?.type))continue;const g=groups.get(r.key)||{key:r.key,type:r.report.type,gcp:null,oracle:null};if(g[r.source]==null||r.at<g[r.source])g[r.source]=r.at;groups.set(r.key,g);}return [...groups.values()].map(g=>({...g,state:g.gcp&&g.oracle?'matched':now-Math.min(g.gcp||Infinity,g.oracle||Infinity)<grace?'pending':'missing',arrivalDifferenceMs:g.gcp&&g.oracle?g.oracle-g.gcp:null}));}
+function compare(rows,now=Date.now(),grace=120000){
+ const groups=new Map();
+ for(const r of rows){if(['Heartbeat','DecodeError'].includes(r.report?.type))continue;const g=groups.get(r.key)||{key:r.key,type:r.report.type,gcp:[],oracle:[]};g[r.source]?.push(r.at);groups.set(r.key,g);}
+ const result=[];
+ for(const g of groups.values()){
+  g.gcp.sort((a,b)=>a-b);g.oracle.sort((a,b)=>a-b);
+  for(const at of g.oracle){let candidate=-1,distance=Infinity;g.gcp.forEach((t,i)=>{if(Math.abs(t-at)<distance&&Math.abs(t-at)<=grace){candidate=i;distance=Math.abs(t-at)}});const peer=candidate<0?null:g.gcp.splice(candidate,1)[0];result.push({key:g.key,type:g.type,gcp:peer,oracle:at,state:peer!==null?'matched':now-at<grace?'pending':'missing',arrivalDifferenceMs:peer!==null?at-peer:null});}
+  for(const at of g.gcp)result.push({key:g.key,type:g.type,gcp:at,oracle:null,state:now-at<grace?'pending':'missing',arrivalDifferenceMs:null});
+ }
+ return result;
+}
 module.exports={Journal,fingerprint,compare,day};

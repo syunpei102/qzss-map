@@ -5,3 +5,5 @@ test('comparison waits before reporting a missing destination',()=>{const r=[{at
 
 const {audit}=require('../ops/audit');
 test('offline audit expires saved earthquake and warnings without production I/O',()=>{const r=[{source:'oracle',at:1000000,report:{type:'QzssDcReportJmaEarthquakeEarlyWarning',disaster_category_no:1,occurrence_time_of_earthquake:'2026-11-13T00:00:00'}},{source:'oracle',at:1010000,report:{disaster_category_no:5,tsunami_forecast_regions_raw:[380]}}];a.equal(audit(r).passed,true);});
+
+test('comparison detects a missing repeat even when an earlier copy matched',()=>{const report={type:'alert'};const rows=[{source:'gcp',at:100,key:'same',report},{source:'oracle',at:120,key:'same',report},{source:'gcp',at:300100,key:'same',report}];const c=compare(rows,600000);a.equal(c.filter(r=>r.state==='matched').length,1);a.equal(c.filter(r=>r.state==='missing').length,1);});
