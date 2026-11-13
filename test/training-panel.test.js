@@ -135,7 +135,7 @@ test('earthquake focus selects only the newest event during the ten minute hold'
   });
   assert.equal(select().length, 1);
   assert.equal(select()[0], latest);
-  latest.updatedAt = now - 11 * 60 * 1000;
+  latest.updatedAt = now - 21 * 60 * 1000;
   recent.updatedAt = now - 11 * 60 * 1000;
   assert.equal(select().length, 0);
 });
@@ -243,4 +243,22 @@ test('merged earthquake and tsunami cards retain the strongest tsunami banner co
   assert.equal(card.tsunamiWarningActive,true);
   assert.equal(card.tsunamiWarningColor,'#c800c8');
   assert.equal(card.tsunamiWarningText,'大津波警報');
+});
+
+
+test('tsunami and J-alert focus lasts twenty minutes but never outlives expiry', () => {
+  const now = Date.now();
+  for (const kind of [{ disasterCategoryNo: 5 }, { disasterCategoryNo: 6 }, { jalertKey: 'missile' }]) {
+    const record = { ...kind, bounds: [1,1,2,2], quakeFocusAt: now - 19 * 60_000, expiresAt: now + 60_000 };
+    const select = loadFunction('quakeLockRecords', 'function isQuakeLockActive(', {
+      activeEvents: new Map([[1,record]]), QUAKE_LOCK_CATEGORY_NOS: new Set([1,2,3,5,6]),
+      QUAKE_FOCUS_HOLD_MS: 10 * 60_000, isTsunamiRelatedRecord: () => false, Date,
+    });
+    assert.equal(select()[0], record);
+    record.quakeFocusAt = now - 20 * 60_000;
+    assert.equal(select().length, 0);
+    record.quakeFocusAt = now - 60_000;
+    record.expiresAt = now;
+    assert.equal(select().length, 0);
+  }
 });

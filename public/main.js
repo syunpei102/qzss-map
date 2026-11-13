@@ -915,6 +915,7 @@ function buildEventFromJAlert(report) {
   return {
     isTestData: !!report.is_test_data,
     jalertKey: jalertMatchKey(report),
+    quakeFocusAt: Date.now() - Math.max(0, Number(report.replay_age_ms) || 0),
     satelliteId: report.satellite_id,
     satellitePrn: report.satellite_prn,
     badgeText: 'Jアラート',
@@ -1843,7 +1844,7 @@ let isInitialLoad = true;
 // ==================================================
 // 地震・津波情報の優先ロック
 //
-// 最後の地震・津波情報から10分間は，最新の事象とその対象地域を優先する．
+// 最後の受信から地震は10分，津波・Jアラートは20分，対象地域を優先する．
 // 別地域の警報や古い地震が画面に混ざらないよう，描画もこの1件に絞る．
 const QUAKE_LOCK_CATEGORY_NOS = new Set([1, 2, 3, 5, 6]);
 const QUAKE_FOCUS_HOLD_MS = 10 * 60 * 1000;
@@ -1851,10 +1852,12 @@ const QUAKE_FOCUS_HOLD_MS = 10 * 60 * 1000;
 function quakeLockRecords() {
   let latest = null;
   for (const record of activeEvents.values()) {
-    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) && !isTsunamiRelatedRecord(record)) continue;
+    if (!QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) && !isTsunamiRelatedRecord(record) && !record.jalertKey) continue;
     if (!record.bounds) continue;
     const receivedAt = record.quakeFocusAt || record.updatedAt;
-    if (!receivedAt || Date.now() - receivedAt >= QUAKE_FOCUS_HOLD_MS) continue;
+    const holdMs = record.jalertKey || [5, 6].includes(record.disasterCategoryNo) || isTsunamiRelatedRecord(record)
+      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
+    if (!receivedAt || Date.now() - receivedAt >= holdMs || (record.expiresAt != null && record.expiresAt <= Date.now())) continue;
     // 同時に本番情報が有効なら，後から来た訓練や手動テストで覆わない．
     const priority = !record.isTraining && !record.isTestData ? 1 : 0;
     const latestPriority = latest && !latest.isTraining && !latest.isTestData ? 1 : 0;
@@ -2089,7 +2092,9 @@ function patrolStep() {
   const focusedQuake = quakeLockRecords()[0];
   if (focusedQuake) {
     showQuakeLockView();
-    const remaining = QUAKE_FOCUS_HOLD_MS - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
+    const holdMs = focusedQuake.jalertKey || [5, 6].includes(focusedQuake.disasterCategoryNo) || isTsunamiRelatedRecord(focusedQuake)
+      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
+    const remaining = holdMs - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
     schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
     return;
   }
@@ -2219,11 +2224,13 @@ function interruptPatrolForNewRegion(code, manual = false) {
 // ものを再度見せることになっても安全側に倒す)に戻る
 function interruptPatrolForNewEvent(id, manual = false) {
   const record = activeEvents.get(id);
-  const isQuakeCategory = !!record && (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) || isTsunamiRelatedRecord(record));
+  const isQuakeCategory = !!record && (QUAKE_LOCK_CATEGORY_NOS.has(record.disasterCategoryNo) || isTsunamiRelatedRecord(record) || !!record.jalertKey);
   const focusedQuake = !manual && quakeLockRecords()[0];
   if (focusedQuake) {
     showQuakeLockView();
-    const remaining = QUAKE_FOCUS_HOLD_MS - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
+    const holdMs = focusedQuake.jalertKey || [5, 6].includes(focusedQuake.disasterCategoryNo) || isTsunamiRelatedRecord(focusedQuake)
+      ? 20 * 60 * 1000 : QUAKE_FOCUS_HOLD_MS;
+    const remaining = holdMs - (Date.now() - (focusedQuake.quakeFocusAt || focusedQuake.updatedAt));
     schedulePatrolNext(Math.max(1, Math.min(PATROL_DWELL_MS, remaining)));
     return;
   }
@@ -2429,8 +2436,7 @@ function buildEventFromReport(report) {
     pendingEpicenterCode: !geo.hypocenter && [1, 2, 3].includes(report.disaster_category_no)
       && typeof report.seismic_epicenter_raw === 'number' ? report.seismic_epicenter_raw : null,
     disasterCategoryNo: report.disaster_category_no,
-    quakeFocusAt: Number.isFinite(Date.parse(report.timestamp))
-      ? Math.min(Date.now(), Date.parse(report.timestamp)) : Date.now(),
+    quakeFocusAt: Date.now() - Math.max(0, Number(report.replay_age_ms) || 0),
     occurrenceTime: report.occurrence_time_of_earthquake || null,
     isTestData: !!report.is_test_data,
     satelliteId: report.satellite_id,

@@ -11,11 +11,11 @@
   const H = 60 * 60 * 1000;
   const TTL = {
     EEW: 20 * 60 * 1000,
-    HYPOCENTER_INTENSITY: 20 * 60 * 1000,
-    TSUNAMI: 24 * H,
+    HYPOCENTER_INTENSITY: 10 * 60 * 1000,
+    TSUNAMI: 20 * 60 * 1000,
     OFFICIAL_TRAINING: 20 * 60 * 1000,
-    TSUNAMI_INFO: 3 * H,
-    JALERT: 24 * H,
+    TSUNAMI_INFO: 20 * 60 * 1000,
+    JALERT: 20 * 60 * 1000,
     WEATHER: 3 * H,
     LALERT_UNKNOWN: 3 * H,
     VOLCANO: 12 * H,

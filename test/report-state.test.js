@@ -199,11 +199,11 @@ test('server and browser share one TTL table; prune boundaries', () => {
   const cases = [
     [{ disaster_category_no: 1 }, 20 * 60 * 1000],
     [{ disaster_category_no: 8 }, 12 * H],
-    [{ disaster_category_no: 5 }, 24 * H],
+    [{ disaster_category_no: 5 }, 20 * 60 * 1000],
     [{ disaster_category_no: 5, report_classification_no: 7 }, 20 * 60 * 1000],
     [{ disaster_category_no: 1, report_classification_no: 7 }, 20 * 60 * 1000],
     [{ type: 'QzssDcxJAlert', a1_message_type: 'Test' }, 20 * 60 * 1000],
-    [{ type: 'QzssDcxJAlert', a1_message_type: 'Alert' }, 24 * H],
+    [{ type: 'QzssDcxJAlert', a1_message_type: 'Alert' }, 20 * 60 * 1000],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: 'Duration < 6H' }, 6 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '6H <= Duration < 12H' }, 12 * H],
     [{ type: 'QzssDcxLAlert', a8_hazard_duration: '12H <= Duration < 24H' }, 24 * H],
@@ -234,4 +234,28 @@ test('Tokyo-wide weather storage supports partial island cancellation without re
   const legacy=[{report,receivedAt:50}];
   assert.deepEqual(put(legacy,{...report,weather_forecast_regions_raw:[130040]},true).map(e=>e.report.weather_forecast_regions_raw[0]),[130010,130020,130030]);
   assert.equal(put(state,report,true).length,0);
+});
+
+
+test('ten minute earthquake and twenty minute last reception deadlines survive reconnect', () => {
+  const {ttlMsForReport,remainingTtlMsForReport}=require('../public/report-ttl');
+  const {updateActiveReports,pruneExpiredReports}=require('../report-state');
+  for (const [report,ttl] of [
+    [{disaster_category_no:2,seismic_epicenter_raw:123},600000],
+    [{disaster_category_no:3,seismic_epicenter_raw:123},600000],
+    [{disaster_category_no:5,tsunami_forecast_regions_raw:[100]},1200000],
+    [{disaster_category_no:6},1200000],
+    [{type:'QzssDcxJAlert',a1_message_type:'Alert',a4_hazard_type:'Missile'},1200000],
+  ]) {
+    assert.equal(ttlMsForReport(report),ttl);
+    let state=updateActiveReports([],report,1000,false);
+    state=updateActiveReports(state,report,301000,false); // RF-confirmed resend after five minutes
+    assert.equal(state.length,1);
+    assert.equal(pruneExpiredReports(state,301000+ttl-1).length,1);
+    assert.equal(pruneExpiredReports(state,301000+ttl).length,0);
+    const replay={...state[0].report,replay_age_ms:ttl-1};
+    assert.equal(remainingTtlMsForReport(replay),1);
+    assert.equal(remainingTtlMsForReport({...replay,replay_age_ms:ttl}),0);
+    assert.equal(updateActiveReports(state,report,302000,true).length,0);
+  }
 });
