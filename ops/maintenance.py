@@ -79,6 +79,6 @@ def backup(cert, destination, paths):
 
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('mode',choices=['clips','backup']);parser.add_argument('--root',default='/home/ubuntu/qzss-stream');parser.add_argument('--cert');parser.add_argument('--destination');parser.add_argument('paths',nargs='*');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('mode',choices=['clips','backup']);parser.add_argument('--root',default='/home/ubuntu/qzss-stream');parser.add_argument('--cert');parser.add_argument('--destination');parser.add_argument('paths',nargs='*');args=parser.parse_intermixed_args()
     if args.mode=='clips':clips(pathlib.Path(args.root))
     else:backup(args.cert,args.destination,args.paths)
