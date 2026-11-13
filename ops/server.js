@@ -12,10 +12,10 @@ app.get('/',(_req,res)=>res.sendFile(path.join(__dirname,'review.html')));
 app.get('/review.js',(_req,res)=>res.sendFile(path.join(__dirname,'review.js')));
 app.use('/audits',express.static(path.join(root,'audits'),{index:false}));
 app.use((req,res,next)=>{if(!['GET','HEAD'].includes(req.method))return res.sendStatus(405);if(req.path==='/index.html'&&req.query.sandbox!=='1')return res.sendStatus(403);next();});
-app.use(express.static('/app/public',{index:false}));
+app.use(express.static(process.env.OPS_PUBLIC_DIR||'/app/public',{index:false}));
 const status={};let closing=false;
 function connect(source,url){const ws=new WebSocket(url,{maxPayload:262144});status[source]={connected:false};ws.on('open',()=>status[source]={...status[source],connected:true});ws.on('message',data=>{try{const report=JSON.parse(data);status[source].lastReceived=Date.now();if(!journal.append(source,report))status[source].lastSkipped=Date.now();}catch{status[source].parseError=Date.now();}});ws.on('error',()=>{});ws.on('close',()=>{status[source].connected=false;if(!closing)setTimeout(()=>connect(source,url),5000).unref();});return ws;}
 const sockets=process.env.OPS_CAPTURE==='false'?[]:[connect('gcp','wss://eq.shum10.com/'),connect('oracle','wss://oracle-review.eq.shum10.com/')];
 const maintenance=setInterval(()=>journal.prune(30).catch(e=>console.error('retention-failed',e.code)),3600000);maintenance.unref();
-app.listen(8090,'0.0.0.0',()=>console.log('Authenticated review service listening'));
+const server=app.listen(Number(process.env.OPS_PORT ?? 8090),'0.0.0.0',()=>{console.log('Authenticated review service listening');if(process.send)process.send({port:server.address().port});});
 process.on('SIGTERM',()=>{closing=true;sockets.forEach(s=>s.close());journal.pending.finally(()=>process.exit(0));});
