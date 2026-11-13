@@ -1,0 +1,3 @@
+'use strict';
+const {Storage}=require('@google-cloud/storage');const crypto=require('node:crypto');const os=require('node:os');
+(async()=>{const [input,destination]=process.argv.slice(2);if(!destination?.startsWith('gs://'))throw Error('GCS destination required');const [bucket,...prefix]=destination.slice(5).split('/');const name=[...prefix,os.hostname(),new Date().toISOString().replace(/[:.]/g,'-')+'-'+crypto.randomUUID()+'.cms'].join('/');await new Storage().bucket(bucket).upload(input,{destination:name,preconditionOpts:{ifGenerationMatch:0},metadata:{contentType:'application/pkcs7-mime'}});console.log('Encrypted backup uploaded');})().catch(()=>{console.error('Encrypted backup failed');process.exitCode=1;});

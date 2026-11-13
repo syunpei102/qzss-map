@@ -90,12 +90,15 @@ app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; },
 }));
 
+const NOTIFICATION_BACKEND_URL = (process.env.NOTIFICATION_BACKEND_URL || '').trim();
+app.use(require('./notification-backend').createNotificationBackend(NOTIFICATION_BACKEND_URL));
+
 // ==== プッシュ通知(Web Push) ====
 // VAPID鍵は `npx web-push generate-vapid-keys` で生成し、環境変数で渡す。
 // 未設定でも他の機能(地図表示・WebSocket)には影響しない(通知だけ無効になる)。
 const VAPID_PUBLIC_KEY = (process.env.VAPID_PUBLIC_KEY || "").trim();
 const VAPID_PRIVATE_KEY = (process.env.VAPID_PRIVATE_KEY || "").trim();
-const PUSH_ENABLED = !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
+const PUSH_ENABLED = process.env.QZSS_PUSH_PAUSED !== "true" && !!(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY);
 if (PUSH_ENABLED) {
   webpush.setVapidDetails("mailto:qzss-map@example.com", VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 } else {
@@ -221,7 +224,7 @@ function isStaleForNotification(report) {
 }
 
 function shouldNotify(report) {
-  if (!PUSH_ENABLED || !report) return false;
+  if (NOTIFICATION_BACKEND_URL || !PUSH_ENABLED || !report) return false;
   if (!InformationSettings.isEnabled(report, informationCategorySettings)) return false;
   if (report.type === "Heartbeat" || report.type === "DecodeError") return false;
   if (!report.is_test_data && isStaleForNotification(report)) return false;
@@ -1788,6 +1791,25 @@ app.get("/config", (req, res) => {
     webVersion: fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim(),
   });
 });
+
+// 並行移行中だけ，通知判定用の公開設定を主系統から同期する．
+if (LOCAL_STATE_ONLY && process.env.QZSS_CONFIG_SOURCE_URL) {
+  const source = new URL(process.env.QZSS_CONFIG_SOURCE_URL);
+  if (source.protocol !== 'https:') throw new Error('config source requires HTTPS');
+  const syncConfig = async () => {
+    try {
+      const response = await fetch(source, { signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error('config unavailable');
+      const config = await response.json();
+      if (typeof config.showTrainingBroadcasts === 'boolean' && config.showTrainingBroadcasts !== globalShowTrainingBroadcasts) setTrainingBroadcastSetting(null, config.showTrainingBroadcasts);
+      if (typeof config.lalertEnabled === 'boolean' && config.lalertEnabled !== globalLalertEnabled) setLalertEnabledSetting(null, config.lalertEnabled);
+      const changes = {};
+      for (const key of ['weatherEnabled', 'volcanoEnabled']) if (typeof config[key] === 'boolean' && config[key] !== informationCategorySettings[key]) changes[key] = config[key];
+      if (Object.keys(changes).length) setInformationCategorySettings(changes);
+    } catch { console.warn('config source temporarily unavailable; keeping previous settings'); }
+  };
+  setInterval(syncConfig, 60000).unref();
+}
 
 // ==================================================
 // Discord Bot(HTTP Interactionsエンドポイント)

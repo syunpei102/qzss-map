@@ -34,7 +34,7 @@ test('captured Alert / Test alert and legacy Test are official training; real al
 test('actual notification gate blocks captured test only when training is OFF', () => {
   for (const enabled of [false, true]) {
     const notify = load('../server.js', 'shouldNotify', '// public/main.jsの同名関数', {
-      PUSH_ENABLED: true, InformationSettings: { isEnabled: () => true }, informationCategorySettings: {},
+      NOTIFICATION_BACKEND_URL: "", PUSH_ENABLED: true, InformationSettings: { isEnabled: () => true }, informationCategorySettings: {},
       isStaleForNotification: () => false, globalShowTrainingBroadcasts: enabled,
       TrainingReportFilter, globalLalertEnabled: false,
     });

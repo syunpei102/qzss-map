@@ -1,0 +1,14 @@
+[Unit]
+Description=QZSS published version watcher
+After=network-online.target qzss-stream.service
+Wants=network-online.target
+[Service]
+User=ubuntu
+Environment=HOME=/home/ubuntu
+Environment=TZ=Asia/Tokyo
+ExecStart=/usr/bin/python3 /opt/qzss-stream/version_watch.py
+Restart=always
+RestartSec=20
+UMask=0077
+[Install]
+WantedBy=multi-user.target

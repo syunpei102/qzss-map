@@ -1,0 +1,9 @@
+[Unit]
+Description=QZSS offline model and isolated browser audit
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec qzss-ops nice -n 19 node /app/ops/audit.js /ops-data/reports /ops-data/audits
+ExecStart=/usr/bin/docker exec qzss-ops nice -n 19 node /app/ops/browser-audit.js
+ExecStart=/usr/bin/docker exec qzss-ops node /app/ops/check-health.js
+TimeoutStartSec=240

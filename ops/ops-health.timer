@@ -1,0 +1,7 @@
+[Unit]
+Description=QZSS reception comparison interval
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+[Install]
+WantedBy=timers.target

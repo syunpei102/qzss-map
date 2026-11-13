@@ -1,0 +1,5 @@
+[Unit]
+Description=QZSS reception comparison check
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec qzss-ops node /app/ops/check-health.js
