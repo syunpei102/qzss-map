@@ -20,3 +20,16 @@ tar -xzf state.tar.gz -C recovered
 ```
 
 環境変数ファイルは600，格納ディレクトリは700とする．サービスの認証情報や復号鍵をログへ出力しない．
+
+
+## 現在の役割分担
+
+`eq.shum10.com`の地図・WebSocketはGCPを維持する（ユーザー指定）．通知購読APIはOracleへ中継し，自動プッシュはOracleだけで送る．Discordの既存設定コマンドはGCPに残し，Oracleは公開/configを60秒ごとに同期する．YouTubeと録画トリガーはOracleを使用する．`replay.shum10.com`は別の認証付きサイト．
+
+日次検査は03:00，暗号化バックアップは04:00（いずれも日本時間，ランダムな遅延あり）．受信比較は5分ごと，録画検査・保持期限の整理は1時間ごと．GCP比較接続を維持する間はCloud Runの稼働課金が継続する．
+
+## 再構築の要点
+
+Gitの対象コミットを取得し，サーバーはルートDockerfile，検証用はops/Dockerfileでビルドする．暗号化バックアップから復元した環境ファイル・保存状態をマウントし，8080/8090はloopbackだけに公開する．Caddyで各HTTPSホストへ転送する．実設定ファイルはGitへ登録しない．
+
+復号鍵はMacのDownloads/qzss-private-backupに保管する．動画・受信電文はVM内のみのため，VMのディスクを失った場合は復旧できない．バックアップ用サービスアカウントは専用GCSバケットへのobjectCreatorだけを持つ．
