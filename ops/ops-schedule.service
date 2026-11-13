@@ -1,5 +1,6 @@
 [Unit]
 Description=QZSS offline model and isolated browser audit
+OnFailure=qzss-maintenance-alert.service
 After=docker.service
 [Service]
 Type=oneshot
