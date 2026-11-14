@@ -103,6 +103,26 @@ def service_probe(unit):
         return {'active':fields.get('ActiveState'),'result':fields.get('Result'),'exitCode':number(fields.get('ExecMainStatus')),'restarts':number(fields.get('NRestarts')),'restartPolicy':fields.get('Restart'),'watchdogConfigured':fields.get('WatchdogUSec') not in (None,'0','0us'),'lastFinishedAt':round((time.time()-time.monotonic()+exited/1000000)*1000) if exited else None}
     except (OSError,subprocess.TimeoutExpired):return {}
 
+def watchdog_state(root=pathlib.Path('/sys/class/watchdog/watchdog0')):
+    result={'active':None,'timeoutSeconds':None,'remainingSeconds':None}
+    for key,name in [('active','state'),('timeoutSeconds','timeout'),('remainingSeconds','timeleft')]:
+        try:
+            value=(root/name).read_text().strip()
+            result[key]=value=='active' if key=='active' else number(value)
+        except OSError:pass
+    return result
+
+def runtime_watchdog():
+    try:
+        result=subprocess.run(['systemctl','show','-p','RuntimeWatchdogUSec'],capture_output=True,text=True,timeout=3)
+        if result.returncode:return None
+        fields=dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
+        value=fields.get('RuntimeWatchdogUSec')
+        if value in ('0','0us','0s','infinity'):return False
+        if not isinstance(value,str) or not re.fullmatch(r'(?:\d+(?:\.\d+)?(?:us|ms|s|min|h|d)?\s*)+',value):return None
+        return any(float(v)>0 for v in re.findall(r'\d+(?:\.\d+)?',value))
+    except (OSError,subprocess.TimeoutExpired):return None
+
 def infrastructure(role):
     result={'checkedAt':round(time.time()*1000)}
     if role=='server':
@@ -120,6 +140,11 @@ def infrastructure(role):
         result['audit']=service_probe('ops-schedule.service')
         result['healthTimer']=service_probe('ops-health.timer')
         result['health']=service_probe('ops-health.service')
+    elif role=='pi':
+        result['supervisor']=service_probe('qzss-decoder@qzss01.service')
+        result['receptionTimer']=service_probe('qzss-reception-watch.timer')
+        result['receptionService']=service_probe('qzss-reception-watch.service')
+        result['osWatchdogConfigured']=runtime_watchdog()
     elif role=='stream':
         result['supervisor']=service_probe('qzss-stream.service')
         result['backup']=service_probe('qzss-private-backup.service')
@@ -153,7 +178,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
                 if r.returncode==0:result['versions']['receiver']=r.stdout.strip()
             except (OSError,subprocess.TimeoutExpired):pass
     state={'cpu':cpu,'mono':mono}
-    if role in ('server','stream'):
+    if role in ('server','stream','pi'):
         cached=previous.get('infrastructure',{})
         result['infrastructure']=infrastructure(role) if wall*1000-cached.get('checkedAt',0)>=60000 else cached
         state['infrastructure']=result['infrastructure']
@@ -166,6 +191,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
             result['services'][name]=r.stdout.strip() or 'unknown'
         except (OSError,subprocess.TimeoutExpired):result['services'][name]='unknown'
     if role=='pi':
+        result['watchdog']=watchdog_state()
         result['network']=network_state(proc)
         try:result['bootId']=(proc/'sys/kernel/random/boot_id').read_text().strip()
         except OSError:pass

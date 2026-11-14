@@ -13,6 +13,18 @@ class MetricsTests(unittest.TestCase):
    self.assertEqual(result['recording'],1);self.assertEqual(result['uploading'],1);self.assertEqual(result['pending'],1)
    self.assertEqual(result['archivePending'],1);self.assertEqual(result['archiveFailed'],1);self.assertEqual(result['failed'],1)
 
+ def test_watchdog_counter_and_configuration_are_read_only_and_unknown_on_missing(self):
+  from unittest.mock import patch
+  import subprocess
+  with tempfile.TemporaryDirectory() as directory:
+   root=pathlib.Path(directory)
+   self.assertIsNone(agent.watchdog_state(root)['active'])
+   (root/'state').write_text('active');(root/'timeout').write_text('60');(root/'timeleft').write_text('23')
+   self.assertEqual(agent.watchdog_state(root),{'active':True,'timeoutSeconds':60.0,'remainingSeconds':23.0})
+  for raw,expected in [('RuntimeWatchdogUSec=1min\n',True),('RuntimeWatchdogUSec=0\n',False),('RuntimeWatchdogUSec=unknown\n',None)]:
+   with patch.object(agent.subprocess,'run',return_value=subprocess.CompletedProcess([],0,raw,'')):
+    self.assertEqual(agent.runtime_watchdog(),expected)
+
  def test_cpu_excludes_idle_iowait_and_steal(self):
   cpu,steal=agent.cpu_delta([10,0,10,60,5,0,0,15],[0]*8)
   self.assertEqual(cpu,20);self.assertEqual(steal,15)
