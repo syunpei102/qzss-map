@@ -6,6 +6,12 @@ def read_json(path):
     try:return json.loads(path.read_text())
     except (OSError,ValueError):return {}
 
+def read_tail(path,limit=16384):
+    with path.open('rb') as handle:
+        handle.seek(0,2);length=handle.tell();offset=max(0,length-limit);handle.seek(offset);data=handle.read(limit)
+    if offset:data=data.partition(b'\n')[2]
+    return data.decode('utf-8',errors='replace')
+
 def cpu_delta(current,previous):
     if not previous or len(previous)!=len(current):return None,None
     delta=[a-b for a,b in zip(current,previous)]
@@ -92,7 +98,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
     if role=='stream':
         progress=stream/'ffmpeg.progress'
         try:
-            fields=dict(line.split('=',1) for line in progress.read_text().splitlines() if '=' in line)
+            fields=dict(line.split('=',1) for line in read_tail(progress).splitlines() if '=' in line)
             frame=int(fields.get('frame',0));out=number(fields.get('out_time_us'));elapsed=mono-previous.get('mono',mono)
             # Recent frame production，not the lifetime-average fps reported by FFmpeg．
             fps=(frame-previous['frame'])/elapsed if elapsed>0 and 'frame' in previous and frame>=previous['frame'] else None
@@ -128,5 +134,5 @@ def main():
             req=urllib.request.Request(url,data=json.dumps(data,allow_nan=False).encode(),headers={'Content-Type':'application/json','Authorization':'Bearer '+token},method='POST')
             with urllib.request.urlopen(req,timeout=5) as response:response.read(1024)
         except Exception as error:print('Metrics sample not delivered: '+type(error).__name__,flush=True)
-        time.sleep(max(1,15-(time.monotonic()-started)))
+        time.sleep(max(10,15-(time.monotonic()-started)))
 if __name__=='__main__':main()
