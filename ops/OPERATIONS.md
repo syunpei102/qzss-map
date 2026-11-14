@@ -33,3 +33,14 @@ tar -xzf state.tar.gz -C recovered
 Gitの対象コミットを取得し，サーバーはルートDockerfile，検証用はops/Dockerfileでビルドする．暗号化バックアップから復元した環境ファイル・保存状態をマウントし，8080/8090はloopbackだけに公開する．Caddyで各HTTPSホストへ転送する．実設定ファイルはGitへ登録しない．
 
 復号鍵はMacのDownloads/qzss-private-backupに保管する．動画・受信電文はVM内のみのため，VMのディスクを失った場合は復旧できない．バックアップ用サービスアカウントは専用GCSバケットへのobjectCreatorだけを持つ．
+
+## 認証付き監視サイト v1.17.0
+
+- `status.shum10.com` はOracleサーバー用VMのCaddyからopsコンテナへ転送し，ルートのみ `/dashboard` に書き換える．再生サイトとは別のホスト名，同じBasic認証．GCPのバージョン・リソースは表示しない．既存の並行受信比較は維持する．
+- 各機器に `ops/install-metrics.sh server|stream|pi` で読み取り専用の収集サービスを設置．`/etc/qzss-metrics.env` はroot所有600，役割・URL・役割ごとのBearerトークン・収集コードのバージョンを設定．収集先は `/api/telemetry/<role>` だけ．役割間でトークンを共有しない．受信側は `/etc/qzss-ops/ops.env` の `OPS_METRICS_SERVER_TOKEN` / `STREAM` / `PI` を使用する．Gitへ秘密を保存しない．
+- 15秒収集，15秒表示更新．CPUは差分からidle・iowait・stealを除いた使用率，stealは別表示．メモリはMemTotal−MemAvailable．FFmpegの実測fpsは直前サンプルとの差分，視聴側fpsではない．初回の差分は未取得．サービスは非root，Nice15，CPU上限5％，メモリ64MiB．受信・配信サービスの再起動は行わない．
+- Piは既存の受信監視stateとCH340のsysfs認識を参照し，60秒ごとに限定範囲の受信ログからQZQSMフレーム時刻だけを抽出する．生ログ・認証情報は送信しない．フレーム確認は復号成功や物理アンテナの導通・信号強度を証明しない．既存のUSB自動復旧・Discord通知の条件は変更しない．
+- 現在値は小さいJSONへ15秒保存，履歴は1分1件の日次JSONLへ追記し7日保持．バージョン切替の初回観測時刻も保存する．実際のデプロイ時刻とは区別する．監視コード・公開地図・配信画面の読み込み済みバージョンは別表示．
+- Oracle経由ハートビートだけを監視グラフ・切断判定に使用．ReceiverStatusのキャッシュは件数に加算せず，ageMsを差し引く．地図と同じ90秒超でオフライン．同じ停止中に繰り返し通知せず，復旧時は継続時間を通知する．初期観測時に既に停止なら通知せず，観測開始時刻から記録する．Discord失敗時は順序付き永続キューで再試行．未送信キューは7日まで．
+- 監視WebSocketが切れた区間は，ラズパイの停止と断定しない．監視ループ45秒超の停止・再起動は観測境界とし，復旧を捏造しない．ホスト収集の90秒途絶も切断・復旧通知の対象．監視VM自体が停止中は通知不能．履歴は導入後の観測分のみ．日別集計は日本時間で日跨ぎを切り分ける．
+- デジタル庁デザインシステムの色・テーブル・アクセシビリティガイドを参照した独自実装．公式コンポーネント認証や完全なWCAG適合を主張しない．白背景・青い操作色，文字付き状態表示，フォーカス可視化，グラフの数値表，単純な表見出しを使用する．参照： https://design.digital.go.jp/dads/foundations/color/ ，https://design.digital.go.jp/dads/components/table/accessibility/ ．
