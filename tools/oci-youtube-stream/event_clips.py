@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Bounded HLS ring → event clips → resumable YouTube uploads．Stdlib only．"""
 import argparse
+import contextlib
+import fcntl
 import base64
 import datetime as dt
 import hashlib
@@ -337,7 +339,28 @@ def access_headers(auth_path):
     return {'Authorization': 'Bearer ' + json.loads(raw)['access_token']}
 
 
+@contextlib.contextmanager
+def description_lock(root, timeout=20):
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / '.live-description.lock').open('a') as lock:
+        started=time.monotonic()
+        while True:
+            try:
+                fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic()-started>=timeout:raise TimeoutError('description lock busy')
+                time.sleep(0.1)
+        try:yield
+        finally:fcntl.flock(lock.fileno(),fcntl.LOCK_UN)
+
+
 def sync_archive(root):
+    with description_lock(root):
+        return _sync_archive(root)
+
+
+def _sync_archive(root):
     """Independent from upload: errors never cause a completed clip to be uploaded again．"""
     auth_path = root / 'youtube-oauth.json'
     if EDIT_SCOPE not in read(auth_path).get('scopes', []):
@@ -363,7 +386,7 @@ def sync_archive(root):
     if not backup.exists():
         save(backup, {'live_id': live_id, 'snippet': snippet})
     if updated != description:
-        mutable = {key: snippet[key] for key in ('title', 'categoryId', 'tags', 'defaultLanguage') if key in snippet}
+        mutable = {key: snippet[key] for key in ('title', 'categoryId', 'tags', 'defaultLanguage', 'defaultAudioLanguage') if key in snippet}
         mutable['description'] = updated
         _, _, raw = request('https://www.googleapis.com/youtube/v3/videos?part=snippet',
                             json.dumps({'id': live_id, 'snippet': mutable}).encode(),

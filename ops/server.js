@@ -3,8 +3,9 @@ const express=require('express'),WebSocket=require('ws'),crypto=require('node:cr
 const {Journal,compare}=require('./journal');
 const {Monitor,jstDay}=require('./monitor');
 const {Telemetry,ROLES}=require('./telemetry');
+const {YouTubeControl}=require('./youtube');
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
-const monitor=new Monitor(root),telemetry=new Telemetry(root);
+const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root);
 const app=express();app.disable('x-powered-by');
 // Role-scoped ingestion accepts only numeric allowlisted metrics，never browser credentials．
 app.post('/api/telemetry/:role',express.json({limit:'16kb'}),(req,res)=>{
@@ -13,15 +14,25 @@ app.post('/api/telemetry/:role',express.json({limit:'16kb'}),(req,res)=>{
  if(!ROLES.includes(role)||!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
  try{telemetry.add(role,req.body);monitor.transition('host-'+role,'telemetry','online',Date.now(),'metrics-received');res.json({ok:true});}catch{res.sendStatus(400);}
 });
+app.post('/api/youtube/agent',express.json({limit:'64kb'}),(req,res)=>{
+ const token=process.env.OPS_METRICS_STREAM_TOKEN,received=req.get('authorization')||'';
+ if(!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
+ try{res.json(youtube.report(req.body));}catch{res.sendStatus(400);}
+});
 const expected=process.env.OPS_PASSWORD_SHA256||'';if(!/^[a-f0-9]{64}$/.test(expected))throw Error('OPS_PASSWORD_SHA256 required');
 app.use((req,res,next)=>{res.set('Cache-Control','no-store');const h=req.get('authorization')||'';let value='';try{value=Buffer.from(h.replace(/^Basic /,''),'base64').toString()}catch{}const i=value.indexOf(':');const ok=value.slice(0,i)===(process.env.OPS_USER||'qzss')&&crypto.timingSafeEqual(Buffer.from(crypto.createHash('sha256').update(value.slice(i+1)).digest('hex')),Buffer.from(expected));if(!ok)return res.status(401).set('WWW-Authenticate','Basic realm="QZSS review"').end();next();});
+app.get('/api/youtube',(_req,res)=>res.json(youtube.view(true)));
+function youtubeWrite(req,res,next){const origin=req.get('origin'),host=req.get('host');const expectedOrigin=(/^127\.0\.0\.1:|^localhost:/.test(host)?'http://':'https://')+host;if(origin!==expectedOrigin||req.get('x-qzss-csrf')!==youtube.csrf||!req.is('application/json'))return res.sendStatus(403);next();}
+app.post('/api/youtube/template',youtubeWrite,express.json({limit:'24kb'}),(req,res)=>{try{res.json(youtube.draft(req.body));}catch(e){res.status(e.status||400).json({error:e.message});}});
+app.post('/api/youtube/apply',youtubeWrite,express.json({limit:'4kb'}),(req,res)=>{try{res.json(youtube.apply(req.body));}catch(e){res.status(e.status||400).json({error:e.message});}});
 app.get('/api/files',(_req,res)=>res.json(journal.files()));
 app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(String(req.query.file));const reports=rows.filter(r=>r.source==='oracle'&&!['Heartbeat','DecodeError'].includes(r.report.type));const total=reports.length;res.json({reports:reports.slice(-500),total,comparison:compare(rows).slice(-500)});}catch{res.status(404).json({error:'recording not found'});}});
 app.get('/dashboard',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.html')));
 app.get('/dashboard-releases.json',(_req,res)=>res.sendFile(path.join(process.env.OPS_PUBLIC_DIR||'/app/public','releases.json')));
+app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.css')));
-app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot()});});
+app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view()});});
 app.get('/api/status',(_req,res)=>res.json(status));
 app.get('/',(_req,res)=>res.sendFile(path.join(__dirname,'review.html')));
 app.get('/review.js',(_req,res)=>res.sendFile(path.join(__dirname,'review.js')));

@@ -19,3 +19,15 @@ class MetricsTests(unittest.TestCase):
    self.assertLessEqual(len(tail.encode()),256)
    self.assertIn('frame=12345',tail)
    self.assertTrue(tail.endswith('progress=continue\n'))
+
+ def test_network_snapshot_and_crash_classification(self):
+  with tempfile.TemporaryDirectory() as directory:
+   root=pathlib.Path(directory);(root/'net').mkdir();(root/'interfaces/wlan0').mkdir(parents=True)
+   (root/'net/route').write_text('Iface Destination Gateway Flags\nwlan0 00000000 0100000A 0003\n')
+   (root/'net/wireless').write_text('wlan0: 0000 70. -40. -256. 0 0\n')
+   (root/'interfaces/wlan0/operstate').write_text('up');(root/'interfaces/wlan0/carrier').write_text('1')
+   network=agent.network_state(root,root/'interfaces')
+   self.assertTrue(network['carrier']);self.assertEqual(network['interface'],'wlan0');self.assertEqual(network['wifiDbm'],-40)
+  event=agent.decoder_event({'SYSLOG_IDENTIFIER':'systemd','MESSAGE':'unit: Main process exited, code=dumped, status=11/SEGV','__REALTIME_TIMESTAMP':'1234000'})
+  self.assertEqual(event['kind'],'crash');self.assertEqual(event['at'],1234)
+  self.assertIsNone(agent.decoder_event({'SYSLOG_IDENTIFIER':'python3','MESSAGE':'sensitive raw data'}))

@@ -6,7 +6,7 @@ source_dir=$(cd "$(dirname "$0")" && pwd)
 install -d -m 700 /etc/qzss-ops /opt/qzss-ops
 install -m 755 "$source_dir/maintenance.py" "$source_dir/upload_backup.py" /opt/qzss-ops/
 if [[ "$role" == server ]]; then
-  inputs='/etc/qzss-server /var/lib/qzss-server /etc/qzss-ops/ops.env /home/ubuntu/apps/qzss-proxy/Caddyfile'
+  inputs='/etc/qzss-server /var/lib/qzss-server /etc/qzss-ops/ops.env /home/ubuntu/apps/qzss-proxy/Caddyfile /var/lib/qzss-ops/youtube.json /etc/qzss-metrics.env'
 else
   inputs='/etc/qzss-stream.env /home/ubuntu/qzss-stream/youtube-oauth.json /home/ubuntu/qzss-stream/live-description-state.json /home/ubuntu/qzss-stream/clip-seen.json /home/ubuntu/qzss-stream/recording-index'
 fi

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read-only host sampler．No process command lines or credentials enter telemetry．"""
-import json, math, os, pathlib, re, shutil, subprocess, time, urllib.request
+import hashlib, json, math, os, pathlib, re, shutil, subprocess, time, urllib.request
 
 def read_json(path):
     try:return json.loads(path.read_text())
@@ -24,6 +24,44 @@ def number(value):
         result=float(str(value).rstrip('x'))
         return result if math.isfinite(result) else None
     except (ValueError,TypeError):return None
+
+
+def network_state(proc=pathlib.Path('/proc'),sysnet=pathlib.Path('/sys/class/net')):
+    result={}
+    try:
+        for line in (proc/'net/route').read_text().splitlines()[1:]:
+            fields=line.split()
+            if len(fields)>3 and fields[1]=='00000000' and int(fields[3],16)&1:
+                interface=fields[0]
+                if re.fullmatch(r'[a-zA-Z0-9_.:-]{1,32}',interface):result['interface']=interface
+                break
+        interface=result.get('interface')
+        if interface:
+            base=sysnet/interface
+            for key,file in [('operState','operstate'),('carrier','carrier'),('rxBytes','statistics/rx_bytes'),('txBytes','statistics/tx_bytes')]:
+                try:
+                    raw=(base/file).read_text().strip();result[key]=raw if key=='operState' else raw=='1' if key=='carrier' else int(raw)
+                except (OSError,ValueError):pass
+            try:
+                for line in (proc/'net/wireless').read_text().splitlines():
+                    if line.strip().startswith(interface+':'):result['wifiDbm']=number(line.split(':',1)[1].split()[2])
+            except (OSError,IndexError):pass
+    except (OSError,ValueError):pass
+    return result
+
+def decoder_event(log):
+    message=log.get('MESSAGE','')
+    if not isinstance(message,str) or log.get('SYSLOG_IDENTIFIER')!='systemd':return None
+    text=message.lower();kind=None
+    if 'oom-kill' in text:kind='oom'
+    elif 'status=11/segv' in text or 'code=dumped' in text:kind='crash'
+    elif 'failed with result' in text:kind='service-failed'
+    elif 'main process exited' in text and 'status=0/success' not in text:kind='abnormal-exit'
+    elif text.startswith('started '):kind='service-start'
+    if not kind:return None
+    try:at=int(log['__REALTIME_TIMESTAMP'])/1000
+    except (KeyError,ValueError,TypeError):return None
+    return {'id':hashlib.sha256((str(at)+kind).encode()).hexdigest()[:20],'kind':kind,'at':at}
 
 def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/ubuntu/qzss-stream')):
     mono=time.monotonic();wall=time.time();cpu=list(map(int,(proc/'stat').read_text().splitlines()[0].split()[1:9]));usage,steal=cpu_delta(cpu,previous.get('cpu'))
@@ -54,13 +92,21 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
     state={'cpu':cpu,'mono':mono}
     try:result['temperatureC']=int(pathlib.Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
     except (OSError,ValueError):pass
-    units={'server':{'docker':'docker','backup':'qzss-private-backup'},'stream':{'stream':'qzss-stream','clips':'qzss-clips','clock':'qzss-clock-watch','versionWatch':'qzss-version-watch','backup':'qzss-private-backup'},'pi':{'decoder':'qzss-decoder@qzss01','receptionWatch':'qzss-reception-watch.timer'}}[role]
+    units={'server':{'docker':'docker','backup':'qzss-private-backup'},'stream':{'stream':'qzss-stream','clips':'qzss-clips','clock':'qzss-clock-watch','versionWatch':'qzss-version-watch','youtubeManager':'qzss-youtube-manager','backup':'qzss-private-backup'},'pi':{'decoder':'qzss-decoder@qzss01','receptionWatch':'qzss-reception-watch.timer'}}[role]
     for name,unit in units.items():
         try:
             r=subprocess.run(['systemctl','is-active',unit if unit.endswith('.timer') else unit+'.service'],capture_output=True,text=True,timeout=2)
             result['services'][name]=r.stdout.strip() or 'unknown'
         except (OSError,subprocess.TimeoutExpired):result['services'][name]='unknown'
     if role=='pi':
+        result['network']=network_state(proc)
+        try:result['bootId']=(proc/'sys/kernel/random/boot_id').read_text().strip()
+        except OSError:pass
+        try:
+            service=subprocess.run(['systemctl','show','qzss-decoder@qzss01.service','-p','NRestarts','-p','Result','-p','ExecMainStatus'],capture_output=True,text=True,timeout=3)
+            fields=dict(line.split('=',1) for line in service.stdout.splitlines() if '=' in line)
+            result['decoder']={'restartCount':number(fields.get('NRestarts')),'result':fields.get('Result'),'exitStatus':number(fields.get('ExecMainStatus'))}
+        except (OSError,subprocess.TimeoutExpired):pass
         watchfile=pathlib.Path('/home/qzss01/qzss/qzss-pi-package/update_state/reception_state.json');watch=read_json(watchfile)
         reception={'watchState':watch.get('state'),'lastResetAt':watch.get('last_reset',0)*1000 or None,'lastRestartAt':watch.get('last_restart',0)*1000 or None,'resetCount':watch.get('reset_count'),'escalated':watch.get('escalated')}
         try:reception['watchAgeSeconds']=max(0,wall-watchfile.stat().st_mtime)
@@ -75,19 +121,22 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
         except OSError:pass
         cached=previous.get('reception',{})
         if wall-cached.get('journalCheckedAt',0)/1000>=60:
-            reception.update(lastFrameAt=cached.get('lastFrameAt'),journalCheckedAt=round(wall*1000),journalAvailable=False)
+            reception.update(lastFrameAt=cached.get('lastFrameAt'),journalCheckedAt=round(wall*1000),journalAvailable=False);state['decoderEvents']=[]
             try:
                 r=subprocess.run(['journalctl','-u','qzss-decoder@qzss01.service','--since','@'+str(max(wall-180,cached.get('journalCheckedAt',0)/1000-1)),'-n','1500','-o','json','--no-pager'],capture_output=True,text=True,timeout=4)
                 if r.returncode==0:
                     reception['journalAvailable']=True
                     for line in r.stdout.splitlines():
                         try:
-                            log=json.loads(line);message=log.get('MESSAGE','')
+                            log=json.loads(line);message=log.get('MESSAGE','');event=decoder_event(log)
+                            if event:state['decoderEvents'].append(event)
                             if isinstance(message,str) and message.startswith('$QZQSM,'):reception['lastFrameAt']=int(log['__REALTIME_TIMESTAMP'])/1000
                         except (ValueError,KeyError,TypeError):pass
             except (OSError,subprocess.TimeoutExpired):pass
         else:
             for key in ('lastFrameAt','journalCheckedAt','journalAvailable'):reception[key]=cached.get(key)
+        result['decoderEvents']=state.get('decoderEvents',previous.get('decoderEvents',[]))[-20:]
+        state['decoderEvents']=result['decoderEvents']
         result['reception']=reception;state['reception']=reception
     if role=='pi':
         try:
