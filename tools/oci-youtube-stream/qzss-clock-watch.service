@@ -1,0 +1,13 @@
+[Unit]
+Description=QZSS clock observation without timezone modification
+After=qzss-stream.service
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/qzss-stream
+ExecStart=/usr/bin/python3 /opt/qzss-stream/clock_watch.py
+Restart=on-failure
+RestartSec=10
+Nice=10
+[Install]
+WantedBy=multi-user.target
