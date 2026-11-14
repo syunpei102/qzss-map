@@ -19,6 +19,8 @@ app.post('/api/youtube/agent',express.json({limit:'64kb'}),(req,res)=>{
  if(!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
  try{res.json(youtube.report(req.body));}catch{res.sendStatus(400);}
 });
+// Only app identity assets are public，so OS installers need no monitoring credentials．
+for(const name of ['monitor.webmanifest','monitor-icon.svg','monitor-icon-180.png','monitor-icon-192.png','monitor-icon-512.png','monitor-icon-maskable.png','monitor-sw.js'])app.get('/'+name,(req,res)=>{if(!['status.shum10.com','127.0.0.1','localhost'].includes(req.hostname))return res.sendStatus(404);res.set('Cache-Control','no-store');if(name.endsWith('.webmanifest'))res.type('application/manifest+json');if(name==='monitor-sw.js')res.set('Service-Worker-Allowed','/');res.sendFile(path.join(__dirname,name));});
 const expected=process.env.OPS_PASSWORD_SHA256||'';if(!/^[a-f0-9]{64}$/.test(expected))throw Error('OPS_PASSWORD_SHA256 required');
 app.use((req,res,next)=>{res.set('Cache-Control','no-store');const h=req.get('authorization')||'';let value='';try{value=Buffer.from(h.replace(/^Basic /,''),'base64').toString()}catch{}const i=value.indexOf(':');const ok=value.slice(0,i)===(process.env.OPS_USER||'qzss')&&crypto.timingSafeEqual(Buffer.from(crypto.createHash('sha256').update(value.slice(i+1)).digest('hex')),Buffer.from(expected));if(!ok)return res.status(401).set('WWW-Authenticate','Basic realm="QZSS review"').end();next();});
 app.get('/api/youtube',(_req,res)=>res.json(youtube.view(true)));
@@ -29,8 +31,10 @@ app.get('/api/files',(_req,res)=>res.json(journal.files()));
 app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(String(req.query.file));const reports=rows.filter(r=>r.source==='oracle'&&!['Heartbeat','DecodeError'].includes(r.report.type));const total=reports.length;res.json({reports:reports.slice(-500),total,comparison:compare(rows).slice(-500)});}catch{res.status(404).json({error:'recording not found'});}});
 app.get('/dashboard',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.html')));
 app.get('/dashboard-releases.json',(_req,res)=>res.sendFile(path.join(process.env.OPS_PUBLIC_DIR||'/app/public','releases.json')));
+app.get('/monitor-pwa.js',(_req,res)=>res.sendFile(path.join(__dirname,'monitor-pwa.js')));
 app.get('/dashboard-health.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-health.js')));
 app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
+app.get('/dashboard-clock.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-clock.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.css')));
 app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view()});});

@@ -1,0 +1,17 @@
+{
+  "id": "/qzss-monitor",
+  "name": "QZSS 運用監視",
+  "short_name": "QZSS監視",
+  "description": "受信機・Oracleサーバー・YouTube配信の稼働状況を確認する監視アプリ",
+  "lang": "ja",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#171a1f",
+  "theme_color": "#171a1f",
+  "icons": [
+    {"src":"/monitor-icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/monitor-icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+    {"src":"/monitor-icon-maskable.png","sizes":"512x512","type":"image/png","purpose":"maskable"}
+  ]
+}
