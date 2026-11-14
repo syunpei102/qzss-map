@@ -10,6 +10,14 @@ app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(Stri
 app.get('/api/status',(_req,res)=>res.json(status));
 app.get('/',(_req,res)=>res.sendFile(path.join(__dirname,'review.html')));
 app.get('/review.js',(_req,res)=>res.sendFile(path.join(__dirname,'review.js')));
+app.get('/audit-results',(_req,res)=>res.sendFile(path.join(__dirname,'audit-results.html')));
+app.get('/audit-results.js',(_req,res)=>res.sendFile(path.join(__dirname,'audit-results.js')));
+app.get('/api/audit-results',async(_req,res)=>{
+ const read=async name=>{try{return JSON.parse(await fs.promises.readFile(path.join(root,'audits',name),'utf8'));}catch{return null;}};
+ const [model,browser]=await Promise.all([read('model-latest.json'),read('browser-latest.json')]);
+ res.json({model,browser});
+});
+app.get('/audits/model-latest.json',(req,res,next)=>{if((req.get('Accept')||'').includes('text/html'))return res.redirect('/audit-results');next();});
 app.use('/audits',express.static(path.join(root,'audits'),{index:false}));
 app.use((req,res,next)=>{if(!['GET','HEAD'].includes(req.method))return res.sendStatus(405);if(req.path==='/index.html'&&req.query.sandbox!=='1')return res.sendStatus(403);next();});
 app.use(express.static(process.env.OPS_PUBLIC_DIR||'/app/public',{index:false}));
