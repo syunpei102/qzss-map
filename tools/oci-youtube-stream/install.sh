@@ -11,6 +11,8 @@ install -m 755 "$source_dir/run.sh" /opt/qzss-stream/run.sh
 install -m 755 "$source_dir/event_clips.py" /opt/qzss-stream/event_clips.py
 install -m 755 "$source_dir/browser_guard.py" /opt/qzss-stream/browser_guard.py
 install -m 755 "$source_dir/version_watch.py" /opt/qzss-stream/version_watch.py
+install -m 755 "$source_dir/clock_watch.py" /opt/qzss-stream/clock_watch.py
+install -m 644 "$source_dir/qzss-clock-watch.service" /etc/systemd/system/qzss-clock-watch.service
 install -m 644 "$source_dir/qzss-version-watch.service" /etc/systemd/system/qzss-version-watch.service
 python3 - <<'PY'
 import json,pathlib
@@ -87,3 +89,5 @@ echo 'sudo systemctl enable --now qzss-stream'
 echo 'sudo systemctl enable --now qzss-clips'
 
 echo 'sudo systemctl enable --now qzss-version-watch'
+
+echo 'sudo systemctl enable --now qzss-clock-watch'
