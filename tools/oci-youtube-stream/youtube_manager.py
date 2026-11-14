@@ -44,7 +44,7 @@ def metadata(headers):
     for row in rows:
         snippet=row.get('snippet',{});status=row.get('status',{});live=details.get(row['id'],{}).get('liveStreamingDetails',{})
         broadcasts.append({'id':row['id'],'title':snippet.get('title',''),'description':snippet.get('description',''),'actualStartTime':snippet.get('actualStartTime') or live.get('actualStartTime'),'actualEndTime':snippet.get('actualEndTime') or live.get('actualEndTime'),'concurrentViewers':int(live['concurrentViewers']) if str(live.get('concurrentViewers','')).isdigit() else None,'privacyStatus':status.get('privacyStatus'),'lifeCycleStatus':status.get('lifeCycleStatus')})
-    return {'broadcasts':broadcasts}
+    return {'checkedAt':round(time.time()*1000),'broadcasts':broadcasts}
 
 def apply_command(root,command,headers,now=None):
     now=time.time() if now is None else now
@@ -98,17 +98,18 @@ def load_state(path):
 def main():
     os.umask(0o077);root=ROOT;url=os.environ['QZSS_METRICS_URL'].rsplit('/api/telemetry/',1)[0]+'/api/youtube/agent';token=os.environ['QZSS_METRICS_TOKEN']
     if not url.startswith('https://'):raise ValueError('HTTPS control URL required')
-    statefile=root/'youtube-manager-state.json';state=load_state(statefile);next_poll=0;headers=None;token_at=0
+    statefile=root/'youtube-manager-state.json';state=load_state(statefile);next_poll=0;headers=None;token_at=0;pending_report={}
     while True:
         body={'agentVersion':'1.18.1'}
         if state.get('ack'):body['ack']=state['ack']
         if time.monotonic()>=next_poll:
             try:
-                headers=access_headers(root/'youtube-oauth.json');token_at=time.monotonic();body['metadata']=metadata(headers)
-            except Exception as error:body['error']=classify(error);print('YouTube metadata check: '+body['error'],flush=True)
+                headers=access_headers(root/'youtube-oauth.json');token_at=time.monotonic();pending_report={'metadata':metadata(headers)}
+            except Exception as error:pending_report={'error':classify(error)};print('YouTube metadata check: '+pending_report['error'],flush=True)
             next_poll=time.monotonic()+POLL_SECONDS
+        body.update(pending_report)
         try:
-            response=control(url,token,body)
+            response=control(url,token,body);pending_report={}
             if body.get('ack'):state.pop('ack',None);save(statefile,state)
             command=response.get('command')
             if command:
