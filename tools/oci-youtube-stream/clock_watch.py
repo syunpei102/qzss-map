@@ -39,11 +39,13 @@ def main():
     while True:
         wall,mono=time.time(),time.monotonic()
         try:
-            row=observation(sample(),wall,mono,previous)
+            state=sample()
+            row=observation(state,time.time(),time.monotonic(),previous)
+            row['sampleElapsedSeconds']=time.monotonic()-mono
             try:
                 progress=dict(line.split('=',1) for line in (ROOT/'ffmpeg.progress').read_text().splitlines() if '=' in line)
                 row['encoder']={k:progress.get(k) for k in ('out_time','speed','dup_frames','drop_frames','progress')}
-                row['encoderProgressAgeSeconds']=wall-(ROOT/'ffmpeg.progress').stat().st_mtime
+                row['encoderProgressAgeSeconds']=time.time()-(ROOT/'ffmpeg.progress').stat().st_mtime
             except OSError:pass
             abnormal=(row['clockDifferenceSeconds'] is None or abs(row['clockDifferenceSeconds'])>5 or abs(row['hostClockJumpSeconds'] or 0)>5 or abs(row['browserEpochDifferenceSeconds'])>5)
             previous=row
