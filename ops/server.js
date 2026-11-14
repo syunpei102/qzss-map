@@ -5,15 +5,16 @@ const {Monitor,jstDay}=require('./monitor');
 const {Telemetry,ROLES}=require('./telemetry');
 const {YouTubeControl}=require('./youtube');
 const {YoutubeLatency}=require('./youtube-latency');
+const {DisplayState}=require('./display-state');
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
-const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root);
+const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root),displayState=new DisplayState(root);
 const app=express();app.disable('x-powered-by');
 // Role-scoped ingestion accepts only numeric allowlisted metrics，never browser credentials．
-app.post('/api/telemetry/:role',express.json({limit:'32kb'}),(req,res)=>{
+app.post('/api/telemetry/:role',express.json({limit:'96kb'}),(req,res)=>{
  const role=req.params.role,token=process.env['OPS_METRICS_'+role.toUpperCase()+'_TOKEN'];
  const received=req.get('authorization')||'';
  if(!ROLES.includes(role)||!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
- try{telemetry.add(role,req.body);if(role==='stream')youtubeLatency.add(req.body.youtubeTimings);monitor.transition('host-'+role,'telemetry','online',Date.now(),'metrics-received');res.json({ok:true});}catch{res.sendStatus(400);}
+ try{telemetry.add(role,req.body);if(role==='stream'){youtubeLatency.add(req.body.youtubeTimings);displayState.add(req.body.displaySnapshot);}monitor.transition('host-'+role,'telemetry','online',Date.now(),'metrics-received');res.json({ok:true});}catch{res.sendStatus(400);}
 });
 app.post('/api/youtube/agent',express.json({limit:'64kb'}),(req,res)=>{
  const token=process.env.OPS_METRICS_STREAM_TOKEN,received=req.get('authorization')||'';
@@ -37,10 +38,12 @@ app.get('/dashboard-releases.json',(_req,res)=>res.sendFile(path.join(process.en
 app.get('/monitor-pwa.js',(_req,res)=>res.sendFile(path.join(__dirname,'monitor-pwa.js')));
 app.get('/dashboard-health.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-health.js')));
 app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
+app.get('/infrastructure-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'infrastructure-view.js')));
+app.get('/display-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'display-view.js')));
 app.get('/dashboard-clock.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-clock.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.css')));
-app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view()});});
+app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view(),display:displayState.view(youtubeLatency.rows)});});
 app.get('/api/status',(_req,res)=>res.json(status));
 app.get('/',(_req,res)=>res.sendFile(path.join(__dirname,'review.html')));
 app.get('/review.js',(_req,res)=>res.sendFile(path.join(__dirname,'review.js')));

@@ -76,7 +76,7 @@ def recording_state(stream):
     if counts['archivePending'] and archive.get('last_error'):counts['archiveFailed']=1
     return counts
 
-def render_timings():
+def browser_snapshot():
     """Read only the captured page，never another browser or a caller-supplied URL．"""
     if '/opt/qzss-stream' not in sys.path:sys.path.insert(0,'/opt/qzss-stream')
     from browser_guard import Debugger
@@ -84,11 +84,47 @@ def render_timings():
     page=next(p for p in pages if p.get('type')=='page' and p.get('url','').startswith('https://oracle-review.eq.shum10.com/'))
     debugger=Debugger(page['webSocketDebuggerUrl'])
     expression="JSON.stringify((globalThis.QZSS_RENDER_TIMINGS||[]).slice(-10).map(t=>({...Object.fromEntries(['schema_version','receiver_decode_ms','server_processing_ms','client_processing_ms','client_visual_ready_ms','client_version','display_result','isTestData','reportKey','recordedAt'].map(k=>[k,t[k]])),reportSummary:Object.fromEntries(['type','disaster_category','information_type','report_time','seismic_epicenter','magnitude','disaster_category_no','report_classification_no'].filter(k=>t.reportSummary?.[k]!=null).map(k=>[k,t.reportSummary[k]]))})))"
+    source=pathlib.Path(__file__).with_name('display-snapshot.js').read_text()
+    display="(()=>{const module={exports:{}};"+source+";const records=typeof activeEvents==='undefined'?[]:[...activeEvents.values()];const states=typeof displayStore==='undefined'?[]:[...displayStore.events.values()];let selected=[];if(typeof DisplayEvents!=='undefined'&&typeof displayViewCycle!=='undefined'){const cycle=Object.assign(new DisplayEvents.ViewCycle(),displayViewCycle);selected=cycle.select(records,Date.now()).map(r=>r.id);}return module.exports.snapshot(records,states,selected,Date.now(),typeof isInitialLoad!=='undefined'&&!isInitialLoad);})()"
+    expression="JSON.stringify({youtubeTimings:JSON.parse("+expression+"),displaySnapshot:"+display+"})"
     try:
         value=debugger.call('Runtime.evaluate',{'expression':expression,'returnByValue':True,'timeout':2000})
-        rows=json.loads(value['result']['value'])
-        return rows if isinstance(rows,list) else []
+        result=json.loads(value['result']['value'])
+        return result if isinstance(result,dict) else {}
     finally:debugger.close()
+
+def service_probe(unit):
+    properties=['ActiveState','Result','ExecMainStatus','NRestarts','Restart','WatchdogUSec','ExecMainExitTimestampMonotonic']
+    try:
+        result=subprocess.run(['systemctl','show',unit]+[arg for key in properties for arg in ['-p',key]],capture_output=True,text=True,timeout=3)
+        if result.returncode:return {}
+        fields=dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
+        exited=number(fields.get('ExecMainExitTimestampMonotonic'))
+        return {'active':fields.get('ActiveState'),'result':fields.get('Result'),'exitCode':number(fields.get('ExecMainStatus')),'restarts':number(fields.get('NRestarts')),'restartPolicy':fields.get('Restart'),'watchdogConfigured':fields.get('WatchdogUSec') not in (None,'0','0us'),'lastFinishedAt':round((time.time()-time.monotonic()+exited/1000000)*1000) if exited else None}
+    except (OSError,subprocess.TimeoutExpired):return {}
+
+def infrastructure(role):
+    result={'checkedAt':round(time.time()*1000)}
+    if role=='server':
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8080/config',timeout=2) as response:config=json.load(response)
+            result['mapApi']=isinstance(config.get('webVersion'),str)
+        except (OSError,ValueError):result['mapApi']=False
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:8080/push/vapid-public-key',timeout=2) as response:config=json.load(response)
+            result['notificationEnabled']=config.get('enabled') is True
+        except (OSError,ValueError):pass
+        result['backup']=service_probe('qzss-private-backup.service')
+        result['backupTimer']=service_probe('qzss-private-backup.timer')
+        result['auditTimer']=service_probe('ops-schedule.timer')
+        result['audit']=service_probe('ops-schedule.service')
+        result['healthTimer']=service_probe('ops-health.timer')
+        result['health']=service_probe('ops-health.service')
+    elif role=='stream':
+        result['supervisor']=service_probe('qzss-stream.service')
+        result['backup']=service_probe('qzss-private-backup.service')
+        result['backupTimer']=service_probe('qzss-private-backup.timer')
+    return result
 
 def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/ubuntu/qzss-stream')):
     mono=time.monotonic();wall=time.time();cpu=list(map(int,(proc/'stat').read_text().splitlines()[0].split()[1:9]));usage,steal=cpu_delta(cpu,previous.get('cpu'))
@@ -117,6 +153,10 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
                 if r.returncode==0:result['versions']['receiver']=r.stdout.strip()
             except (OSError,subprocess.TimeoutExpired):pass
     state={'cpu':cpu,'mono':mono}
+    if role in ('server','stream'):
+        cached=previous.get('infrastructure',{})
+        result['infrastructure']=infrastructure(role) if wall*1000-cached.get('checkedAt',0)>=60000 else cached
+        state['infrastructure']=result['infrastructure']
     try:result['temperatureC']=int(pathlib.Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
     except (OSError,ValueError):pass
     units={'server':{'docker':'docker','backup':'qzss-private-backup'},'stream':{'stream':'qzss-stream','clips':'qzss-clips','clock':'qzss-clock-watch','versionWatch':'qzss-version-watch','youtubeManager':'qzss-youtube-manager','backup':'qzss-private-backup'},'pi':{'decoder':'qzss-decoder@qzss01','receptionWatch':'qzss-reception-watch.timer'}}[role]
@@ -172,7 +212,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
             if re.fullmatch(r'0x[0-9a-f]+',value):result['throttled']=value
         except (OSError,subprocess.TimeoutExpired):pass
     if role=='stream':
-        try:result['youtubeTimings']=render_timings()
+        try:result.update(browser_snapshot())
         except Exception:pass
         progress=stream/'ffmpeg.progress'
         try:

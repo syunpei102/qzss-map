@@ -1,6 +1,6 @@
 (function(){'use strict';
 const serviceNames={docker:'コンテナ基盤',stream:'配信',clips:'録画・自動投稿',clock:'時計監視',versionWatch:'更新確認',youtubeManager:'YouTube API連携',decoder:'受信プログラム',receptionWatch:'衛星受信監視'};
-const titles={server:'サーバー用クラウドコンピュータ',stream:'YouTube用クラウドコンピュータ',pi:'処理端末'},labels={ok:'正常',warning:'要確認',bad:'異常'};
+const titles={server:'基盤サーバー',stream:'配信サーバー',pi:'処理端末'},labels={ok:'正常',warning:'要確認',bad:'異常'};
 function assess(data){const now=Number.isFinite(data?.at)?data.at:Date.now(),source=data?.sources?.oracle;const receiver={level:'ok',reasons:[]};function add(target,level,text){if(level==='bad'||target.level==='ok')target.level=level;target.reasons.push(text);}
 if(!source?.connected)add(receiver,'warning','受信を監視する接続がありません');else if(source.signal==='offline'||source.serial===false||Number.isFinite(source.lastHeartbeat)&&now-source.lastHeartbeat>90000)add(receiver,'bad',source.serial===false?'受信機のシリアル接続が切れています':'ハートビートが90秒以上届いていません');else if(source.signal!=='online'||source.serial!==true||!Number.isFinite(source.lastHeartbeat))add(receiver,'warning','受信機の最新状態を確認できません');
 const machines=Object.entries(titles).map(([role,title])=>{const host=data?.hosts?.[role],s=host?.latest,result={role,title,level:'ok',reasons:[],uptimeSeconds:s?.uptimeSeconds??null,receivedAt:s?.at??null,stale:!s||!Number.isFinite(s?.at)||host?.stale||now-s.at>90000};if(result.stale){add(result,'warning',role==='pi'&&receiver.level==='ok'?'本体監視の応答なし．受信通信は到達しています':'90秒以内の本体状態報告がありません');return {...result,label:labels[result.level]};}
