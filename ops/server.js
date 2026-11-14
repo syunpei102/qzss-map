@@ -29,6 +29,7 @@ app.get('/api/files',(_req,res)=>res.json(journal.files()));
 app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(String(req.query.file));const reports=rows.filter(r=>r.source==='oracle'&&!['Heartbeat','DecodeError'].includes(r.report.type));const total=reports.length;res.json({reports:reports.slice(-500),total,comparison:compare(rows).slice(-500)});}catch{res.status(404).json({error:'recording not found'});}});
 app.get('/dashboard',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.html')));
 app.get('/dashboard-releases.json',(_req,res)=>res.sendFile(path.join(process.env.OPS_PUBLIC_DIR||'/app/public','releases.json')));
+app.get('/dashboard-health.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-health.js')));
 app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.css')));
