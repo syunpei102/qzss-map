@@ -89,12 +89,18 @@ def classify(error):
         return 'api'
     return 'network' if isinstance(error,(OSError,urllib.error.URLError)) else 'api'
 
+def load_state(path):
+    try:
+        state=read(path)
+        return state if isinstance(state,dict) else {}
+    except (FileNotFoundError,ValueError):return {}
+
 def main():
     os.umask(0o077);root=ROOT;url=os.environ['QZSS_METRICS_URL'].rsplit('/api/telemetry/',1)[0]+'/api/youtube/agent';token=os.environ['QZSS_METRICS_TOKEN']
     if not url.startswith('https://'):raise ValueError('HTTPS control URL required')
-    statefile=root/'youtube-manager-state.json';state=read(statefile);next_poll=0;headers=None;token_at=0
+    statefile=root/'youtube-manager-state.json';state=load_state(statefile);next_poll=0;headers=None;token_at=0
     while True:
-        body={'agentVersion':'1.18.0'}
+        body={'agentVersion':'1.18.1'}
         if state.get('ack'):body['ack']=state['ack']
         if time.monotonic()>=next_poll:
             try:

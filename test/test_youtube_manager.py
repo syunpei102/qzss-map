@@ -34,3 +34,12 @@ class YouTubeTests(unittest.TestCase):
    def get(resource,params,headers):return {'items':[{'id':'abcdefghijk','status':{'lifeCycleStatus':'live'}}]} if resource=='liveBroadcasts' else {'items':[{'snippet':{'description':'already applied'}}]}
    with patch.object(manager,'get_json',get),patch.object(manager,'request') as put:
     self.assertEqual(manager.apply_command(pathlib.Path(directory),command,{})['status'],'applied');put.assert_not_called()
+
+ def test_first_start_has_no_state_file(self):
+  with tempfile.TemporaryDirectory() as directory:
+   path=pathlib.Path(directory)/'state.json'
+   self.assertEqual(manager.load_state(path),{})
+   path.write_text('invalid')
+   self.assertEqual(manager.load_state(path),{})
+   path.write_text('{"ack":{"id":"pending"}}')
+   self.assertEqual(manager.load_state(path)['ack']['id'],'pending')
