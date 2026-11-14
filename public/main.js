@@ -5592,6 +5592,8 @@ function connectWebSocket() {
           }));
         });
       }
+      // The stream host reads this bounded，non-secret ring through local CDP．
+      globalThis.QZSS_RENDER_TIMINGS = [...(globalThis.QZSS_RENDER_TIMINGS || []).slice(-9), {...timestamps, recordedAt: Date.now()}];
       fetch('/client-timing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

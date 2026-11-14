@@ -76,20 +76,20 @@
 <body>
 <div class="wrap">
   <h1>⏱️ レイテンシダッシュボード</h1>
-  <p class="sub">本番データの新方式計測のみ表示．合計は受信機・サーバー・ブラウザの処理区間のみで，通信・送信待ち・画面の実点灯時間は含みません．5秒ごとに更新．</p>
+  <p class="sub">YouTube用クラウドコンピュータの配信ブラウザで計測します．緑色は受信から描画準備までの時間です．通信・画面の実点灯・YouTubeの配信遅延は含みません．5秒ごとに更新．</p>
 
   <div class="stats" id="stats"></div>
 
   <div class="legend">
     <span><i style="background:#4c8bf5"></i>受信機処理</span>
     <span><i style="background:#9c7fe0"></i>サーバー処理</span>
-    <span><i style="background:#2ecc71"></i>ブラウザ表示準備</span>
+    <span><i style="background:#2ecc71"></i>配信画面の描画準備</span>
   </div>
   <canvas id="chart" height="200"></canvas>
 
   <h2 class="section-title">直近の計測(新しい順)</h2>
   <div id="history_container"></div>
-  <div class="empty" id="empty-msg" style="display:none">本番データの計測はまだありません．通報を受信すると自動的に記録されます．</div>
+  <div class="empty" id="empty-msg" style="display:none">配信ブラウザの計測はまだありません．次の通報から記録します．</div>
 </div>
 
 <script src="./training-report-filter.js"></script>
@@ -97,7 +97,7 @@
 <script>
 async function fetchHistory() {
   try {
-    const res = await fetch('./api/latency-history');
+    const res = await fetch('./api/youtube-latency-history',{cache:'no-store'});
     return await res.json();
   } catch (e) {
     return [];
@@ -122,7 +122,8 @@ function formatSeconds(ms) {
 function renderStats(history) {
   const el = document.getElementById('stats');
   if (!history.length) { el.innerHTML = ''; return; }
-  const totals = history.map((h) => h.measuredMs).sort((a, b) => a - b);
+  const totals = history.filter(h=>Number.isFinite(h.measuredMs)).map((h) => h.measuredMs).sort((a, b) => a - b);
+  if (!totals.length) { el.textContent='描画時間は未計測です．'; return; }
   const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
   const p50 = percentile(totals, 0.5);
   const p95 = percentile(totals, 0.95);
@@ -155,7 +156,8 @@ function renderChart(history) {
   ctx.clearRect(0, 0, cssWidth, cssHeight);
   if (!history.length) return;
 
-  const recent = history.slice(-60);
+  const recent = history.filter(h=>Number.isFinite(h.measuredMs)).slice(-60);
+  if(!recent.length)return;
   // 通信エラー等でごく一部だけ極端に遅い値が混ざると、それに合わせて
   // 軸全体が縮小され正常系同士の比較ができなくなっていた。軸の上限は
   // 全体最大値ではなく、外れ値に引っ張られにくい四分位範囲(IQR)方式
@@ -192,7 +194,7 @@ function renderChart(history) {
     let y = plotBottom;
     const x = i * (barWidth + barGap);
     for (const key of ['receiverDecodeMs', 'serverProcessingMs', 'browserMs']) {
-      const segH = Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? h.clientProcessingMs) : h[key]) * scale;
+      const segH = Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? 0) : h[key]) * scale;
       ctx.fillStyle = colors[key];
       ctx.fillRect(x, y - segH, barWidth, segH);
       y -= segH;
@@ -385,7 +387,7 @@ function renderHistory(history) {
     const rowsHtml = reportRows(r).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join('');
     const maxSeg = Math.max(h.measuredMs, 1);
     const barHtml = LATENCY_SEGMENTS.map(([key, color]) =>
-      `<span style="width:${Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? h.clientProcessingMs) : h[key]) / maxSeg * 100}%; background:${color}"></span>`
+      `<span style="width:${Math.max(0, key === 'browserMs' ? (h.clientVisualReadyMs ?? 0) : h[key]) / maxSeg * 100}%; background:${color}"></span>`
     ).join('');
     return `
       <div class="report-card ${reportSeverityClass(r)} ${isAnomaly ? 'anomaly' : ''}">
@@ -398,7 +400,7 @@ function renderHistory(history) {
         <div class="recorded-time">${escapeHtml(displayResultText(h))}</div>
         <div class="latency-bar-row">
           <div class="latency-bar">${barHtml}</div>
-          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${formatSeconds(h.measuredMs)}s${isAnomaly ? ' ⚠️' : ''}</span>
+          <span class="latency-total ${isAnomaly ? 'anomaly' : ''}">${h.measuredMs==null?'未計測':formatSeconds(h.measuredMs)+'s'}${isAnomaly ? ' ⚠️' : ''}</span>
         </div>
         <div class="recorded-time">記録 ${formatRecordedAt(h.recordedAt)}(受信機処理${formatSeconds(h.receiverDecodeMs)}s・サーバー処理${formatSeconds(h.serverProcessingMs)}s・ブラウザ処理${formatSeconds(h.clientProcessingMs)}s・表示準備${h.clientVisualReadyMs == null ? '未計測' : `${formatSeconds(h.clientVisualReadyMs)}s`})</div>
       </div>
@@ -439,7 +441,7 @@ function latencySourceLabel(h) {
 async function refresh() {
   const all = await fetchHistory();
   const unique = deduplicateLatencyHistory(all);
-  const history = unique.filter(h => h.schemaVersion === 2 && (REPLAY_VIEW || isProductionEntry(h)));
+  const history = unique.filter(h => h.schemaVersion === 2 && h.measurementSource === 'youtube-cloud' && (REPLAY_VIEW || isProductionEntry(h)));
   renderStats(history);
   renderChart(history);
   renderHistory(history);

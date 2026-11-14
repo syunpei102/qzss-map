@@ -2,6 +2,17 @@ import importlib.util,pathlib,unittest,tempfile
 spec=importlib.util.spec_from_file_location('metrics_agent',pathlib.Path(__file__).parents[1]/'ops/metrics-agent.py')
 agent=importlib.util.module_from_spec(spec);spec.loader.exec_module(agent)
 class MetricsTests(unittest.TestCase):
+ def test_recording_activity_and_archive_failure(self):
+  import json
+  with tempfile.TemporaryDirectory() as directory:
+   root=pathlib.Path(directory)
+   for i,job in enumerate([{'state':'recording'},{'state':'uploading'},{'state':'uploaded'},{'state':'uploaded','archive_live_id':'linked'},{'state':'failed'}]):
+    path=root/'clips'/str(i);path.mkdir(parents=True);(path/'job.json').write_text(json.dumps(job))
+   (root/'live-description-state.json').write_text(json.dumps({'last_error':'API error'}))
+   result=agent.recording_state(root)
+   self.assertEqual(result['recording'],1);self.assertEqual(result['uploading'],1);self.assertEqual(result['pending'],1)
+   self.assertEqual(result['archivePending'],1);self.assertEqual(result['archiveFailed'],1);self.assertEqual(result['failed'],1)
+
  def test_cpu_excludes_idle_iowait_and_steal(self):
   cpu,steal=agent.cpu_delta([10,0,10,60,5,0,0,15],[0]*8)
   self.assertEqual(cpu,20);self.assertEqual(steal,15)

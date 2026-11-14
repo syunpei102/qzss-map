@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Read-only host sampler．No process command lines or credentials enter telemetry．"""
-import hashlib, json, math, os, pathlib, re, shutil, subprocess, time, urllib.request
+import hashlib, json, math, os, pathlib, re, shutil, subprocess, sys, time, urllib.request
 
 def read_json(path):
     try:return json.loads(path.read_text())
@@ -62,6 +62,33 @@ def decoder_event(log):
     try:at=int(log['__REALTIME_TIMESTAMP'])/1000
     except (KeyError,ValueError,TypeError):return None
     return {'id':hashlib.sha256((str(at)+kind).encode()).hexdigest()[:20],'kind':kind,'at':at}
+
+def recording_state(stream):
+    counts={'recording':0,'pending':0,'uploaded':0,'failed':0,'uploading':0,'archivePending':0,'archiveFailed':0}
+    for file in (stream/'clips').glob('*/job.json'):
+        job=read_json(file);status=job.get('state')
+        key=status if status in ('recording','pending','uploaded','failed') else 'pending' if status in ('ready','uploading') else None
+        if key:counts[key]+=1
+        if status=='uploading':counts['uploading']+=1
+        if status=='blocked':counts['failed']+=1
+        if status=='uploaded' and not job.get('archive_live_id') and not job.get('archive_excluded'):counts['archivePending']+=1
+    archive=read_json(stream/'live-description-state.json')
+    if counts['archivePending'] and archive.get('last_error'):counts['archiveFailed']=1
+    return counts
+
+def render_timings():
+    """Read only the captured page，never another browser or a caller-supplied URL．"""
+    if '/opt/qzss-stream' not in sys.path:sys.path.insert(0,'/opt/qzss-stream')
+    from browser_guard import Debugger
+    with urllib.request.urlopen('http://127.0.0.1:9222/json/list',timeout=2) as response:pages=json.load(response)
+    page=next(p for p in pages if p.get('type')=='page' and p.get('url','').startswith('https://oracle-review.eq.shum10.com/'))
+    debugger=Debugger(page['webSocketDebuggerUrl'])
+    expression="JSON.stringify((globalThis.QZSS_RENDER_TIMINGS||[]).slice(-10).map(t=>({...Object.fromEntries(['schema_version','receiver_decode_ms','server_processing_ms','client_processing_ms','client_visual_ready_ms','client_version','display_result','isTestData','reportKey','recordedAt'].map(k=>[k,t[k]])),reportSummary:Object.fromEntries(['type','disaster_category','information_type','report_time','seismic_epicenter','magnitude','disaster_category_no','report_classification_no'].filter(k=>t.reportSummary?.[k]!=null).map(k=>[k,t.reportSummary[k]]))})))"
+    try:
+        value=debugger.call('Runtime.evaluate',{'expression':expression,'returnByValue':True,'timeout':2000})
+        rows=json.loads(value['result']['value'])
+        return rows if isinstance(rows,list) else []
+    finally:debugger.close()
 
 def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/ubuntu/qzss-stream')):
     mono=time.monotonic();wall=time.time();cpu=list(map(int,(proc/'stat').read_text().splitlines()[0].split()[1:9]));usage,steal=cpu_delta(cpu,previous.get('cpu'))
@@ -145,6 +172,8 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
             if re.fullmatch(r'0x[0-9a-f]+',value):result['throttled']=value
         except (OSError,subprocess.TimeoutExpired):pass
     if role=='stream':
+        try:result['youtubeTimings']=render_timings()
+        except Exception:pass
         progress=stream/'ffmpeg.progress'
         try:
             fields=dict(line.split('=',1) for line in read_tail(progress).splitlines() if '=' in line)
@@ -165,12 +194,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
                     f.seek(0,2);length=f.tell();f.seek(max(0,length-32768));lines=f.read().splitlines()
                 clock=json.loads(lines[-1]);result['clockDifferenceSeconds']=clock.get('clockDifferenceSeconds');result['clockAgeSeconds']=max(0,wall-clock['at'])
             except (OSError,ValueError,KeyError,IndexError):pass
-        counts={'recording':0,'pending':0,'uploaded':0,'failed':0}
-        for file in (stream/'clips').glob('*/job.json'):
-            job=read_json(file);status=job.get('state')
-            key=status if status in counts else 'pending' if status in ('ready','uploading') else None
-            if key:counts[key]+=1
-        result['recordings']=counts
+        result['recordings']=recording_state(stream)
     return result,state
 
 def main():

@@ -4,21 +4,24 @@ const {Journal,compare}=require('./journal');
 const {Monitor,jstDay}=require('./monitor');
 const {Telemetry,ROLES}=require('./telemetry');
 const {YouTubeControl}=require('./youtube');
+const {YoutubeLatency}=require('./youtube-latency');
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
-const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root);
+const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root);
 const app=express();app.disable('x-powered-by');
 // Role-scoped ingestion accepts only numeric allowlisted metrics，never browser credentials．
-app.post('/api/telemetry/:role',express.json({limit:'16kb'}),(req,res)=>{
+app.post('/api/telemetry/:role',express.json({limit:'32kb'}),(req,res)=>{
  const role=req.params.role,token=process.env['OPS_METRICS_'+role.toUpperCase()+'_TOKEN'];
  const received=req.get('authorization')||'';
  if(!ROLES.includes(role)||!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
- try{telemetry.add(role,req.body);monitor.transition('host-'+role,'telemetry','online',Date.now(),'metrics-received');res.json({ok:true});}catch{res.sendStatus(400);}
+ try{telemetry.add(role,req.body);if(role==='stream')youtubeLatency.add(req.body.youtubeTimings);monitor.transition('host-'+role,'telemetry','online',Date.now(),'metrics-received');res.json({ok:true});}catch{res.sendStatus(400);}
 });
 app.post('/api/youtube/agent',express.json({limit:'64kb'}),(req,res)=>{
  const token=process.env.OPS_METRICS_STREAM_TOKEN,received=req.get('authorization')||'';
  if(!token||!crypto.timingSafeEqual(crypto.createHash('sha256').update(received).digest(),crypto.createHash('sha256').update('Bearer '+token).digest()))return res.sendStatus(401);
  try{res.json(youtube.report(req.body));}catch{res.sendStatus(400);}
 });
+// Public measurements，like the existing map latency API．Writes require the stream role token．
+app.get('/api/youtube-latency-history',(_req,res)=>res.set('Cache-Control','no-store').json(youtubeLatency.rows));
 // Only app identity assets are public，so OS installers need no monitoring credentials．
 for(const name of ['monitor.webmanifest','monitor-icon.svg','monitor-icon-180.png','monitor-icon-192.png','monitor-icon-512.png','monitor-icon-maskable.png','monitor-sw.js'])app.get('/'+name,(req,res)=>{if(!['status.shum10.com','127.0.0.1','localhost'].includes(req.hostname))return res.sendStatus(404);res.set('Cache-Control','no-store');if(name.endsWith('.webmanifest'))res.type('application/manifest+json');if(name==='monitor-sw.js')res.set('Service-Worker-Allowed','/');res.sendFile(path.join(__dirname,name));});
 const expected=process.env.OPS_PASSWORD_SHA256||'';if(!/^[a-f0-9]{64}$/.test(expected))throw Error('OPS_PASSWORD_SHA256 required');

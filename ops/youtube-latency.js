@@ -1,0 +1,12 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),{identity}=require('../public/latency-dedup');
+const valid=v=>Number.isFinite(v)&&v>=0&&v<=600000;
+function normalize(t,now){if(t?.schema_version!==2||![t.receiver_decode_ms,t.server_processing_ms,t.client_processing_ms].every(valid))return null;const visual=t.client_visual_ready_ms;if(visual!=null&&(!valid(visual)||visual<t.client_processing_ms))return null;
+ const summary={};for(const key of ['type','disaster_category','information_type','report_time','seismic_epicenter','magnitude'])if(typeof t.reportSummary?.[key]==='string'&&t.reportSummary[key].length<=120)summary[key]=t.reportSummary[key];for(const key of ['disaster_category_no','report_classification_no'])if(Number.isInteger(t.reportSummary?.[key]))summary[key]=t.reportSummary[key];
+ const reportKey=typeof t.reportKey==='string'&&/^dcr:[0-9a-f]{1,160}:(?:[0-9]{1,2})?$/.test(t.reportKey)?t.reportKey:null;if(!reportKey&&!Object.keys(summary).length)return null;
+ return {schemaVersion:2,measurementSource:'youtube-cloud',recordedAt:now,browserMeasuredAt:Number.isFinite(t.recordedAt)?t.recordedAt:null,receiverDecodeMs:t.receiver_decode_ms,serverProcessingMs:t.server_processing_ms,clientProcessingMs:t.client_processing_ms,clientVisualReadyMs:visual??null,measuredMs:visual==null?null:t.receiver_decode_ms+t.server_processing_ms+visual,isTestData:!!t.isTestData,reportKey,reportSummary:summary,clientVersion:typeof t.client_version==='string'&&/^\d+\.\d+\.\d+$/.test(t.client_version)?t.client_version:null};}
+class YoutubeLatency{
+ constructor(root){this.file=path.join(root,'youtube-latency.json');this.rows=[];try{this.rows=JSON.parse(fs.readFileSync(this.file)).filter(r=>r.measurementSource==='youtube-cloud').slice(-1000);}catch{}}
+ add(batch,now=Date.now()){if(!Array.isArray(batch))return;let changed=false;for(const t of batch.slice(-10)){const row=normalize(t,now);if(!row)continue;const key=identity(row);const old=this.rows.find(r=>identity(r)===key&&(row.reportSummary.report_time||Math.abs((row.browserMeasuredAt||now)-(r.browserMeasuredAt||r.recordedAt))<1800000));if(old){if(old.clientVisualReadyMs==null&&row.clientVisualReadyMs!=null){Object.assign(old,row);changed=true;}continue;}this.rows.push(row);changed=true;}if(changed){this.rows=this.rows.slice(-1000);fs.writeFileSync(this.file+'.tmp',JSON.stringify(this.rows),{mode:0o600});fs.renameSync(this.file+'.tmp',this.file);}}
+}
+module.exports={YoutubeLatency,normalize};

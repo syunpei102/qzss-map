@@ -23,3 +23,5 @@ nav{flex-wrap:wrap}.editor-actions{display:flex;gap:16px;flex-wrap:wrap;margin:2
 .heading-actions{display:flex;gap:12px;flex-wrap:wrap;flex-shrink:0}.heading-actions button{padding:8px 16px}body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
 
 .dashboard-clock{display:flex;flex-direction:column;font-variant-numeric:tabular-nums}.dashboard-clock time{font-size:22px;font-weight:700;white-space:nowrap}.dashboard-clock span{font-size:12px;color:var(--muted)}header .wrap{flex-wrap:wrap;padding-top:12px;padding-bottom:12px}.tile strong{overflow-wrap:anywhere}
+
+.service-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;margin-top:12px}.service-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--line)}.service-row .state{margin:0;white-space:nowrap;font-size:14px}@media(max-width:700px){.service-list{grid-template-columns:1fr}}
