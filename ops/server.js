@@ -8,6 +8,7 @@ const {YoutubeLatency}=require('./youtube-latency');
 const {ServerLatency}=require('./server-latency');
 const {DisplayState}=require('./display-state');
 const {publicDashboard,isPublicStatus}=require('./public-dashboard');
+const comparisonEnabled=process.env.OPS_CAPTURE_GCP==='true';
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
 const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root),displayState=new DisplayState(root);
 const serverLatency=new ServerLatency(root,youtubeLatency.rows);
@@ -38,7 +39,7 @@ function youtubeWrite(req,res,next){const origin=req.get('origin'),host=req.get(
 app.post('/api/youtube/template',youtubeWrite,express.json({limit:'24kb'}),(req,res)=>{try{res.json(youtube.draft(req.body));}catch(e){res.status(e.status||400).json({error:e.message});}});
 app.post('/api/youtube/apply',youtubeWrite,express.json({limit:'4kb'}),(req,res)=>{try{res.json(youtube.apply(req.body));}catch(e){res.status(e.status||400).json({error:e.message});}});
 app.get('/api/files',(_req,res)=>res.json(journal.files()));
-app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(String(req.query.file));const reports=rows.filter(r=>r.source==='oracle'&&!['Heartbeat','DecodeError'].includes(r.report.type));const total=reports.length;res.json({reports:reports.slice(-500),total,comparison:compare(rows).slice(-500)});}catch{res.status(404).json({error:'recording not found'});}});
+app.get('/api/recording',async(req,res)=>{try{const rows=await journal.rows(String(req.query.file));const reports=rows.filter(r=>r.source==='oracle'&&!['Heartbeat','DecodeError'].includes(r.report.type));const total=reports.length;res.json({reports:reports.slice(-500),total,comparison:comparisonEnabled?compare(rows).slice(-500):[],comparisonEnabled});}catch{res.status(404).json({error:'recording not found'});}});
 app.get('/dashboard',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.html')));
 app.get('/dashboard-releases.json',(_req,res)=>res.sendFile(path.join(process.env.OPS_PUBLIC_DIR||'/app/public','releases.json')));
 app.get('/monitor-pwa.js',(_req,res)=>res.sendFile(path.join(__dirname,'monitor-pwa.js')));
@@ -66,9 +67,9 @@ app.get('/audits/model-latest.json',(req,res,next)=>{if((req.get('Accept')||'').
 app.use('/audits',express.static(path.join(root,'audits'),{index:false}));
 app.use((req,res,next)=>{if(!['GET','HEAD'].includes(req.method))return res.sendStatus(405);if(req.path==='/index.html'&&req.query.sandbox!=='1')return res.sendStatus(403);next();});
 app.use(express.static(process.env.OPS_PUBLIC_DIR||'/app/public',{index:false}));
-const status={};let closing=false;
+const status={gcp:{connected:false,disabled:!comparisonEnabled}};let closing=false;
 function connect(source,url){const ws=new WebSocket(url,{maxPayload:262144});status[source]={connected:false};ws.on('open',()=>{status[source]={...status[source],connected:true};if(source==='oracle')monitor.connection(source,true);});ws.on('message',data=>{try{const report=JSON.parse(data);if(source==='oracle'){monitor.receive(source,report);serverLatency.add(report);}status[source].lastReceived=Date.now();if(['Heartbeat','ReceiverStatus'].includes(report.type)){status[source].lastHeartbeat=Date.now()-(Number(report.ageMs)||0);status[source].serialConnected=report.serial_connected;}if(!journal.append(source,report))status[source].lastSkipped=Date.now();}catch{status[source].parseError=Date.now();}});ws.on('error',()=>{});ws.on('close',()=>{if(source==='oracle')monitor.connection(source,false);status[source].connected=false;if(!closing)setTimeout(()=>connect(source,url),5000).unref();});return ws;}
-const sockets=process.env.OPS_CAPTURE==='false'?[]:[connect('gcp','wss://eq.shum10.com/'),connect('oracle','wss://oracle-review.eq.shum10.com/')];
+const sockets=process.env.OPS_CAPTURE==='false'?[]:[...(comparisonEnabled?[connect('gcp','wss://eq.shum10.com/')]:[]),connect('oracle','wss://oracle-review.eq.shum10.com/')];
 setInterval(()=>{const tmp=path.join(root,'capture-status.tmp');fs.promises.writeFile(tmp,JSON.stringify({at:Date.now(),sources:status}),{mode:0o600}).then(()=>fs.promises.rename(tmp,path.join(root,'capture-status.json'))).catch(()=>console.error('capture status write failed'));},30000).unref();
 setInterval(()=>{try{for(const [role,host] of Object.entries(telemetry.snapshot()))if(host.latest&&host.stale)monitor.transition('host-'+role,'telemetry','offline',Date.now(),'metrics-timeout');monitor.tick();void monitor.notify(process.env.DISCORD_ALERT_WEBHOOK_URL);}catch{console.error('monitor-persist-failed');}},15000).unref();
 const maintenance=setInterval(()=>Promise.resolve().then(()=>telemetry.prune()).then(()=>journal.prune(30)).catch(e=>console.error('retention-failed',e.code)),3600000);maintenance.unref();
