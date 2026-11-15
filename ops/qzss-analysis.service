@@ -1,0 +1,23 @@
+[Unit]
+Description=QZSS continuous decode verification and communication analysis
+After=docker.service
+[Service]
+Type=simple
+ExecStart=/opt/qzss-analysis/venv/bin/python /opt/qzss-analysis/analysis_worker.py --data /var/lib/qzss-ops
+Restart=always
+RestartSec=10
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=10%
+CPUWeight=10
+MemoryMax=96M
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/qzss-ops/analysis
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX
+[Install]
+WantedBy=multi-user.target

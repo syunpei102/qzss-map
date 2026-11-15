@@ -1,0 +1,17 @@
+eq.shum10.com, oracle-review.eq.shum10.com {
+    @latency path /api/youtube-latency-history /api/server-latency-history /latency.html
+    handle @latency {
+        reverse_proxy 127.0.0.1:8090
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+replay.shum10.com {
+    reverse_proxy 127.0.0.1:8090
+}
+status.shum10.com {
+    @root path /
+    rewrite @root /dashboard
+    reverse_proxy 127.0.0.1:8090
+}

@@ -6,6 +6,8 @@ function features(data,role){const host=data.hosts?.[role],s=host?.latest,i=s?.i
  if(role==='server'){
   const receiver=data.sources?.oracle;add('通報受信',receiver?.connected&&receiver.signal==='online'&&now-receiver.lastHeartbeat<=90000,'受信ハートビートの到着を確認');
   add('通知エンジン',infraFresh&&i.notificationEnabled===true,'通知設定とAPI応答を確認．端末への配送は未試験');
+  const a=data.analysis,c=a?.counts||{},af=a&&!a.stale&&now-a.at<=30000;add('電文照合',af&&!(c.mismatch||c['decode-error']||c['missing-raw']),'受信した生電文を別プロセスで再解析',af&&(!c.matched||a.backlogBytes>0));
+  add('通信品質分析',af&&a.network?.observerConnected===true,'受信間隔と遅れ・推定欠落を継続集計');
   add('地図配信',infraFresh&&i.mapApi===true,'地図の設定API応答を確認');
   const display=data.display,stream=data.hosts?.stream;add('描画エンジン',display&&!display.stale&&now-display.at<=60000&&!stream?.stale&&stream?.latest?.browser?.healthy===true&&stream.latest.browser.ageSeconds<=90,'配信画面の読み込みと画面監視を確認');
   add('定期検査',infraFresh&&i.auditTimer?.active==='active'&&i.audit?.result==='success'&&i.audit.exitCode===0&&Number.isFinite(i.audit.lastFinishedAt),'夜間検査の定期実行と最終成功結果を確認');

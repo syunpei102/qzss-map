@@ -8,6 +8,6 @@ function publicDashboard(data){
  for(const host of Object.values(clean.hosts||{})){for(const sample of [host.latest,...(host.history||[])])if(sample){delete sample.bootId;delete sample.decoderEvents;}for(const event of host.events||[])delete event.id;}
  return clean;
 }
-const PUBLIC_STATUS_PATHS=new Set(['/dashboard','/api/dashboard','/dashboard-releases.json','/monitor-pwa.js','/dashboard-health.js','/youtube-view.js','/infrastructure-view.js','/display-view.js','/dashboard-clock.js','/frame-quality.js','/uptime.js','/dashboard.js','/dashboard.css']);
+const PUBLIC_STATUS_PATHS=new Set(['/dashboard','/api/dashboard','/dashboard-releases.json','/monitor-pwa.js','/dashboard-health.js','/youtube-view.js','/infrastructure-view.js','/display-view.js','/dashboard-clock.js','/analysis-view.js','/frame-quality.js','/uptime.js','/dashboard.js','/dashboard.css']);
 function isPublicStatus(req){return String(req.hostname).toLowerCase().replace(/\.$/,'')==='status.shum10.com'&&['GET','HEAD'].includes(req.method)&&PUBLIC_STATUS_PATHS.has(req.path);}
 module.exports={publicDashboard,isPublicStatus};

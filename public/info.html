@@ -320,8 +320,12 @@
 <section class="band" id="updates" aria-labelledby="updates-title">
   <div class="wrap">
     <span class="eyebrow">アップデート履歴</span>
-    <h2 id="updates-title">現在のバージョン 1.24.2</h2>
+    <h2 id="updates-title">現在のバージョン 1.25.0</h2>
     <p class="sub">変更内容を新しい順に掲載しています．旧バージョンの日付はコードの更新日です．</p>
+    <article class="release-entry">
+      <h3>v1.25.0 <time datetime="2026-11-15">2026年11月15日（日）</time></h3>
+      <ul><li>基盤サーバーで受信済み生電文を別プロセスで再解析し，処理端末の解析結果との不一致や復号エラーを継続確認する機能を追加しました．</li><li>ハートビートの到着間隔・ばらつき・遅れ・推定欠落を継続集計し，監視接続の停止と区別して表示します．</li><li>eq.shum10.comの接続先をOracleへ移し，既存の受信認証と通知用公開鍵を維持して切り替えました．</li></ul>
+    </article>
     <article class="release-entry">
       <h3>v1.24.2 <time datetime="2026-11-15">2026年11月15日（日）</time></h3>
       <ul><li>GCPへの比較用WebSocket常時接続を停止し，Oracleの受信・通知・配信を継続するようにしました．</li><li>停止した比較経路を受信欠落と誤判定しないよう，検査と再生画面を変更しました．</li></ul>
