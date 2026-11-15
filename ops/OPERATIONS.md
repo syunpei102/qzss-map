@@ -128,3 +128,11 @@ status.shum10.comでは監視画面と必要な読取API・静的アセットだ
 `/api/server-latency-history` はOracleのWebSocket受信から保存する．`schema_version: 2` の受信機とサーバーそれぞれの単調時計による区間を合算する．サーバー区間は `/ingest` の認証前からWebSocket配信直前までであり，通知配送完了までではない．通信・JSON本文の受付以前・ブラウザ描画時間は含まない．時計差を使った片道通信時間の推定はしない．再接続時の復元情報は再計測しない．過去の配信ブラウザ記録を引き継ぐ場合は処理区間だけを採用し，収集元を明示する．
 
 OracleのCaddyは `/latency.html` と `/api/server-latency-history` を8090へ振り分ける．地図本体のコンテナと配信エンコーダを再起動せず監視画面を更新できる．
+
+### 基盤サーバーの常時待機（v1.23.1）
+
+通知は既存の常駐Nodeプロセスで受信時に即時送信を開始する．ゼロ台への縮退やアイドル停止は使わない．Dockerはunless-stopped，docker.serviceは自動起動．CPU競合時の相対優先度は基盤サーバー2048，監視コンテナ256のCPU sharesとする．CPUの占有や通知到達時間を保証する設定ではない．バックアップ等は低いNiceを維持する．
+
+`foundation-standby.py` を `/opt/qzss-ops/`，同名service/timerをsystemdへ配備する．15秒ごとにローカルの設定API・通知設定APIを確認．応答失敗が3回連続した場合に既存コンテナを再起動する．再起動は最低5分空ける．通知無効という設定自体では再起動せず，明示的に停止したコンテナも起動しない．結果は `/var/lib/qzss-standby/state.json` とjournalに記録する．監視は通知送信や擬似電文の投入を行わず，実配送成功を証明しない．これは単一VM上の常駐待機であり，別VMへの自動フェイルオーバーではない．
+
+再配備後は `docker update --cpu-shares 2048 qzss-server-review` と `docker update --cpu-shares 256 qzss-ops` を適用する．

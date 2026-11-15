@@ -1,0 +1,10 @@
+[Unit]
+Description=QZSS notification server readiness and recovery
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/qzss-ops/foundation-standby.py
+TimeoutStartSec=65
+Nice=10
+MemoryMax=48M

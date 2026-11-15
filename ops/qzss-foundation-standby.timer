@@ -1,0 +1,8 @@
+[Unit]
+Description=Keep QZSS notification server ready
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=15s
+AccuracySec=1s
+[Install]
+WantedBy=timers.target
