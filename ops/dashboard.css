@@ -40,11 +40,10 @@ p,dd,td{overflow-wrap:anywhere}p{max-width:76ch}.heading h2{margin-bottom:0}.hea
 .frame-chart svg{margin-top:16px}.frame-chart svg text{font-size:14px;fill:var(--muted)}
 .frame-chart .axis{stroke:var(--line);opacity:.4}.frame-chart .frame-line{fill:none;stroke:#8fbfff;stroke-linejoin:round;stroke-linecap:round}
 .frame-chart .frame-point{fill:#8fbfff;stroke:var(--surface);stroke-width:1.5}
-.recording-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
-.recording-item{border:1px solid var(--line);border-radius:6px;padding:16px;background:var(--surface)}
-.recording-item-heading{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:14px}
-.recording-state{display:inline-flex;align-items:center;gap:6px}.recording-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:currentColor}
-.recording-item strong{display:block;margin-top:10px;font-size:28px;font-variant-numeric:tabular-nums}
-.recording-item.recording .recording-state,.recording-item.failed .recording-state{color:#ffacac}.recording-item.recording .recording-dot{background:#ff6d6d}
-.recording-item.pending .recording-state{color:#f5d987}
-@media(max-width:550px){.frame-chart{padding:12px}.recording-summary{grid-template-columns:1fr}.recording-item{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 16px}.recording-item-heading{display:block}.recording-state{display:flex;margin-top:4px}.recording-item strong{margin:0;white-space:nowrap}}
+.recording-summary{margin:20px 0;padding:18px 20px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.recording-system-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.recording-system-heading h4{font-size:18px;margin:0}.recording-state{display:inline-flex;align-items:center;gap:9px;font-size:19px}
+.recording-dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:currentColor}
+.recording-summary.idle .recording-state{color:var(--muted)}.recording-summary.recording .recording-state,.recording-summary.failed .recording-state{color:#ffacac}.recording-summary.recording .recording-dot{background:#ff6d6d}
+.recording-summary.pending .recording-state{color:#f5d987}.recording-detail{margin:10px 0 0;color:var(--muted);font-size:14px;font-variant-numeric:tabular-nums}
+@media(max-width:550px){.frame-chart{padding:12px}.recording-summary{padding:14px}.recording-system-heading h4{font-size:17px}}

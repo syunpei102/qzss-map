@@ -25,11 +25,15 @@ function frameChart(rows){
  const details=el('details');details.dataset.detail='frame-quality';details.dataset.title='フレーム破棄の計測一覧';details.append(el('summary','計測値を一覧で見る'));const scroll=el('div',undefined,'scroll'),table=el('table');table.append(el('caption','直近30分のフレーム調整（各区間を1分換算）'));const head=el('thead'),tr=el('tr');for(const label of ['計測時刻','破棄（枚/分）','重複（枚/分）']){const th=el('th',label);th.scope='col';tr.append(th);}head.append(tr);table.append(head);const body=el('tbody');for(const r of rows.slice().reverse())row(body,[fmt(r.at),r.droppedPerMinute.toFixed(1),r.duplicatedPerMinute.toFixed(1)]);table.append(body);scroll.append(table);details.append(scroll);box.append(details);return box;
 }
 function recordingSummary(recordings){
- const box=el('div',undefined,'recording-summary');box.setAttribute('aria-label','録画・投稿の状況');
- for(const [key,title,active,idle,kind] of [['recording','録画','録画中','待機中','recording'],['pending','投稿待ち','投稿待ち','待機なし','pending'],['failed','失敗','要確認','正常','failed']]){
-  const count=recordings?.[key],known=Number.isFinite(count)&&count>=0,item=el('div',undefined,'recording-item '+(known&&count>0?kind:'idle'));
-  const heading=el('div',undefined,'recording-item-heading');heading.append(el('span',title));const state=el('span',known?(count>0?active:idle):'未取得','recording-state');const dot=el('i',undefined,'recording-dot');dot.setAttribute('aria-hidden','true');state.prepend(dot);heading.append(state);item.append(heading,el('strong',known?count.toLocaleString('ja-JP')+'件':'—'));box.append(item);
- }
+ const box=el('div',undefined,'recording-summary'),known=['recording','pending','failed'].every(key=>Number.isFinite(recordings?.[key])&&recordings[key]>=0),r=recordings||{};
+ const failed=r.failed>0||r.archiveFailed>0;
+ const label=!known?'確認中':failed?'失敗':r.recording>0?'録画中':r.uploading>0?'投稿中':r.pending>0?'投稿待ち':'待機中';
+ const kind=!known?'unknown':failed?'failed':r.recording>0?'recording':r.pending>0?'pending':'idle';
+ box.classList.add(kind);box.setAttribute('aria-label','録画システム：'+label);
+ const heading=el('div',undefined,'recording-system-heading');heading.append(el('h4','録画システム'));
+ const state=el('strong',label,'recording-state'),dot=el('i',undefined,'recording-dot');dot.setAttribute('aria-hidden','true');state.prepend(dot);heading.append(state);box.append(heading);
+ const detail=[];if(r.recording>0)detail.push('録画 '+r.recording.toLocaleString('ja-JP')+'件');if(r.pending>0)detail.push('投稿処理 '+r.pending.toLocaleString('ja-JP')+'件');if(r.failed>0)detail.push('処理失敗 '+r.failed.toLocaleString('ja-JP')+'件');if(r.archiveFailed>0)detail.push('概要欄更新失敗 '+r.archiveFailed.toLocaleString('ja-JP')+'件');
+ if(detail.length)box.append(el('p',detail.join(' ／ '),'recording-detail'));else if(!known)box.append(el('p','最新の状態を確認しています．','muted'));
  return box;
 }
 function chart(id,label){const svg=svgNode('svg',{viewBox:'0 0 900 210',role:'img','aria-labelledby':id+'-title'});svg.append(svgNode('title',{id:id+'-title'},label));return svg;}
