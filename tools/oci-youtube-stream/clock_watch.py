@@ -32,6 +32,22 @@ def sample():
     finally:debugger.close()
 
 
+def read_progress(path, limit=16384):
+    # FFmpeg appends forever．Never load its complete lifetime log into RAM．
+    with path.open('rb') as handle:
+        handle.seek(0, 2)
+        offset = max(0, handle.tell() - limit)
+        handle.seek(offset)
+        raw = handle.read(limit)
+    if offset:
+        raw = raw.partition(b'\n')[2]
+    lines = raw.decode('utf-8', errors='replace').splitlines(keepends=True)
+    complete = [i for i, line in enumerate(lines) if line.startswith('progress=') and line.endswith('\n')]
+    if not complete:
+        return {}
+    return dict(line.rstrip('\r\n').split('=', 1) for line in lines[:complete[-1]+1] if '=' in line)
+
+
 def main():
     os.umask(0o077)
     root=ROOT/'clock-observations';root.mkdir(mode=0o700,exist_ok=True)
@@ -43,7 +59,7 @@ def main():
             row=observation(state,time.time(),time.monotonic(),previous)
             row['sampleElapsedSeconds']=time.monotonic()-mono
             try:
-                progress=dict(line.split('=',1) for line in (ROOT/'ffmpeg.progress').read_text().splitlines() if '=' in line)
+                progress=read_progress(ROOT/'ffmpeg.progress')
                 row['encoder']={k:progress.get(k) for k in ('out_time','speed','dup_frames','drop_frames','progress')}
                 row['encoderProgressAgeSeconds']=time.time()-(ROOT/'ffmpeg.progress').stat().st_mtime
             except OSError:pass

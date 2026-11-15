@@ -22,7 +22,8 @@ function features(data,role){const host=data.hosts?.[role],s=host?.latest,i=s?.i
   add('ライブ配信',fresh&&s.services?.stream==='active'&&s.encoder?.ageSeconds<=90,'エンコーダの進捗を確認');
   add('録画・自動投稿',fresh&&s.services?.clips==='active'&&s.recordings?.failed===0&&s.recordings?.archiveFailed===0,'処理サービスと保存済み失敗件数を確認');
   add('画面監視',fresh&&s.browser?.healthy===true&&s.browser.ageSeconds<=90,'ウォッチドッグの最新の画面確認結果');
-  add('自動復旧',infraFresh&&i.supervisor?.active==='active'&&['always','on-failure'].includes(i.supervisor?.restartPolicy),'自動再起動の設定を確認．障害を起こす試験は未実施');
+  const test=s?.recoveryTest,verified=test?.at>0&&test.at<=now&&test.browserRecovered&&test.encoderUnchanged&&test.streamUnchanged&&test.progressAdvanced&&test.supervisorRecovered;
+  add('自動復旧',infraFresh&&i.supervisor?.active==='active'&&['always','on-failure'].includes(i.supervisor?.restartPolicy),verified?'画面プロセスの停止・自動復旧を実配信で確認．配信プロセスは維持し，systemd再起動は隔離した試験で確認':'自動再起動の設定を確認．復旧試験の記録は未取得');
  }
  if(role==='server'||role==='stream'){const b=i?.backup,t=i?.backupTimer;const ok=infraFresh&&t?.active==='active'&&b?.result==='success'&&b.exitCode===0&&Number.isFinite(b.lastFinishedAt);add('バックアップ',ok,'定期実行の有効状態と最終実行結果を確認',infraFresh&&t?.active==='active'&&b?.active==='inactive'&&!b.lastFinishedAt&&b.result==='success');}
  return items;}

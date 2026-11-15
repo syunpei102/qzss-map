@@ -243,15 +243,16 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
         progress=stream/'ffmpeg.progress'
         try:
             fields=dict(line.split('=',1) for line in read_tail(progress).splitlines() if '=' in line)
-            frame=int(fields.get('frame',0));out=number(fields.get('out_time_us'));elapsed=mono-previous.get('mono',mono)
+            frame=int(fields.get('frame',0));out=number(fields.get('out_time_us'));encoder_mono=time.monotonic();elapsed=encoder_mono-previous.get('encoderMono',encoder_mono)
             # Recent frame production，not the lifetime-average fps reported by FFmpeg．
             fps=(frame-previous['frame'])/elapsed if elapsed>0 and 'frame' in previous and frame>=previous['frame'] else None
             configured=None
             match=re.search(r'-framerate\s+(\d+)',pathlib.Path('/opt/qzss-stream/run.sh').read_text())
             if match:configured=int(match[1])
-            result['encoder']={'fps':fps,'speed':number(fields.get('speed')),'dropped':number(fields.get('drop_frames')),'duplicated':number(fields.get('dup_frames')),'ageSeconds':max(0,wall-progress.stat().st_mtime),'configuredFps':configured}
-            state.update(frame=frame,out=out)
+            result['encoder']={'fps':fps,'speed':number(fields.get('speed')),'dropped':number(fields.get('drop_frames')),'duplicated':number(fields.get('dup_frames')),'ageSeconds':max(0,wall-progress.stat().st_mtime),'configuredFps':configured,'frames':frame}
+            state.update(frame=frame,out=out,encoderMono=encoder_mono)
         except (OSError,ValueError):pass
+        result['recoveryTest']=read_json(stream/'recovery-test.json')
         health=read_json(stream/'browser-health.json');result['browser']={'healthy':health.get('healthy'),'reason':health.get('reason'),'ageSeconds':max(0,wall-health['checked_at']) if isinstance(health.get('checked_at'),(int,float)) else None}
         clocks=sorted((stream/'clock-observations').glob('*.jsonl'))
         if clocks:

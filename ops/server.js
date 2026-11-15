@@ -46,6 +46,7 @@ app.get('/dashboard-health.js',(_req,res)=>res.sendFile(path.join(__dirname,'das
 app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
 app.get('/infrastructure-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'infrastructure-view.js')));
 app.get('/display-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'display-view.js')));
+app.get('/frame-quality.js',(_req,res)=>res.sendFile(path.join(__dirname,'frame-quality.js')));
 app.get('/uptime.js',(_req,res)=>res.sendFile(path.join(__dirname,'uptime.js')));
 app.get('/dashboard-clock.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-clock.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
