@@ -1,0 +1,6 @@
+# Link-only update．Pin TEST_SITE_BASE_IMAGE to the currently deployed image digest．
+ARG TEST_SITE_BASE_IMAGE
+FROM ${TEST_SITE_BASE_IMAGE}
+COPY public/test.html public/test-page.js public/test-page.css ./public/
+COPY public/app-version.js public/info.html public/releases.json ./public/
+COPY VERSION ./VERSION

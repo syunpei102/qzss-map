@@ -32,3 +32,10 @@
 ## 配備
 
 コミット済みソースを一時ディレクトリへ展開し，そのコミットの `Dockerfile.test-site` をビルド用 `Dockerfile` として使用する．専用Cloud Runサービス `qzss-map-test` へ配備する．本番サービス `qzss-map` の環境変数・トラフィック・受信機OTAは変更しない．
+
+
+### 稼働状況リンクだけの更新（v1.23.0）
+
+選択画面と再生中の地図に「本番環境の稼働状況」→https://status.shum10.com/ を追加した．閲覧はログイン不要，管理操作の認証は監視サイト側で行う．リンクは別タブで開き，テスト再生を中断しない．
+
+この配備では現在のテストサイトのimageDigestを確認し，`Dockerfile.test-links` のTEST_SITE_BASE_IMAGEへそのdigestを指定してビルドする．地図・描画・疑似受信の既存ファイルは保持し，test.html・test-page.js/cssと公開バージョン情報だけを置き換える．`scripts/test-links-build.yaml` の `_TEST_BASE_IMAGE` と `_IMAGE` を明示し，タグ済みコミットから用意したソースをCloud Buildへ送る．本番qzss-mapへのデプロイや受信機OTAは行わない．

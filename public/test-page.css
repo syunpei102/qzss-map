@@ -105,3 +105,5 @@ a { font-size: 12px; color: #c5cbd2; text-underline-offset: 3px; }
   .playback { bottom: 12px; gap: 10px; padding: 10px; }
   .playback span, .playback button { font-size: 11px; }
 }
+
+.test-links{display:flex;flex-wrap:wrap;gap:12px 24px;margin-top:20px}.map-status-link{position:fixed;right:16px;top:16px;z-index:3;padding:10px 14px;border:1px solid #59616b;border-radius:6px;background:#1d1e20;color:#edf0f2;font-size:13px;text-underline-offset:3px}.map-status-link:focus-visible{outline:3px solid #ffbe00;outline-offset:3px}@media(max-width:600px){.test-links{flex-direction:column;gap:12px}.map-status-link{top:auto;bottom:76px;right:12px;font-size:12px;padding:8px 10px}}

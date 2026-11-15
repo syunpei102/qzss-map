@@ -6,6 +6,7 @@ const {Telemetry,ROLES}=require('./telemetry');
 const {YouTubeControl}=require('./youtube');
 const {YoutubeLatency}=require('./youtube-latency');
 const {DisplayState}=require('./display-state');
+const {publicDashboard,isPublicStatus}=require('./public-dashboard');
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
 const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root),displayState=new DisplayState(root);
 const app=express();app.disable('x-powered-by');
@@ -26,7 +27,8 @@ app.get('/api/youtube-latency-history',(_req,res)=>res.set('Cache-Control','no-s
 // Only app identity assets are public，so OS installers need no monitoring credentials．
 for(const name of ['monitor.webmanifest','monitor-icon.svg','monitor-icon-180.png','monitor-icon-192.png','monitor-icon-512.png','monitor-icon-maskable.png','monitor-sw.js'])app.get('/'+name,(req,res)=>{if(!['status.shum10.com','127.0.0.1','localhost'].includes(req.hostname))return res.sendStatus(404);res.set('Cache-Control','no-store');if(name.endsWith('.webmanifest'))res.type('application/manifest+json');if(name==='monitor-sw.js')res.set('Service-Worker-Allowed','/');res.sendFile(path.join(__dirname,name));});
 const expected=process.env.OPS_PASSWORD_SHA256||'';if(!/^[a-f0-9]{64}$/.test(expected))throw Error('OPS_PASSWORD_SHA256 required');
-app.use((req,res,next)=>{res.set('Cache-Control','no-store');const h=req.get('authorization')||'';let value='';try{value=Buffer.from(h.replace(/^Basic /,''),'base64').toString()}catch{}const i=value.indexOf(':');const ok=value.slice(0,i)===(process.env.OPS_USER||'qzss')&&crypto.timingSafeEqual(Buffer.from(crypto.createHash('sha256').update(value.slice(i+1)).digest('hex')),Buffer.from(expected));if(!ok)return res.status(401).set('WWW-Authenticate','Basic realm="QZSS review"').end();next();});
+app.use((req,res,next)=>{res.set('Cache-Control','no-store');if(isPublicStatus(req))return next();const h=req.get('authorization')||'';let value='';try{value=Buffer.from(h.replace(/^Basic /,''),'base64').toString()}catch{}const i=value.indexOf(':');const ok=value.slice(0,i)===(process.env.OPS_USER||'qzss')&&crypto.timingSafeEqual(Buffer.from(crypto.createHash('sha256').update(value.slice(i+1)).digest('hex')),Buffer.from(expected));if(!ok)return res.status(401).set('WWW-Authenticate','Basic realm="QZSS review"').end();next();});
+app.get('/manage/youtube',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.html')));
 app.get('/api/youtube',(_req,res)=>res.json(youtube.view(true)));
 function youtubeWrite(req,res,next){const origin=req.get('origin'),host=req.get('host');const expectedOrigin=(/^127\.0\.0\.1:|^localhost:/.test(host)?'http://':'https://')+host;if(origin!==expectedOrigin||req.get('x-qzss-csrf')!==youtube.csrf||!req.is('application/json'))return res.sendStatus(403);next();}
 app.post('/api/youtube/template',youtubeWrite,express.json({limit:'24kb'}),(req,res)=>{try{res.json(youtube.draft(req.body));}catch(e){res.status(e.status||400).json({error:e.message});}});
@@ -40,10 +42,11 @@ app.get('/dashboard-health.js',(_req,res)=>res.sendFile(path.join(__dirname,'das
 app.get('/youtube-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'youtube-view.js')));
 app.get('/infrastructure-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'infrastructure-view.js')));
 app.get('/display-view.js',(_req,res)=>res.sendFile(path.join(__dirname,'display-view.js')));
+app.get('/uptime.js',(_req,res)=>res.sendFile(path.join(__dirname,'uptime.js')));
 app.get('/dashboard-clock.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard-clock.js')));
 app.get('/dashboard.js',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.js')));
 app.get('/dashboard.css',(_req,res)=>res.sendFile(path.join(__dirname,'dashboard.css')));
-app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view(),display:displayState.view(youtubeLatency.rows)});});
+app.get('/api/dashboard',(req,res)=>{const day=String(req.query.day||jstDay(Date.now()));if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!Number.isFinite(Date.parse(day+'T00:00:00+09:00'))||jstDay(Date.parse(day+'T00:00:00+09:00'))!==day)return res.sendStatus(400);res.json(publicDashboard({...monitor.snapshot(day),hosts:telemetry.snapshot(),youtube:youtube.view(),display:displayState.view(youtubeLatency.rows)}));});
 app.get('/api/status',(_req,res)=>res.json(status));
 app.get('/',(_req,res)=>res.sendFile(path.join(__dirname,'review.html')));
 app.get('/review.js',(_req,res)=>res.sendFile(path.join(__dirname,'review.js')));

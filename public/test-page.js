@@ -30,12 +30,12 @@
   });
   function stopTimer() { generation++; clearTimeout(timer); timer = null; }
   function fail(error) {
-    stopTimer(); $('menu').hidden = false; $('playback').hidden = true;
+    stopTimer(); $('menu').hidden = false; $('playback').hidden = true; $('map-status-link').hidden = true;
     $('ready-status').textContent = error.message;
   }
   async function chooseAgain() {
     stopTimer();
-    $('menu').hidden = false; $('playback').hidden = true;
+    $('menu').hidden = false; $('playback').hidden = true; $('map-status-link').hidden = true;
     if (ready) await command({ reset: true });
   }
   async function play(test) {
@@ -46,7 +46,7 @@
     try {
       await command({ reset: true });
       if (run !== generation) return;
-      $('menu').hidden = true; $('playback').hidden = false;
+      $('menu').hidden = true; $('playback').hidden = false; $('map-status-link').hidden = false;
       $('cancel').textContent = '中止・選び直す';
       const issued = new Date().toISOString();
       let index = 0, due = performance.now() + 3000;
