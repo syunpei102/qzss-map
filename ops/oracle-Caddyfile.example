@@ -1,4 +1,4 @@
-eq.shum10.com, oracle-review.eq.shum10.com {
+eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
     @latency path /api/youtube-latency-history /api/server-latency-history /latency.html
     handle @latency {
         reverse_proxy 127.0.0.1:8090

@@ -1,5 +1,14 @@
 # Oracle運用・並行移行
 
+## 現在の確定構成（2026年11月15日（日））
+
+- 本番eq.shum10.comと紹介info.shum10.comはOracle．system.shum10.comは停止．GCP旧本番qzss-mapは削除済み．
+- GCPの計算処理は独立テストqzss-map-testと料金保護billing-guardのみ．両Oracle VMのGCS暗号化バックアップは継続する．保存済みデータ・復元用イメージは削除していないため保存費は残る．
+- 処理端末はoracle-review.eq.shum10.comへ1系統送信．GCPへの送信・比較WebSocket・公開設定同期は停止．
+- 監視と切断・復旧Discord通知はOracle．Discord Interactions登録先はhttps://oracle-review.eq.shum10.com/discord/interactions．ユーザーが保存完了を確認した．処理端末からDiscordへの異常通知はOracle停止時の予備経路として維持．
+- GCP Cloud MonitoringのQZSS稼働監視とアラートは削除，中継通知チャネルは無効化．削除前の設定はMacの非公開バックアップに保存した．
+- 下記は移行途中の履歴を含む．再構築時はこの現在構成と末尾のv1.25.0節を優先する．
+
 - 本番地図のURLは維持する．GCPは並行受信を続け，通知購読APIだけをOracleへ中継する．`NOTIFICATION_BACKEND_URL`があるGCPでは自動プッシュを送らない．Oracleに同じVAPID鍵・購読登録・有効情報を移してから切り替える．
 - 比較期間はGCPへ常時WebSocket接続するため，Cloud Runの稼働費用削減は保証しない．移行完了時に比較接続を止める．
 - 実電文・動画・秘密情報はGitへ入れない．コード・テンプレート・匿名テストのみGit管理．電文JSONLはVM内30日，投稿済み動画は7日，未投稿動画は削除しない．録画一覧30日．
