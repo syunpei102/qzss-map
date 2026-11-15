@@ -5,10 +5,12 @@ const {Monitor,jstDay}=require('./monitor');
 const {Telemetry,ROLES}=require('./telemetry');
 const {YouTubeControl}=require('./youtube');
 const {YoutubeLatency}=require('./youtube-latency');
+const {ServerLatency}=require('./server-latency');
 const {DisplayState}=require('./display-state');
 const {publicDashboard,isPublicStatus}=require('./public-dashboard');
 const root=process.env.OPS_DATA||'/ops-data';const journal=new Journal(path.join(root,'reports'));
 const monitor=new Monitor(root),telemetry=new Telemetry(root),youtube=new YouTubeControl(root),youtubeLatency=new YoutubeLatency(root),displayState=new DisplayState(root);
+const serverLatency=new ServerLatency(root,youtubeLatency.rows);
 const app=express();app.disable('x-powered-by');
 // Role-scoped ingestion accepts only numeric allowlisted metrics，never browser credentials．
 app.post('/api/telemetry/:role',express.json({limit:'96kb'}),(req,res)=>{
@@ -24,6 +26,8 @@ app.post('/api/youtube/agent',express.json({limit:'64kb'}),(req,res)=>{
 });
 // Public measurements，like the existing map latency API．Writes require the stream role token．
 app.get('/api/youtube-latency-history',(_req,res)=>res.set('Cache-Control','no-store').json(youtubeLatency.rows));
+app.get('/api/server-latency-history',(_req,res)=>res.set('Cache-Control','no-store').json(serverLatency.rows));
+app.get('/latency.html',(_req,res)=>res.set('Cache-Control','no-store').sendFile(path.join(process.env.OPS_PUBLIC_DIR||'/app/public','latency.html')));
 // Only app identity assets are public，so OS installers need no monitoring credentials．
 for(const name of ['monitor.webmanifest','monitor-icon.svg','monitor-icon-180.png','monitor-icon-192.png','monitor-icon-512.png','monitor-icon-maskable.png','monitor-sw.js'])app.get('/'+name,(req,res)=>{if(!['status.shum10.com','127.0.0.1','localhost'].includes(req.hostname))return res.sendStatus(404);res.set('Cache-Control','no-store');if(name.endsWith('.webmanifest'))res.type('application/manifest+json');if(name==='monitor-sw.js')res.set('Service-Worker-Allowed','/');res.sendFile(path.join(__dirname,name));});
 const expected=process.env.OPS_PASSWORD_SHA256||'';if(!/^[a-f0-9]{64}$/.test(expected))throw Error('OPS_PASSWORD_SHA256 required');
@@ -62,7 +66,7 @@ app.use('/audits',express.static(path.join(root,'audits'),{index:false}));
 app.use((req,res,next)=>{if(!['GET','HEAD'].includes(req.method))return res.sendStatus(405);if(req.path==='/index.html'&&req.query.sandbox!=='1')return res.sendStatus(403);next();});
 app.use(express.static(process.env.OPS_PUBLIC_DIR||'/app/public',{index:false}));
 const status={};let closing=false;
-function connect(source,url){const ws=new WebSocket(url,{maxPayload:262144});status[source]={connected:false};ws.on('open',()=>{status[source]={...status[source],connected:true};if(source==='oracle')monitor.connection(source,true);});ws.on('message',data=>{try{const report=JSON.parse(data);if(source==='oracle')monitor.receive(source,report);status[source].lastReceived=Date.now();if(['Heartbeat','ReceiverStatus'].includes(report.type)){status[source].lastHeartbeat=Date.now()-(Number(report.ageMs)||0);status[source].serialConnected=report.serial_connected;}if(!journal.append(source,report))status[source].lastSkipped=Date.now();}catch{status[source].parseError=Date.now();}});ws.on('error',()=>{});ws.on('close',()=>{if(source==='oracle')monitor.connection(source,false);status[source].connected=false;if(!closing)setTimeout(()=>connect(source,url),5000).unref();});return ws;}
+function connect(source,url){const ws=new WebSocket(url,{maxPayload:262144});status[source]={connected:false};ws.on('open',()=>{status[source]={...status[source],connected:true};if(source==='oracle')monitor.connection(source,true);});ws.on('message',data=>{try{const report=JSON.parse(data);if(source==='oracle'){monitor.receive(source,report);serverLatency.add(report);}status[source].lastReceived=Date.now();if(['Heartbeat','ReceiverStatus'].includes(report.type)){status[source].lastHeartbeat=Date.now()-(Number(report.ageMs)||0);status[source].serialConnected=report.serial_connected;}if(!journal.append(source,report))status[source].lastSkipped=Date.now();}catch{status[source].parseError=Date.now();}});ws.on('error',()=>{});ws.on('close',()=>{if(source==='oracle')monitor.connection(source,false);status[source].connected=false;if(!closing)setTimeout(()=>connect(source,url),5000).unref();});return ws;}
 const sockets=process.env.OPS_CAPTURE==='false'?[]:[connect('gcp','wss://eq.shum10.com/'),connect('oracle','wss://oracle-review.eq.shum10.com/')];
 setInterval(()=>{const tmp=path.join(root,'capture-status.tmp');fs.promises.writeFile(tmp,JSON.stringify({at:Date.now(),sources:status}),{mode:0o600}).then(()=>fs.promises.rename(tmp,path.join(root,'capture-status.json'))).catch(()=>console.error('capture status write failed'));},30000).unref();
 setInterval(()=>{try{for(const [role,host] of Object.entries(telemetry.snapshot()))if(host.latest&&host.stale)monitor.transition('host-'+role,'telemetry','offline',Date.now(),'metrics-timeout');monitor.tick();void monitor.notify(process.env.DISCORD_ALERT_WEBHOOK_URL);}catch{console.error('monitor-persist-failed');}},15000).unref();
