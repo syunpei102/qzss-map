@@ -8,7 +8,7 @@ import pathlib
 import signal
 import time
 
-VERSION = '2.0.1'
+VERSION = '2.0.2'
 STATE = pathlib.Path('/var/lib/qzss-background-compute/state.json')
 READINESS = pathlib.Path('/var/lib/qzss-standby/state.json')
 PAUSE = pathlib.Path('/run/qzss-background-compute.pause')
@@ -30,7 +30,7 @@ def group_cpu_seconds():
 def cpu_sample(own=None):
     fields = list(map(int, pathlib.Path('/proc/stat').read_text().splitlines()[0].split()[1:9]))
     # Exclude stolen time from useful CPU use，but gate stolen time separately．
-    return (sum(fields), sum(fields) - fields[3] - fields[4] - fields[7], fields[7], time.process_time() if own is None else own)
+    return (sum(fields), sum(fields) - fields[3] - fields[4] - fields[7], fields[7], time.process_time() if own is None else own, fields[1])
 
 
 def cpu_usage(previous, current, clock_ticks, cpus):
@@ -38,6 +38,10 @@ def cpu_usage(previous, current, clock_ticks, cpus):
     if total <= 0:
         raise ValueError('invalid CPU observation')
     own = max(0, current[3] - previous[3]) * clock_ticks
+    if len(current) > 4 and len(previous) > 4:
+        # Some guests charge stolen time to cgroup usage．Do not subtract that
+        # from application work．Only the observed nice CPU time can be removed．
+        own = min(own, max(0, current[4] - previous[4]))
     return max(0, 100 * (current[1] - previous[1] - own) / total), 100 * (current[2] - previous[2]) / total
 
 
@@ -183,7 +187,7 @@ def main():
     limits = {'targetCpuPct': 30, 'foregroundPausePct': CPU_LIMIT, 'foregroundPauseSeconds': 3, 'emergencyCpuPct': 60,
               'stealPausePct': STEAL_LIMIT, 'stealPauseSeconds': 10,
               'minMemoryBytes': MEMORY_FLOOR, 'resumeSeconds': RESUME_SECONDS,
-              'maxWorkerCpuPct': 80 / cpus}
+              'maxWorkerCpuPct': 100 / cpus}
     while not shutdown.value:
         if failed.value or any(not process.is_alive() for process in processes):
             allowed.value = 0

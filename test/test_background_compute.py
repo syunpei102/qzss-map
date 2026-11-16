@@ -14,6 +14,10 @@ class BackgroundComputeTests(unittest.TestCase):
         self.assertAlmostEqual(foreground, 1)
         self.assertEqual(steal, 0)
 
+    def test_stolen_time_in_cgroup_usage_does_not_hide_application_cpu(self):
+        foreground, _ = w.cpu_usage((0,0,0,0,0), (200,80,20,0.8,50), 100, 2)
+        self.assertEqual(foreground, 15)
+
     def test_busy_low_memory_unhealthy_and_manual_stop_immediately(self):
         ready = {'at': 100, 'status': 'ready', 'notificationEnabled': True}
         gate = w.Gate()
