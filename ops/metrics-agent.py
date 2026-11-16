@@ -126,10 +126,6 @@ def runtime_watchdog():
 def infrastructure(role):
     result={'checkedAt':round(time.time()*1000)}
     if role=='server':
-        background=read_json(pathlib.Path('/var/lib/qzss-background-compute/state.json'))
-        result['backgroundCompute']={k:background.get(k) for k in ('state','reason','rounds','workerCpuSeconds')}
-        result['backgroundCompute']['at']=number(background.get('at'))
-        if result['backgroundCompute']['at'] is not None:result['backgroundCompute']['at']*=1000
         try:
             with urllib.request.urlopen('http://127.0.0.1:8080/config',timeout=2) as response:config=json.load(response)
             result['mapApi']=isinstance(config.get('webVersion'),str)
@@ -161,6 +157,10 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
     disk=shutil.disk_usage('/');result={'measuredAt':round(wall*1000),'cpuPct':usage,'stealPct':steal,'memoryTotal':mem.get('MemTotal'),'memoryAvailable':mem.get('MemAvailable'),'swapUsed':mem.get('SwapTotal',0)-mem.get('SwapFree',0),'diskFree':disk.free,'diskTotal':disk.total,'uptimeSeconds':float((proc/'uptime').read_text().split()[0]),'services':{}}
     result['versions']={'collector':os.environ.get('QZSS_METRICS_VERSION','unknown')}
     if role=='server':
+        background=read_json(pathlib.Path('/var/lib/qzss-background-compute/state.json'))
+        result['backgroundCompute']={k:background.get(k) for k in ('state','reason','rounds','workerCpuSeconds')}
+        result['backgroundCompute']['at']=number(background.get('at'))
+        if result['backgroundCompute']['at'] is not None:result['backgroundCompute']['at']*=1000
         try:
             with urllib.request.urlopen('http://127.0.0.1:8080/app-version.js',timeout=3) as response:text=response.read(4096).decode()
             match=re.search(r'QZSS_APP_VERSION\s*=\s*["\']([0-9.]+)',text)

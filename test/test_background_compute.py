@@ -20,7 +20,7 @@ class BackgroundComputeTests(unittest.TestCase):
         gate.update(None, 0)
         self.assertTrue(gate.update(None, 60)[0])
         cases = [(20, 0, 300*1024**2, ready, False, 'foreground-cpu'),
-                 (1, 20, 300*1024**2, ready, False, 'host-contention'),
+                 (1, 40, 300*1024**2, ready, False, 'host-contention'),
                  (1, 0, 100*1024**2, ready, False, 'low-memory'),
                  (1, 0, 300*1024**2, {}, False, 'server-not-ready'),
                  (1, 0, 300*1024**2, ready, True, 'manual-pause')]
@@ -29,8 +29,8 @@ class BackgroundComputeTests(unittest.TestCase):
             self.assertEqual(reason, expected)
             self.assertFalse(gate.update(reason, 61)[0])
         self.assertFalse(gate.update(None, 62)[0])
-        self.assertFalse(gate.update(None, 121)[0])
-        self.assertTrue(gate.update(None, 122)[0])
+        self.assertFalse(gate.update(None, 62+w.RESUME_SECONDS-1)[0])
+        self.assertTrue(gate.update(None, 62+w.RESUME_SECONDS)[0])
 
     def test_stale_or_disabled_notifications_prevent_work(self):
         for status in [{'at': 1, 'status': 'ready', 'notificationEnabled': True},

@@ -7,14 +7,14 @@ import pathlib
 import signal
 import time
 
-VERSION = '1.0.0'
+VERSION = '1.0.1'
 STATE = pathlib.Path('/var/lib/qzss-background-compute/state.json')
 READINESS = pathlib.Path('/var/lib/qzss-standby/state.json')
 PAUSE = pathlib.Path('/run/qzss-background-compute.pause')
-CPU_LIMIT = 10.0  # Other work only，excluding this worker's own CPU time．
-STEAL_LIMIT = 15.0
+CPU_LIMIT = 20.0  # Other work only，excluding this worker's own CPU time．
+STEAL_LIMIT = 30.0
 MEMORY_FLOOR = 192 * 1024 * 1024
-RESUME_SECONDS = 60
+RESUME_SECONDS = 15
 
 
 def cpu_sample():
