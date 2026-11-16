@@ -1,0 +1,7 @@
+# Static icon update on the exact image currently serving the map．
+ARG MAP_BASE_IMAGE
+FROM ${MAP_BASE_IMAGE}
+COPY public/index.html public/test.html public/manifest.json public/sw.js public/favicon.ico ./public/
+COPY public/icons/ ./public/icons/
+COPY public/app-version.js public/info.html public/releases.json ./public/
+COPY VERSION ./VERSION

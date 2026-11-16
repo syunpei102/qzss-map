@@ -4,7 +4,7 @@
 // WebSocketや /ingest への送信には一切関与しない(GET以外は素通し)。
 importScripts('./push-display.js');
 
-const CACHE_VERSION = 'qzss-map-v13';
+const CACHE_VERSION = 'qzss-map-v14';
 
 // インストール時に必ず事前キャッシュしておくファイル。以前はmaplibre-gl・
 // pmtilesのライブラリ本体やほとんどのgeojsonデータが含まれておらず、
@@ -41,8 +41,11 @@ const APP_SHELL = [
   './data/weather_regions.geojson',
   './data/flood_rivers.geojson',
   './data/volcanoes.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
+  './favicon.ico?v=1.25.1',
+  './icons/qzss.svg?v=1.25.1',
+  './icons/apple-touch-icon.png?v=1.25.1',
+  './icons/icon-192.png?v=1.25.1',
+  './icons/icon-512.png?v=1.25.1',
 ];
 
 // デプロイのたびに変わりうるファイル(HTML/JS/CSS本体)以外は、
