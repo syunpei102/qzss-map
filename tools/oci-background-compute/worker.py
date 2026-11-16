@@ -7,14 +7,14 @@ import pathlib
 import signal
 import time
 
-VERSION = '1.0.1'
+VERSION = '2.0.0'
 STATE = pathlib.Path('/var/lib/qzss-background-compute/state.json')
 READINESS = pathlib.Path('/var/lib/qzss-standby/state.json')
 PAUSE = pathlib.Path('/run/qzss-background-compute.pause')
-CPU_LIMIT = 20.0  # Other work only，excluding this worker's own CPU time．
-STEAL_LIMIT = 30.0
+CPU_LIMIT = 25.0  # Other work only，excluding this worker's own CPU time．
+STEAL_LIMIT = 70.0
 MEMORY_FLOOR = 192 * 1024 * 1024
-RESUME_SECONDS = 15
+RESUME_SECONDS = 5
 
 
 def cpu_sample():
@@ -58,16 +58,41 @@ def pause_reason(cpu, steal, memory, readiness, now, manual=False):
 class Gate:
     def __init__(self):
         self.healthy_since = None
+        self.pending_reason = None
+        self.pending_since = None
 
-    def update(self, reason, now):
+    def update(self, reason, now, severe=False):
+        # Brief CPU/steal spikes reduce calculation duty，rather than stopping it．
+        delay = 0 if severe else {'foreground-cpu': 3, 'host-contention': 10}.get(reason, 0)
         if reason:
-            self.healthy_since = None
-            return False, reason
+            if reason != self.pending_reason:
+                self.pending_reason, self.pending_since = reason, now
+            if now - self.pending_since >= delay:
+                self.healthy_since = None
+                return False, reason
+        else:
+            self.pending_reason = self.pending_since = None
         if self.healthy_since is None:
             self.healthy_since = now
         if now - self.healthy_since < RESUME_SECONDS:
             return False, 'resume-cooldown'
         return True, None
+
+
+class Controller:
+    def __init__(self, cpus):
+        self.cpus = cpus
+        self.duty = min(0.95, 0.30 * cpus)
+        self.last_foreground = 0
+
+    def adjust(self, total, foreground):
+        # Integrate observed utilization error，with immediate feed-forward when
+        # application load increases．The kernel independently enforces CPUQuota．
+        increase = max(0, foreground - self.last_foreground) * self.cpus / 100
+        error = 30.0 - total
+        self.duty = min(0.95, max(0, self.duty - increase + (0.006 * error if abs(error) > 2 else 0)))
+        self.last_foreground = foreground
+        return self.duty
 
 
 class Integration:
@@ -97,53 +122,76 @@ class Integration:
 def main():
     os.umask(0o077)
     stopped = False
-
     def stop(*_):
         nonlocal stopped
         stopped = True
-
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    clock_ticks = os.sysconf('SC_CLK_TCK')
-    cpus = os.cpu_count() or 1
-    gate, calculation = Gate(), Integration()
+    ticks, cpus = os.sysconf('SC_CLK_TCK'), os.cpu_count() or 1
+    gate, calculation, controller = Gate(), Integration(), Controller(cpus)
     previous = cpu_sample()
-    deadline = time.monotonic() + 1
+    interval_start = time.monotonic()
+    deadline = interval_start + 1
     running = False
     reason = 'initializing'
-    last_reason = None
+    last_label = None
     last_saved = 0
+    last_pause = None
+    try:
+        last_pause = json.loads(STATE.read_text()).get('lastPause')
+    except (OSError, ValueError):
+        pass
+    limits = {'targetCpuPct': 30, 'foregroundPausePct': CPU_LIMIT, 'foregroundPauseSeconds': 3, 'emergencyCpuPct': 60,
+              'stealPausePct': STEAL_LIMIT, 'stealPauseSeconds': 10,
+              'minMemoryBytes': MEMORY_FLOOR, 'resumeSeconds': RESUME_SECONDS,
+              'maxWorkerCpuPct': 80 / cpus}
     while not stopped:
-        if running and time.monotonic() < deadline:
+        if running and time.monotonic() < min(deadline, interval_start + controller.duty):
             calculation.block()
             continue
         time.sleep(max(0, deadline - time.monotonic()))
         mono, wall = time.monotonic(), time.time()
+        readiness_age = None
         try:
             current = cpu_sample()
-            cpu, steal = cpu_usage(previous, current, clock_ticks, cpus)
+            cpu, steal = cpu_usage(previous, current, ticks, cpus)
+            total_cpu = max(0, 100 * (current[1] - previous[1]) / (current[0] - previous[0]))
             previous = current
             memory = memory_available()
             readiness = json.loads(READINESS.read_text())
-            reason = pause_reason(cpu, steal, memory, readiness, wall, PAUSE.exists())
-        except (OSError, ValueError, TypeError):
-            cpu = steal = memory = None
-            reason = 'metrics-unavailable'
-        running, reason = gate.update(reason, mono)
+            readiness_age = max(0, wall - readiness.get('at', 0))
+            requested = pause_reason(cpu, steal, memory, readiness, wall, PAUSE.exists())
+        except (OSError, ValueError, TypeError, ZeroDivisionError):
+            cpu = steal = memory = total_cpu = None
+            requested = 'metrics-unavailable'
+        was_running = running
+        running, reason = gate.update(requested, mono, severe=cpu is not None and cpu >= 60)
+        if running:
+            if was_running:
+                controller.adjust(total_cpu, cpu)
+        else:
+            controller = Controller(cpus)
         label = 'running' if running else reason
-        if label != last_reason:
+        changed = label != last_label
+        if changed:
+            if not running and reason not in ('resume-cooldown', 'initializing'):
+                last_pause = {'at': wall, 'reason': reason, 'foregroundCpuPct': cpu,
+                              'stealPct': steal, 'memoryAvailable': memory,
+                              'readinessAgeSeconds': readiness_age}
             print(json.dumps({'state': 'running' if running else 'paused', 'reason': reason}), flush=True)
-            last_reason = label
-        if mono - last_saved >= 10:
+            last_label = label
+        if changed or mono - last_saved >= 5:
             data = {'version': VERSION, 'at': wall, 'state': 'running' if running else 'paused', 'reason': reason,
-                    'foregroundCpuPct': cpu, 'stealPct': steal, 'memoryAvailable': memory,
+                    'foregroundCpuPct': cpu, 'totalCpuPct': total_cpu, 'stealPct': steal,
+                    'memoryAvailable': memory, 'targetCpuPct': 30, 'dutyPct': controller.duty * 100 if running else 0,
+                    'limits': limits, 'lastPause': last_pause,
                     'rounds': calculation.rounds, 'lastPi': calculation.last_result, 'workerCpuSeconds': time.process_time()}
             tmp = STATE.with_suffix('.tmp')
             tmp.write_text(json.dumps(data))
-            tmp.chmod(0o644)  # Numeric status only，readable by the unprivileged metrics collector．
+            tmp.chmod(0o644)
             tmp.replace(STATE)
             last_saved = mono
-        deadline = mono + 1
+        interval_start, deadline = mono, mono + 1
 
 
 if __name__ == '__main__':

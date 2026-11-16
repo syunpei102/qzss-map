@@ -12,6 +12,6 @@ test('background work reports actual running/paused/stopped and rejects stale st
  a.match(feature(data()).note,/保証するものではありません/);
 });
 test('telemetry keeps only safe background status fields',()=>{
- const s=sanitize('server',{backgroundCompute:{at:now,state:'running',reason:'secret path',rounds:1,workerCpuSeconds:2,secret:'credential'},services:{backgroundCompute:'active'}},now);
- a.equal(s.backgroundCompute.state,'running');a.equal(s.backgroundCompute.reason,null);a.equal(s.backgroundCompute.secret,undefined);a.equal(s.services.backgroundCompute,'active');
+ const s=sanitize('server',{backgroundCompute:{at:now,state:'running',reason:'secret path',rounds:1,workerCpuSeconds:2,lastPause:{at:now,reason:'foreground-cpu',foregroundCpuPct:26,secret:'credential'},limits:{targetCpuPct:30,secret:'credential'},secret:'credential'},services:{backgroundCompute:'active'}},now);
+ a.equal(s.backgroundCompute.state,'running');a.equal(s.backgroundCompute.reason,null);a.equal(s.backgroundCompute.secret,undefined);a.equal(s.services.backgroundCompute,'active');a.equal(s.backgroundCompute.lastPause.foregroundCpuPct,26);a.equal(s.backgroundCompute.lastPause.secret,undefined);a.equal(s.backgroundCompute.limits.targetCpuPct,30);a.equal(s.backgroundCompute.limits.secret,undefined);
 });

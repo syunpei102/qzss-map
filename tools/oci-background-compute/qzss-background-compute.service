@@ -11,8 +11,8 @@ Nice=19
 CPUSchedulingPolicy=idle
 CPUAccounting=yes
 CPUWeight=1
-# 50% of ONE logical CPU，at most about 25% of the two-CPU guest．
-CPUQuota=50%
+# 80% of ONE logical CPU，at most about 40% of the two-CPU guest．
+CPUQuota=80%
 CPUQuotaPeriodSec=100ms
 IOWeight=1
 MemoryHigh=48M

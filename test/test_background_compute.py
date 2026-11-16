@@ -19,8 +19,7 @@ class BackgroundComputeTests(unittest.TestCase):
         gate = w.Gate()
         gate.update(None, 0)
         self.assertTrue(gate.update(None, 60)[0])
-        cases = [(20, 0, 300*1024**2, ready, False, 'foreground-cpu'),
-                 (1, 40, 300*1024**2, ready, False, 'host-contention'),
+        cases = [
                  (1, 0, 100*1024**2, ready, False, 'low-memory'),
                  (1, 0, 300*1024**2, {}, False, 'server-not-ready'),
                  (1, 0, 300*1024**2, ready, True, 'manual-pause')]
@@ -31,6 +30,33 @@ class BackgroundComputeTests(unittest.TestCase):
         self.assertFalse(gate.update(None, 62)[0])
         self.assertFalse(gate.update(None, 62+w.RESUME_SECONDS-1)[0])
         self.assertTrue(gate.update(None, 62+w.RESUME_SECONDS)[0])
+
+    def test_transient_cpu_wait_does_not_stop_but_sustained_pressure_does(self):
+        gate = w.Gate()
+        gate.update(None, 0)
+        self.assertTrue(gate.update(None, w.RESUME_SECONDS)[0])
+        self.assertTrue(gate.update('host-contention', 10)[0])
+        self.assertTrue(gate.update('host-contention', 19)[0])
+        self.assertFalse(gate.update('host-contention', 20)[0])
+        self.assertFalse(gate.update(None, 21)[0])
+        self.assertTrue(gate.update(None, 21+w.RESUME_SECONDS)[0])
+        self.assertTrue(gate.update('foreground-cpu', 30)[0])
+        self.assertFalse(gate.update('foreground-cpu', 33)[0])
+        self.assertFalse(gate.update('foreground-cpu', 34, severe=True)[0])
+
+    def test_controller_converges_and_reduces_work_when_application_load_rises(self):
+        control = w.Controller(2)
+        for _ in range(120):
+            total = 5 + 40 * control.duty
+            control.adjust(total, 5)
+        self.assertAlmostEqual(total, 30, delta=2.1)
+        previous = control.duty
+        control.adjust(total+15, 20)
+        self.assertLess(control.duty, previous)
+        for _ in range(100):control.adjust(0, 0)
+        self.assertLessEqual(control.duty, 0.95)
+        for _ in range(100):control.adjust(100, 100)
+        self.assertGreaterEqual(control.duty, 0)
 
     def test_stale_or_disabled_notifications_prevent_work(self):
         for status in [{'at': 1, 'status': 'ready', 'notificationEnabled': True},

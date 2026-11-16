@@ -158,9 +158,14 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
     result['versions']={'collector':os.environ.get('QZSS_METRICS_VERSION','unknown')}
     if role=='server':
         background=read_json(pathlib.Path('/var/lib/qzss-background-compute/state.json'))
-        result['backgroundCompute']={k:background.get(k) for k in ('state','reason','rounds','workerCpuSeconds')}
+        result['backgroundCompute']={k:background.get(k) for k in ('state','reason','rounds','workerCpuSeconds','foregroundCpuPct','totalCpuPct','stealPct','memoryAvailable','targetCpuPct','dutyPct','limits')}
         result['backgroundCompute']['at']=number(background.get('at'))
         if result['backgroundCompute']['at'] is not None:result['backgroundCompute']['at']*=1000
+        pause=background.get('lastPause')
+        if isinstance(pause,dict):
+            result['backgroundCompute']['lastPause']={k:pause.get(k) for k in ('reason','foregroundCpuPct','stealPct','memoryAvailable','readinessAgeSeconds')}
+            at=number(pause.get('at'))
+            result['backgroundCompute']['lastPause']['at']=at*1000 if at is not None else None
         try:
             with urllib.request.urlopen('http://127.0.0.1:8080/app-version.js',timeout=3) as response:text=response.read(4096).decode()
             match=re.search(r'QZSS_APP_VERSION\s*=\s*["\']([0-9.]+)',text)

@@ -63,9 +63,12 @@ class MetricsTests(unittest.TestCase):
    (root/'stat').write_text('cpu 10 0 10 60 5 0 0 15\n')
    (root/'meminfo').write_text('MemTotal: 1000 kB\nMemAvailable: 500 kB\nSwapTotal: 100 kB\nSwapFree: 80 kB\n')
    (root/'uptime').write_text('100 0')
-   background={'at':123.5,'state':'paused','reason':'foreground-cpu','rounds':7,'workerCpuSeconds':5}
+   background={'at':123.5,'state':'paused','reason':'foreground-cpu','rounds':7,'workerCpuSeconds':5,'lastPause':{'at':100,'reason':'foreground-cpu','foregroundCpuPct':26},'limits':{'targetCpuPct':30}}
    with patch.object(agent,'read_json',return_value=background),patch.object(agent,'infrastructure',return_value={'checkedAt':1}),patch.object(agent.urllib.request,'urlopen',side_effect=OSError),patch.object(agent.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'active','')):
     data,_=agent.collect('server',{},proc=root)
    self.assertEqual(data['backgroundCompute']['at'],123500)
    self.assertEqual(data['backgroundCompute']['state'],'paused')
+   self.assertEqual(data['backgroundCompute']['lastPause']['at'],100000)
+   self.assertEqual(data['backgroundCompute']['lastPause']['foregroundCpuPct'],26)
+   self.assertEqual(data['backgroundCompute']['limits']['targetCpuPct'],30)
    self.assertEqual(data['services']['backgroundCompute'],'active')
