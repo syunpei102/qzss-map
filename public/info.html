@@ -320,8 +320,12 @@
 <section class="band" id="updates" aria-labelledby="updates-title">
   <div class="wrap">
     <span class="eyebrow">アップデート履歴</span>
-    <h2 id="updates-title">現在のバージョン 1.25.4</h2>
+    <h2 id="updates-title">現在のバージョン 1.25.5</h2>
     <p class="sub">変更内容を新しい順に掲載しています．旧バージョンの日付はコードの更新日です．</p>
+    <article class="release-entry">
+      <h3>v1.25.5 <time datetime="2026-11-16">2026年11月16日（月）</time></h3>
+      <ul><li>CPU待ちで単一計算が頭打ちになる環境に対応し，回収防止処理を2並列へ分散しました．合計のCPU上限と自動休止を維持します．</li></ul>
+    </article>
     <article class="release-entry">
       <h3>v1.25.4 <time datetime="2026-11-16">2026年11月16日（月）</time></h3>
       <ul><li>回収防止処理をCPU使用率約30%を目標に計算量を調整する方式へ変更し，短時間の負荷変動による休止を抑えました．</li><li>監視画面に現在の使用率・直近の停止時刻と実測値・停止と再開の条件を表示します．</li></ul>

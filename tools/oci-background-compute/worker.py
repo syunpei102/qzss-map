@@ -2,12 +2,13 @@
 """Low-priority numerical integration with fail-closed workload admission．"""
 import json
 import math
+import multiprocessing
 import os
 import pathlib
 import signal
 import time
 
-VERSION = '2.0.0'
+VERSION = '2.0.1'
 STATE = pathlib.Path('/var/lib/qzss-background-compute/state.json')
 READINESS = pathlib.Path('/var/lib/qzss-standby/state.json')
 PAUSE = pathlib.Path('/run/qzss-background-compute.pause')
@@ -17,10 +18,19 @@ MEMORY_FLOOR = 192 * 1024 * 1024
 RESUME_SECONDS = 5
 
 
-def cpu_sample():
+def group_cpu_seconds():
+    for line in pathlib.Path('/proc/self/cgroup').read_text().splitlines():
+        if line.startswith('0::'):
+            folder = pathlib.Path('/sys/fs/cgroup') / line[3:].lstrip('/')
+            values = dict(row.split() for row in (folder/'cpu.stat').read_text().splitlines())
+            return int(values['usage_usec']) / 1_000_000
+    raise ValueError('CPU accounting cgroup missing')
+
+
+def cpu_sample(own=None):
     fields = list(map(int, pathlib.Path('/proc/stat').read_text().splitlines()[0].split()[1:9]))
     # Exclude stolen time from useful CPU use，but gate stolen time separately．
-    return (sum(fields), sum(fields) - fields[3] - fields[4] - fields[7], fields[7], time.process_time())
+    return (sum(fields), sum(fields) - fields[3] - fields[4] - fields[7], fields[7], time.process_time() if own is None else own)
 
 
 def cpu_usage(previous, current, clock_ticks, cpus):
@@ -80,15 +90,16 @@ class Gate:
 
 
 class Controller:
-    def __init__(self, cpus):
+    def __init__(self, cpus, workers=1):
         self.cpus = cpus
-        self.duty = min(0.95, 0.30 * cpus)
+        self.workers = workers
+        self.duty = min(0.95, 0.30 * cpus / workers)
         self.last_foreground = 0
 
     def adjust(self, total, foreground):
         # Integrate observed utilization error，with immediate feed-forward when
         # application load increases．The kernel independently enforces CPUQuota．
-        increase = max(0, foreground - self.last_foreground) * self.cpus / 100
+        increase = max(0, foreground - self.last_foreground) * self.cpus / (100 * self.workers)
         error = 30.0 - total
         self.duty = min(0.95, max(0, self.duty - increase + (0.006 * error if abs(error) > 2 else 0)))
         self.last_foreground = foreground
@@ -119,17 +130,45 @@ class Integration:
             self.total = 0.0
 
 
+def integration_process(allowed, duty, shutdown, rounds, result, failed):
+    calculation = Integration()
+    while not shutdown.value:
+        if not allowed.value:
+            time.sleep(0.05)
+            continue
+        start = time.monotonic()
+        try:
+            while allowed.value and not shutdown.value and time.monotonic()-start < duty.value:
+                calculation.block()
+            rounds.value = calculation.rounds
+            if calculation.last_result is not None:
+                result.value = calculation.last_result
+        except ArithmeticError:
+            failed.value = 1
+            return
+        while not shutdown.value and allowed.value and time.monotonic()-start < 1:
+            time.sleep(min(0.05, max(0, 1-(time.monotonic()-start))))
+
+
 def main():
     os.umask(0o077)
-    stopped = False
+    shutdown = multiprocessing.RawValue('b', 0)
     def stop(*_):
-        nonlocal stopped
-        stopped = True
+        shutdown.value = 1
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     ticks, cpus = os.sysconf('SC_CLK_TCK'), os.cpu_count() or 1
-    gate, calculation, controller = Gate(), Integration(), Controller(cpus)
-    previous = cpu_sample()
+    worker_count = min(2, cpus)
+    gate, controller = Gate(), Controller(cpus, worker_count)
+    allowed, duty = multiprocessing.RawValue('b', 0), multiprocessing.RawValue('d', controller.duty)
+    rounds = [multiprocessing.RawValue('Q', 0) for _ in range(worker_count)]
+    results = [multiprocessing.RawValue('d', 0) for _ in range(worker_count)]
+    failed = multiprocessing.RawValue('b', 0)
+    previous = cpu_sample(group_cpu_seconds())
+    processes = [multiprocessing.get_context('fork').Process(target=integration_process,
+        args=(allowed, duty, shutdown, rounds[i], results[i], failed), daemon=True) for i in range(worker_count)]
+    for process in processes:
+        process.start()
     interval_start = time.monotonic()
     deadline = interval_start + 1
     running = False
@@ -145,15 +184,15 @@ def main():
               'stealPausePct': STEAL_LIMIT, 'stealPauseSeconds': 10,
               'minMemoryBytes': MEMORY_FLOOR, 'resumeSeconds': RESUME_SECONDS,
               'maxWorkerCpuPct': 80 / cpus}
-    while not stopped:
-        if running and time.monotonic() < min(deadline, interval_start + controller.duty):
-            calculation.block()
-            continue
+    while not shutdown.value:
+        if failed.value or any(not process.is_alive() for process in processes):
+            allowed.value = 0
+            raise ArithmeticError('integration worker exited unexpectedly')
         time.sleep(max(0, deadline - time.monotonic()))
         mono, wall = time.monotonic(), time.time()
         readiness_age = None
         try:
-            current = cpu_sample()
+            current = cpu_sample(group_cpu_seconds())
             cpu, steal = cpu_usage(previous, current, ticks, cpus)
             total_cpu = max(0, 100 * (current[1] - previous[1]) / (current[0] - previous[0]))
             previous = current
@@ -170,7 +209,8 @@ def main():
             if was_running:
                 controller.adjust(total_cpu, cpu)
         else:
-            controller = Controller(cpus)
+            controller = Controller(cpus, worker_count)
+        duty.value, allowed.value = controller.duty, int(running)
         label = 'running' if running else reason
         changed = label != last_label
         if changed:
@@ -185,13 +225,16 @@ def main():
                     'foregroundCpuPct': cpu, 'totalCpuPct': total_cpu, 'stealPct': steal,
                     'memoryAvailable': memory, 'targetCpuPct': 30, 'dutyPct': controller.duty * 100 if running else 0,
                     'limits': limits, 'lastPause': last_pause,
-                    'rounds': calculation.rounds, 'lastPi': calculation.last_result, 'workerCpuSeconds': time.process_time()}
+                    'rounds': sum(value.value for value in rounds), 'lastPi': next((value.value for value in results if value.value), None), 'workerCpuSeconds': group_cpu_seconds(), 'workers': worker_count}
             tmp = STATE.with_suffix('.tmp')
             tmp.write_text(json.dumps(data))
             tmp.chmod(0o644)
             tmp.replace(STATE)
             last_saved = mono
         interval_start, deadline = mono, mono + 1
+    allowed.value = 0
+    for process in processes:
+        process.join(timeout=1)
 
 
 if __name__ == '__main__':

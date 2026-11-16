@@ -58,6 +58,14 @@ class BackgroundComputeTests(unittest.TestCase):
         for _ in range(100):control.adjust(100, 100)
         self.assertGreaterEqual(control.duty, 0)
 
+    def test_parallel_controller_converges_with_shared_cpu_wait(self):
+        control = w.Controller(2, workers=2)
+        for _ in range(150):
+            total = 2 + 2 * 25 * control.duty
+            control.adjust(total, 2)
+        self.assertAlmostEqual(total, 30, delta=2.1)
+        self.assertLessEqual(control.duty, 0.95)
+
     def test_stale_or_disabled_notifications_prevent_work(self):
         for status in [{'at': 1, 'status': 'ready', 'notificationEnabled': True},
                        {'at': 100, 'status': 'ready', 'notificationEnabled': False}]:
