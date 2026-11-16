@@ -1,0 +1,41 @@
+[Unit]
+Description=QZSS low-priority background numerical integration
+After=qzss-foundation-standby.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/qzss-background-compute/worker.py
+Restart=on-failure
+RestartSec=30
+Nice=19
+CPUSchedulingPolicy=idle
+CPUAccounting=yes
+CPUWeight=1
+# 50% of ONE logical CPU，at most about 25% of the two-CPU guest．
+CPUQuota=50%
+CPUQuotaPeriodSec=100ms
+IOWeight=1
+MemoryHigh=48M
+MemoryMax=64M
+MemorySwapMax=0
+TasksMax=4
+OOMScoreAdjust=900
+StateDirectory=qzss-background-compute
+StateDirectoryMode=0755
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

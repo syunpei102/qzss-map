@@ -12,6 +12,7 @@ function features(data,role){const host=data.hosts?.[role],s=host?.latest,i=s?.i
   const display=data.display,stream=data.hosts?.stream;add('描画エンジン',display&&!display.stale&&now-display.at<=60000&&!stream?.stale&&stream?.latest?.browser?.healthy===true&&stream.latest.browser.ageSeconds<=90,'配信画面の読み込みと画面監視を確認');
   add('定期検査',infraFresh&&i.auditTimer?.active==='active'&&i.audit?.result==='success'&&i.audit.exitCode===0&&Number.isFinite(i.audit.lastFinishedAt),'夜間検査の定期実行と最終成功結果を確認');
   add('障害監視',infraFresh&&i.healthTimer?.active==='active'&&i.health?.result==='success'&&i.health.exitCode===0&&now-i.health.lastFinishedAt<900000,'監視ジョブの定期実行と15分以内の最終成功結果を確認');
+  const b=s?.backgroundCompute,active=s?.services?.backgroundCompute,known=fresh&&active==='inactive'||fresh&&active==='active'&&Number.isFinite(b?.at)&&now-b.at<=45000&&['running','paused'].includes(b.state);const running=known&&active==='active'&&b.state==='running';items.push({name:'回収防止処理',label:!known?'要確認':running?'動作中':'停止中',kind:!known?'unknown':running?'ok':'neutral',note:'Oracle Cloudのアイドル判定の回避を目的に実行しています．回収防止を保証するものではありません．'});
  }else if(role==='pi'){
   const receiver=data.sources?.oracle,r=s?.reception,w=s?.watchdog;
   add('受信プログラム',fresh&&s.services?.decoder==='active'&&s.decoder?.result==='success','受信プロセスの稼働と終了状態を確認');

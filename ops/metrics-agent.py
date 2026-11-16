@@ -126,6 +126,10 @@ def runtime_watchdog():
 def infrastructure(role):
     result={'checkedAt':round(time.time()*1000)}
     if role=='server':
+        background=read_json(pathlib.Path('/var/lib/qzss-background-compute/state.json'))
+        result['backgroundCompute']={k:background.get(k) for k in ('state','reason','rounds','workerCpuSeconds')}
+        result['backgroundCompute']['at']=number(background.get('at'))
+        if result['backgroundCompute']['at'] is not None:result['backgroundCompute']['at']*=1000
         try:
             with urllib.request.urlopen('http://127.0.0.1:8080/config',timeout=2) as response:config=json.load(response)
             result['mapApi']=isinstance(config.get('webVersion'),str)
@@ -184,7 +188,7 @@ def collect(role,previous,proc=pathlib.Path('/proc'),stream=pathlib.Path('/home/
         state['infrastructure']=result['infrastructure']
     try:result['temperatureC']=int(pathlib.Path('/sys/class/thermal/thermal_zone0/temp').read_text())/1000
     except (OSError,ValueError):pass
-    units={'server':{'docker':'docker','backup':'qzss-private-backup'},'stream':{'stream':'qzss-stream','clips':'qzss-clips','clock':'qzss-clock-watch','versionWatch':'qzss-version-watch','youtubeManager':'qzss-youtube-manager','backup':'qzss-private-backup'},'pi':{'decoder':'qzss-decoder@qzss01','receptionWatch':'qzss-reception-watch.timer'}}[role]
+    units={'server':{'docker':'docker','backup':'qzss-private-backup','backgroundCompute':'qzss-background-compute'},'stream':{'stream':'qzss-stream','clips':'qzss-clips','clock':'qzss-clock-watch','versionWatch':'qzss-version-watch','youtubeManager':'qzss-youtube-manager','backup':'qzss-private-backup'},'pi':{'decoder':'qzss-decoder@qzss01','receptionWatch':'qzss-reception-watch.timer'}}[role]
     for name,unit in units.items():
         try:
             r=subprocess.run(['systemctl','is-active',unit if unit.endswith('.timer') else unit+'.service'],capture_output=True,text=True,timeout=2)

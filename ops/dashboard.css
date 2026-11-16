@@ -49,3 +49,5 @@ p,dd,td{overflow-wrap:anywhere}p{max-width:76ch}.heading h2{margin-bottom:0}.hea
 @media(max-width:550px){.frame-chart{padding:12px}.recording-summary{padding:14px}.recording-system-heading h4{font-size:17px}}
 .analysis-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}.analysis-card{border:1px solid var(--line);border-radius:6px;padding:20px}.analysis-card .heading{margin:0 0 12px;gap:12px;flex-wrap:wrap}.analysis-card h3{font-size:19px}.analysis-card .value-list{grid-template-columns:minmax(0,1fr) auto}.analysis-card dd{font-variant-numeric:tabular-nums}
 @media(max-width:700px){.analysis-cards{grid-template-columns:1fr}.analysis-card{padding:16px}.analysis-card .value-list dd{margin:0}}
+
+.state.neutral{color:#c4cbd3;background:#292f37}
