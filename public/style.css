@@ -25,6 +25,10 @@ html, body {
   box-shadow: 0 -8px 24px rgba(0,0,0,.35);
 }
 .lalert-banner[hidden], .lalert-fullscreen[hidden] { display: none !important; }
+.lalert-banner:not(.is-empty) .lalert-empty,
+.lalert-banner.is-empty .lalert-row-meta,
+.lalert-banner.is-empty .lalert-row-body { display: none; }
+.lalert-empty { color: #cbd4df; font-size: 14px; font-weight: 500; text-align: center; }
 .lalert-row-meta, .lalert-meta-left, .lalert-meta-right { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .lalert-row-meta { justify-content: space-between; }
 .lalert-meta-left { overflow: hidden; }

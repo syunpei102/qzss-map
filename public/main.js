@@ -188,6 +188,7 @@ async function loadShowTrainingBroadcastsSetting() {
     }, 30000);
     console.warn('表示設定を取得できないため，公式訓練・気象・火山はOFFにし，再取得します．', err);
   } finally { clearTimeout(timeout); }
+  renderLAlertDisplay();
 }
 
 // 震度速報の震度コード(1〜7) -> 表示ラベル/色
@@ -4540,7 +4541,8 @@ function renderLAlertDisplay() {
   const records = lalertManager.visible();
   const banner = document.getElementById('lalert_banner');
   const overlay = document.getElementById('lalert_fullscreen_overlay');
-  banner.hidden = records.length === 0 || lalertManager.mode === 'list';
+  banner.hidden = !lalertEnabled || lalertManager.mode === 'list';
+  banner.classList.toggle('is-empty', records.length === 0);
   const record = records[lalertManager.bannerIndex % Math.max(1, records.length)];
   if (record && !banner.hidden && (lalertRenderedId !== record.id || lalertRenderedRevision !== lalertManager.revision)) {
     document.getElementById('lalert_badge_source').textContent = record.source;
