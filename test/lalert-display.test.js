@@ -140,3 +140,10 @@ test('新たな災害は一覧を同期的に閉じ，一般Web版は一覧へ�
   web.advance(3600000);
   assert.equal(web.manager.mode, 'map');
 });
+
+test('スマホ表示ではLアラート詳細メッセージを折り返して全文表示する', () => {
+  const css = fs.readFileSync(require.resolve('../public/style.css'), 'utf8');
+  assert.match(css, /@media\s*\(max-width:\s*700px\)[\s\S]*?\.lalert-message\s*\{[\s\S]*?white-space:\s*normal;/);
+  assert.match(css, /@media\s*\(max-width:\s*700px\)[\s\S]*?\.lalert-message\s*\{[\s\S]*?word-break:\s*break-word;/);
+});
+

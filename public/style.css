@@ -73,6 +73,13 @@ html, body {
   .lalert-meta-right { font-size: 10px; }
   .lalert-badge-source, .lalert-badge-sev { padding: 1px 4px; }
   #lalert_time { display: none; }
+  .lalert-message {
+    white-space: normal;
+    word-break: break-word;
+    overflow: visible;
+    text-overflow: clip;
+    line-height: 1.45;
+  }
 }
 .lalert-preview-controls { position: fixed; z-index: 3000; top: 12px; right: 12px; max-width: 430px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: rgba(12,15,20,.95); color: #fff; border: 1px solid #8ca0b8; border-radius: 10px; font-size: 12px; }
 .lalert-preview-controls strong { width: 100%; }
