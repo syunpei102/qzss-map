@@ -47,6 +47,13 @@ test('ordinary magnitude/depth and finite intensity ranges remain visible', () =
     seismic_intensity_upper_limit: '震度5弱' }), '5弱');
 });
 
+test('震度電文にMが無い場合は推測値を表示しない', () => {
+  const rows = buildSummary({ disaster_category_no: 3,
+    seismic_intensities: ['4'], prefectures: ['熊本県'], occurrence_time_of_earthquake: '2026-11-20T12:46:00' });
+  assert.equal(rows.find(([label]) => label === 'マグニチュード')[1], '震度電文に記載なし');
+  assert.equal(rows.find(([label]) => label === '最大震度')[1], '震度4(熊本県)');
+});
+
 test('open upper bound uses the lower intensity once and accepts older text payloads', () => {
   for (const text of ['〜程度以上', '～程度以上', '~程度以上']) {
     assert.equal(EewDisplay.predictedIntensity({ seismic_intensity_lower_limit: '震度5弱',

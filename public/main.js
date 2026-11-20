@@ -773,6 +773,7 @@ function buildSummary(report) {
     push('震源情報', '仮定震源要素（規模・深さは未推定）');
   } else {
     if (report.magnitude) push('マグニチュード', `M${report.magnitude}`);
+    else if (report.disaster_category_no === 3) push('マグニチュード', '震度電文に記載なし');
     if (report.depth_of_hypocenter) push('深さ', report.depth_of_hypocenter);
   }
 
@@ -2884,6 +2885,17 @@ function addActiveEvent(eventData, ttlMs = null) {
 // 採用する(短い方に引きずられて津波警報ごと早期に消えないようにする)
 function mergeIntoActiveEvent(record, eventData, report, newTtlMs = null) {
   clearTimeout(record.timer);
+  // 震度電文にはMが無い．同じ地震として照合済みの速報・震源情報に
+  // Mがあれば，元の情報種別を添えて震度パネルに引き継ぐ．
+  const priorCategoryNo = record.disasterCategoryNo;
+  const priorMagnitude = (record.rows || []).find(([key, value]) => key === 'マグニチュード' && /^M\d/.test(String(value)));
+  if (report.disaster_category_no === 3 && !report.magnitude && priorMagnitude) {
+    const source = priorCategoryNo === 1 ? '緊急地震速報の推定値' : '震源情報';
+    const magnitudeText = priorCategoryNo === 3 ? priorMagnitude[1]
+      : `${priorMagnitude[1].replace(/（.*）$/, '')}（${source}）`;
+    eventData.rows = eventData.rows.map(([key, value]) => key === 'マグニチュード'
+      ? [key, magnitudeText] : [key, value]);
+  }
   if (newTtlMs != null) record.ttlMs = newTtlMs;
   if (eventData.earthquakeGeoExpiresAt != null) {
     record.earthquakeGeoExpiresAt = Math.max(record.earthquakeGeoExpiresAt || 0, eventData.earthquakeGeoExpiresAt);
