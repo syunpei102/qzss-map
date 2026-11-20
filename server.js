@@ -3,6 +3,7 @@ const { EarthquakeReceptions, reportGroupKey, updateActiveReports, pruneExpiredR
 const DisplayEvents = require("./public/display-events");
 const InformationSettings = require("./public/information-settings");
 const TrainingReportFilter = require("./public/training-report-filter");
+const EewDisplay = require("./public/eew-display");
 const { ashIssueKey, ashNotificationBody } = require("./ash-notification");
 const http = require("http");
 const fs = require("fs");
@@ -363,11 +364,12 @@ function notificationBodyFor(report) {
   if (report.disaster_category_no === 1) {
     const epicenter = typeof report.seismic_epicenter === "string" ? report.seismic_epicenter.trim() : "";
     if (isCancel) return "緊急地震速報を取り消しました．";
-    const upper = typeof report.seismic_intensity_upper_limit === "string"
-      ? report.seismic_intensity_upper_limit.trim().replace(/^震度/, "") : "";
-    const intensity = upper && !/^(不明|未発表|N\/A|unknown)$/i.test(upper)
-      ? `予想最大震度${upper}．` : "";
-    return `${epicenter ? `${epicenter}で地震．` : "震源地を確認中．"}${intensity}`;
+    const predicted = EewDisplay.predictedIntensity(report, { maximumOnly: true });
+    const intensity = predicted ? `予想最大震度${predicted}．` : "";
+    const location = EewDisplay.isAssumptive(report)
+      ? (epicenter ? `${epicenter}付近で強い揺れ．` : "震源地を確認中．")
+      : (epicenter ? `${epicenter}で地震．` : "震源地を確認中．");
+    return `${location}${intensity}`;
   }
   const detail = notificationBodyDetail(report);
   return isCancel ? `解除: ${detail}` : detail;

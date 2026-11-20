@@ -11,6 +11,7 @@ assert.ok(start >= 0 && end > start);
 const buildSummary = vm.runInNewContext(`${source.slice(start, end)}; buildSummary`, {
   formatDateTime: (value) => value,
   summarizeList: (values) => values.join('・'),
+  EewDisplay: require('../public/eew-display'),
 });
 
 function notice(report) {

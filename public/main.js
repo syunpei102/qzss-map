@@ -765,15 +765,18 @@ function buildSummary(report) {
 
   push('発表時刻', formatDateTime(report.report_time));
 
-  if (report.seismic_epicenter) push('震央', report.seismic_epicenter);
-  if (report.magnitude) push('マグニチュード', `M${report.magnitude}`);
-  if (report.depth_of_hypocenter) push('深さ', report.depth_of_hypocenter);
-
-  if (report.seismic_intensity_upper_limit) {
-    const lower = report.seismic_intensity_lower_limit;
-    const upper = report.seismic_intensity_upper_limit;
-    push('震度', lower && lower !== upper ? `${lower}〜${upper}` : upper);
+  const assumptive = EewDisplay.isAssumptive(report);
+  if (report.seismic_epicenter) push(assumptive ? '仮定震央' : '震央', report.seismic_epicenter);
+  if (assumptive) {
+    // M1.0・深さ10kmは固定の仮定値であり，地震規模・深さの推定結果ではない．
+    push('震源情報', '仮定震源要素（規模・深さは未推定）');
+  } else {
+    if (report.magnitude) push('マグニチュード', `M${report.magnitude}`);
+    if (report.depth_of_hypocenter) push('深さ', report.depth_of_hypocenter);
   }
+
+  const predictedIntensity = EewDisplay.predictedIntensity(report);
+  if (predictedIntensity) push('震度', `震度${predictedIntensity}`);
   if (Array.isArray(report.seismic_intensities) && report.seismic_intensities.length) {
     const pref = Array.isArray(report.prefectures) ? report.prefectures[0] : '';
     push('最大震度', pref ? `震度${report.seismic_intensities[0]}(${pref})` : report.seismic_intensities[0]);
