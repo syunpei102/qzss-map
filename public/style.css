@@ -6,6 +6,80 @@ html, body {
   font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 
+/* Lアラートは地図の上に2行で表示し，閲覧者の操作を必要としない． */
+.lalert-banner {
+  position: fixed;
+  z-index: 1100;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 7px max(16px, env(safe-area-inset-right)) calc(7px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: rgba(12, 15, 20, .97);
+  border-top: 1px solid rgba(255,255,255,.22);
+  color: #fff;
+  box-sizing: border-box;
+  pointer-events: none;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  box-shadow: 0 -8px 24px rgba(0,0,0,.35);
+}
+.lalert-banner[hidden], .lalert-fullscreen[hidden] { display: none !important; }
+.lalert-row-meta, .lalert-meta-left, .lalert-meta-right { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.lalert-row-meta { justify-content: space-between; }
+.lalert-meta-left { overflow: hidden; }
+.lalert-meta-right { white-space: nowrap; font-size: 12px; color: #d7dce4; }
+.lalert-badge-source { padding: 2px 7px; background: #2e3a4e; border-radius: 4px; white-space: nowrap; }
+.lalert-badge-sev { padding: 2px 7px; border-radius: 4px; white-space: nowrap; background: #395067; }
+.lalert-badge-sev.sev-urgent { background: #ad2831; }
+.lalert-badge-sev.sev-severe { background: #a75c1f; }
+.lalert-badge-sev.sev-moderate { background: #696019; }
+.lalert-area-name, .lalert-message { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lalert-row-body { margin-top: 4px; padding-left: 2px; }
+.lalert-message { display: block; }
+.lalert-banner.is-switching .lalert-row-meta, .lalert-banner.is-switching .lalert-row-body { animation: lalert-fade .3s ease; }
+@keyframes lalert-fade { from { opacity: .25; } to { opacity: 1; } }
+
+.lalert-fullscreen {
+  position: fixed;
+  z-index: 2000;
+  inset: 0;
+  background: #0c0f14;
+  color: #fff;
+  box-sizing: border-box;
+  padding: max(18px, env(safe-area-inset-top)) 3vw max(18px, env(safe-area-inset-bottom));
+  opacity: 1;
+  animation: lalert-fade .3s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.lalert-fullscreen-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 14px; border-bottom: 2px solid #53627a; }
+.lalert-fullscreen-header > div { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+#lalert_fullscreen_clock { font-size: clamp(24px, 2.4vw, 42px); font-variant-numeric: tabular-nums; }
+#lalert_fullscreen_status, #lalert_fullscreen_satellite { color: #dce6f2; font-size: clamp(14px, 1.3vw, 22px); }
+#lalert_fullscreen_title { font-size: clamp(20px, 2vw, 32px); }
+#lalert_fullscreen_page { font-size: 16px; color: #cbd6e5; }
+.lalert-fullscreen-cards { flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.lalert-list-card { min-height: 0; overflow: hidden; background: #1c2532; border: 1px solid #687b94; border-left: 8px solid #b86126; border-radius: 8px; padding: 10px 16px; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
+.lalert-list-card.sev-urgent { border-left-color: #df4550; }
+.lalert-list-card.sev-moderate { border-left-color: #d1bf41; }
+.lalert-list-card h2 { margin: 0; font-size: clamp(20px, 1.8vw, 30px); }
+.lalert-list-card p { margin: 0; font-size: clamp(17px, 1.5vw, 26px); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lalert-list-card .lalert-list-meta { display: flex; justify-content: space-between; color: #d1dae7; font-size: clamp(13px, 1.1vw, 18px); }
+@media (max-width: 700px) {
+  .lalert-banner { font-size: 12px; padding-top: 6px; padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+  .lalert-row-meta, .lalert-meta-left, .lalert-meta-right { gap: 5px; }
+  .lalert-meta-right { font-size: 10px; }
+  .lalert-badge-source, .lalert-badge-sev { padding: 1px 4px; }
+  #lalert_time { display: none; }
+}
+.lalert-preview-controls { position: fixed; z-index: 3000; top: 12px; right: 12px; max-width: 430px; display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: rgba(12,15,20,.95); color: #fff; border: 1px solid #8ca0b8; border-radius: 10px; font-size: 12px; }
+.lalert-preview-controls strong { width: 100%; }
+.lalert-preview-controls button { border: 1px solid #8ca0b8; background: #293849; color: #fff; border-radius: 5px; padding: 4px 7px; cursor: pointer; }
+.lalert-preview-controls button:hover { background: #45627d; }
+@media (max-width: 700px) { .lalert-preview-controls { top: auto; bottom: 90px; right: 8px; left: 8px; max-width: none; } }
+
 /* 巡回が一周して日本全体表示に戻る瞬間は、それまでズームインして1つずつ
    見せていた警報エリアが一気に画面内に収まり、MapLibreが多数のポリゴンを
    同時にラスタライズすることになる。ラズパイ3B+はソフトウェアレンダリング

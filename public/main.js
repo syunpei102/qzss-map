@@ -1804,6 +1804,7 @@ function clearDisabledInformationCategories() {
 // と同じ考え方。lalertEnabledがtrueに戻った場合は何もしない
 function clearActiveLalertContent() {
   if (lalertEnabled) return;
+  if (typeof lalertManager !== 'undefined') lalertManager.clear();
   for (const [id, record] of activeEvents) {
     if (record.lalertKey) removeActiveEvent(id);
   }
@@ -3072,6 +3073,7 @@ function removeActiveEvent(id) {
 // サーバーから届く内容だけで組み直すことで、複数端末間の表示が
 // 常に一致するようにする。
 function clearAllActiveEvents() {
+  lalertManager.clear();
   if (typeof displayStore !== 'undefined') displayStore.clear();
   for (const id of [...activeEvents.keys()]) removeActiveEvent(id);
   for (const site of weatherSites.values()) clearTimeout(site.timer);
@@ -4520,6 +4522,85 @@ function applyTrainingLabel(event, report) {
 }
 
 // 画素の表示時刻とは区別し，通報が表示データへ反映されたかを記録する．
+const lalertFullscreenEligible = IS_LOCAL_KIOSK || !!LOCKED_DEVICE_ID
+  || location.hostname === 'oracle-review.eq.shum10.com'
+  || new URLSearchParams(location.search).get('stream') === '1';
+const lalertManager = new LAlertDisplay.Manager({ fullscreenEligible: lalertFullscreenEligible,
+  onChange: () => renderLAlertDisplay() });
+let lalertWasFullscreen = false;
+let lalertRenderedId = null;
+let lalertRenderedRevision = -1;
+let lalertRenderedListKey = '';
+function hasOtherDisasters() {
+  return activeEvents.size > 0 || weatherSites.size > 0 || otherReports.size > 0;
+}
+function lalertTime(ms) {
+  return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+function renderLAlertDisplay() {
+  const records = lalertManager.visible();
+  const banner = document.getElementById('lalert_banner');
+  const overlay = document.getElementById('lalert_fullscreen_overlay');
+  banner.hidden = records.length === 0 || lalertManager.mode === 'list';
+  const record = records[lalertManager.bannerIndex % Math.max(1, records.length)];
+  if (record && !banner.hidden && (lalertRenderedId !== record.id || lalertRenderedRevision !== lalertManager.revision)) {
+    document.getElementById('lalert_badge_source').textContent = record.source;
+    const sev = document.getElementById('lalert_badge_severity');
+    sev.textContent = `${record.hazardNameJa}（${{ Extreme: '緊急', Urgent: '緊急', Severe: '警戒', Moderate: '注意', Minor: '情報', Unknown: '情報' }[record.severity]}）`;
+    sev.className = `lalert-badge-sev sev-${record.severityRank === 1 ? 'urgent' : record.severityRank === 2 ? 'severe' : record.severityRank === 3 ? 'moderate' : 'minor'}`;
+    document.getElementById('lalert_area_name').textContent = record.areaName;
+    document.getElementById('lalert_counter').textContent = `${lalertManager.bannerIndex % records.length + 1} / ${records.length}`;
+    document.getElementById('lalert_time').textContent = `${lalertTime(record.receivedAt)} 受信`;
+    document.getElementById('lalert_message').textContent = record.message;
+    banner.classList.remove('is-switching');
+    void banner.offsetWidth;
+    banner.classList.add('is-switching');
+    lalertRenderedId = record.id;
+    lalertRenderedRevision = lalertManager.revision;
+  }
+  overlay.hidden = lalertManager.mode !== 'list';
+  if (overlay.hidden) {
+    if (lalertWasFullscreen && map && typeof map.resumeRendering === 'function') map.resumeRendering();
+    lalertWasFullscreen = false;
+    lalertRenderedListKey = '';
+    return;
+  }
+  if (!lalertWasFullscreen && map && typeof map.pauseRendering === 'function') map.pauseRendering();
+  lalertWasFullscreen = true;
+  document.getElementById('lalert_fullscreen_clock').textContent = document.getElementById('now_time').textContent;
+  document.getElementById('lalert_fullscreen_status').textContent = document.getElementById('status').textContent;
+  document.getElementById('lalert_fullscreen_satellite').textContent = document.getElementById('satellite_info')?.textContent || '';
+  const totalPages = Math.max(1, Math.ceil(records.length / lalertManager.pageSize));
+  const page = lalertManager.pageIndex % totalPages;
+  document.getElementById('lalert_fullscreen_title').textContent = `自治体情報 発令状況（全${records.length}件）`;
+  document.getElementById('lalert_fullscreen_page').textContent = `${page + 1} / ${totalPages}頁`;
+  const pageRecords = records.slice(page * lalertManager.pageSize, (page + 1) * lalertManager.pageSize);
+  const listKey = JSON.stringify(pageRecords.map(item => [item.id, item.message, item.receivedAt, item.severityRank]));
+  if (lalertRenderedListKey === listKey) return;
+  lalertRenderedListKey = listKey;
+  const cards = document.getElementById('lalert_fullscreen_cards');
+  cards.replaceChildren(...pageRecords.map(item => {
+    const card = document.createElement('article');
+    card.className = `lalert-list-card sev-${item.severityRank === 1 ? 'urgent' : item.severityRank === 3 ? 'moderate' : 'severe'}`;
+    const meta = document.createElement('div'); meta.className = 'lalert-list-meta';
+    const level = document.createElement('span'); level.textContent = `${item.source}・${item.severity === 'Extreme' || item.severity === 'Urgent' ? '緊急' : item.severity === 'Severe' ? '警戒' : '情報'}`;
+    const time = document.createElement('span'); time.textContent = `${lalertTime(item.receivedAt)} 受信`;
+    meta.append(level, time);
+    const title = document.createElement('h2'); title.textContent = `${item.areaName}　${item.hazardNameJa}`;
+    const message = document.createElement('p'); message.textContent = item.message;
+    card.append(meta, title, message); return card;
+  }));
+}
+setInterval(() => {
+  lalertManager.setDisasterActive(hasOtherDisasters());
+  lalertManager.tick();
+  if (lalertManager.mode === 'list') {
+    document.getElementById('lalert_fullscreen_clock').textContent = document.getElementById('now_time').textContent;
+    document.getElementById('lalert_fullscreen_status').textContent = document.getElementById('status').textContent;
+    document.getElementById('lalert_fullscreen_satellite').textContent = document.getElementById('satellite_info').textContent;
+  }
+}, 1000);
+
 function displayStateSnapshot() {
   const summarize = record => [record.updatedAt, record.headline, record.rows, record.bounds,
     record.geo?.hypocenter, record.geo?.prefectures, record.geo?.tsunami, !!record.geo?.ellipse];
@@ -4527,9 +4608,16 @@ function displayStateSnapshot() {
     [...activeEvents].map(([id, record]) => [id, summarize(record)]),
     [...weatherSites].map(([code, site]) => [code, site.updatedAt, site.subCategories]),
     [...otherReports].map(([key, record]) => [key, summarize(record)]),
+    lalertManager.revision,
   ]);
 }
 function renderReport(report) {
+  if (LAlertDisplay.isLAlert(report)) {
+    if (LAlertDisplay.isTraining(report)) return { status: 'skipped', reason: 'training-lalert' };
+    if (!lalertEnabled) return { status: 'skipped', reason: 'lalert-off' };
+    const decorated = { ...report, hazardNameJa: LALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type };
+    return { status: lalertManager.receive(decorated) ? 'applied' : 'unchanged', reason: 'lalert-banner' };
+  }
   if (typeof DisplayEvents !== 'undefined' && DisplayEvents.kind(report) && DisplayEvents.cancelled(report)) {
     const removed = displayStore.receive(report);
     return {status: removed.length ? 'applied' : 'unchanged', reason:'cancel'};
@@ -4540,8 +4628,13 @@ function renderReport(report) {
   else if (TrainingReportFilter.isOfficialTraining(report) && !showTrainingBroadcasts) reason = displaySettingsAvailable ? 'training-off' : 'settings-unavailable';
   else if (!TrainingReportFilter.shouldProcess(report)) reason = 'filtered';
   if (reason) return { status: 'skipped', reason };
+  if (lalertManager.mode === 'list' && report.type !== 'DecodeError'
+    && report.information_type_no !== 2 && report.a1_message_type !== 'All Clear') {
+    lalertManager.setDisasterActive(true);
+  }
   const before = displayStateSnapshot();
   renderReportContent(report);
+  lalertManager.setDisasterActive(hasOtherDisasters());
   return before === displayStateSnapshot()
     ? { status: 'unchanged', reason: 'no-change' } : { status: 'applied', reason: 'updated' };
 }
@@ -4566,19 +4659,7 @@ function renderReportContent(report) {
   }
 
   if (report.type === 'QzssDcxLAlert' || report.type === 'QzssDcxMTInfo') {
-    // Discordの/set_lalertでOFFにされている場合は解析(表示・通知)自体を
-    // 行わない。取消(All Clear)も含めて無視する(OFF中は元々何も
-    // 表示していないはずなので、取消処理をする対象も無い)
-    if (!lalertEnabled) return;
-    if (report.a1_message_type === 'All Clear') {
-      const key = lalertMatchKey(report);
-      for (const [id, record] of activeEvents) {
-        if (record.lalertKey === key && TrainingReportFilter.sameDisplayScope(record, report)) removeActiveEvent(id);
-      }
-      return;
-    }
-    const event = applyTrainingLabel(buildEventFromLAlert(report), report);
-    if (isRelevantToTargetRegion(event)) addActiveEvent(event, lalertTtlMs(report));
+    // renderReportの入口で専用バナーへ振り分ける．ここは従来経路への安全弁．
     return;
   }
 
@@ -5651,6 +5732,53 @@ if (IS_TEST_SANDBOX && window.QzssSandbox) {
     refreshStatusPill();
     return results;
   }, mapReady);
+}
+
+// 手動シナリオはlocalhostの隔離画面だけに置く．本番へ電文を送信しない．
+if (IS_TEST_SANDBOX && ['localhost', '127.0.0.1'].includes(location.hostname)
+    && new URLSearchParams(location.search).get('lalert-preview') === '1') {
+  mapReady.then(() => {
+    const controls = document.createElement('div');
+    controls.className = 'lalert-preview-controls';
+    const label = document.createElement('strong'); label.textContent = 'ローカル検証・疑似データ';
+    controls.append(label);
+    const button = (name, action) => {
+      const element = document.createElement('button');
+      element.type = 'button'; element.textContent = name;
+      element.addEventListener('click', action); controls.append(element);
+    };
+    let serial = 0;
+    const sample = (index, overrides = {}) => ({
+      type: 'QzssDcxLAlert', a1_message_type: 'Alert', a4_hazard_type: index % 2 ? 'Flood' : 'Rainfall',
+      a5_severity: index % 3 ? 'Severe' : 'Extreme', ex1_target_area_code_raw: 12000 + index,
+      ex1_target_area_ja: ['千葉県印西市', '東京都江東区', '神奈川県横浜市', '埼玉県川口市', '茨城県水戸市'][index % 5],
+      a11_japanese_library_ja: '河川の水位が上昇しています．自治体からの避難情報を確認し，安全な場所へ移動してください．',
+      a8_hazard_duration: 'Duration < 6H', ...overrides,
+    });
+    const add = report => { lalertEnabled = true; renderReport(report); };
+    button('1件受信', () => add(sample(++serial)));
+    button('5件受信', () => { for (let n = 0; n < 5; n++) add(sample(++serial)); });
+    button('更新', () => add(sample(serial, { a11_japanese_library_ja: '【更新】避難所が開設されました．安全を確認して移動してください．' })));
+    button('解除', () => add(sample(serial, { a1_message_type: 'All Clear' })));
+    button('訓練除外', () => { const result = renderReport(sample(++serial, { report_classification_no: 7 }));
+      label.textContent = `ローカル検証・訓練は${result.status === 'skipped' ? '除外' : '要確認'}`; });
+    button('一覧プレビュー', () => { lalertManager.setDisasterActive(false);
+      lalertManager.calmSince = Date.now() - 31 * 60000; lalertManager.tick(); });
+    button('地震で即復帰', () => renderReport({
+      type: 'QzssDcReportJmaEarthquakeEarlyWarning', disaster_category_no: 1,
+      disaster_category: '緊急地震速報', report_classification_no: 1, information_type_no: 0,
+      is_test_data: true, raw: `local-preview-eew-${Date.now()}`,
+      occurrence_time_of_earthquake: new Date().toISOString(), seismic_epicenter_raw: 350,
+      seismic_epicenter: '東海地方（ローカル検証）', coordinates_of_hypocenter: {
+        lat_d: 34, lat_m: 0, lat_s: 0, lat_ns: 0, lon_d: 137, lon_m: 0, lon_s: 0, lon_ew: 0,
+      }, eew_forecast_regions_raw: [27, 28], eew_forecast_regions: ['静岡', '愛知'],
+      seismic_intensity_lower_limit: '震度5弱', seismic_intensity_lower_limit_raw: 6,
+      seismic_intensity_upper_limit: '震度6弱', seismic_intensity_upper_limit_raw: 8,
+      magnitude: '6.5', depth_of_hypocenter: '20km',
+    }));
+    button('リセット', () => { clearAllActiveEvents(); lalertManager.setDisasterActive(false); });
+    document.body.append(controls);
+  });
 }
 
 // ==================================================

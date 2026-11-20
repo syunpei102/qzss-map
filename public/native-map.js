@@ -201,7 +201,7 @@
       this.center = asLngLat(options.center); this.zoom = options.zoom;
       this.minZoom = options.minZoom ?? 0; this.maxZoom = options.maxZoom ?? 20;
       this.interactive = options.interactive !== false;
-      this.pendingRender = false; this.baseDirty = true; this.animation = null; this.markers = new Set();
+      this.pendingRender = false; this.renderPaused = false; this.baseDirty = true; this.animation = null; this.markers = new Set();
       this.metricsEnabled = new URLSearchParams(location.search).has('mapPerf');
       this.baseFrames = 0; this.overlayFrames = 0;
       this.resize(); this.attachInteractions();
@@ -310,9 +310,19 @@
     }
     requestRender(base = false) {
       if (base) this.baseDirty = true;
-      if (this.pendingRender) return;
+      if (this.pendingRender || this.renderPaused) return;
       this.pendingRender = true;
-      requestAnimationFrame(() => { this.pendingRender = false; this.render(); this.emit('idle'); });
+      requestAnimationFrame(() => { this.pendingRender = false; if (this.renderPaused) return; this.render(); this.emit('idle'); });
+    }
+    pauseRendering() {
+      this.renderPaused = true;
+      if (this.animation) cancelAnimationFrame(this.animation);
+      this.animation = null;
+    }
+    resumeRendering() {
+      if (!this.renderPaused) return;
+      this.renderPaused = false;
+      this.requestRender(true);
     }
     attachInteractions() {
       this.canvas.addEventListener('click', e => {
@@ -469,7 +479,7 @@
       ctx.restore();
     }
     render() {
-      if (!this.ctx || !this.baseCtx) return;
+      if (this.renderPaused || !this.ctx || !this.baseCtx) return;
       const started = this.metricsEnabled ? performance.now() : 0;
       const overlayCtx = this.ctx;
       if (this.baseDirty) {

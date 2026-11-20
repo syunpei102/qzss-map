@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const TrainingReportFilter = require('../public/training-report-filter');
 const ReportTtl = require('../public/report-ttl');
+const LAlertDisplay = require('../public/lalert-display');
 const { pruneExpiredReports, storageKey } = require('../report-state');
 
 // 本番で2026年11月11日（水）11:00に受信した電文の判定関連フィールド．
@@ -48,7 +49,8 @@ test('actual rendering gate blocks training OFF and expired replays, allowing li
     let rendered = 0;
     const render = load('../public/main.js', 'renderReport', 'function renderReportContent(', {
       InformationSettings: { isEnabled: () => true }, informationCategorySettings: {},
-      displaySettingsAvailable: true, showTrainingBroadcasts: enabled, ReportTtl, TrainingReportFilter,
+      displaySettingsAvailable: true, showTrainingBroadcasts: enabled, ReportTtl, TrainingReportFilter, LAlertDisplay,
+      lalertManager: { mode: 'map', setDisasterActive() {} }, hasOtherDisasters: () => false,
       displayStateSnapshot: () => String(rendered), renderReportContent: () => { rendered++; },
     });
     assert.equal(render(captured).status, enabled ? 'applied' : 'skipped');

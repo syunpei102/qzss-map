@@ -71,6 +71,7 @@
   <link rel="stylesheet" href="./style.css">
   <script src="training-report-filter.js" defer></script>
   <script src="report-ttl.js" defer></script>
+  <script src="lalert-display.js" defer></script>
   <script src="earthquake-identity.js" defer></script>
   <script src="eew-display.js" defer></script>
   <script src="display-events.js" defer></script>
@@ -103,6 +104,17 @@
 
   <div id="map"></div>
   <div id="patrol_transition_mask"></div>
+  <div id="lalert_banner" class="lalert-banner" hidden aria-live="polite">
+    <div class="lalert-row-meta">
+      <div class="lalert-meta-left"><span id="lalert_badge_source" class="lalert-badge-source"></span><span id="lalert_badge_severity" class="lalert-badge-sev"></span><span id="lalert_area_name" class="lalert-area-name"></span></div>
+      <div class="lalert-meta-right"><span id="lalert_counter"></span><span id="lalert_time"></span></div>
+    </div>
+    <div class="lalert-row-body"><span id="lalert_message"></span></div>
+  </div>
+  <section id="lalert_fullscreen_overlay" class="lalert-fullscreen" hidden aria-label="自治体情報一覧">
+    <header class="lalert-fullscreen-header"><div><strong id="lalert_fullscreen_clock"></strong><span id="lalert_fullscreen_status"></span><span id="lalert_fullscreen_satellite"></span></div><div><strong id="lalert_fullscreen_title">自治体情報 発令状況</strong><span id="lalert_fullscreen_page"></span></div></header>
+    <div id="lalert_fullscreen_cards" class="lalert-fullscreen-cards"></div>
+  </section>
 
   <!-- 初回アクセス時のみ表示する免責ポップアップ。localStorageで一度きり。
        キオスク実機(localhost / ?device=付き)には出さない(無人表示のため) -->
