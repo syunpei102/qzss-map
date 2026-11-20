@@ -13,6 +13,8 @@
   const durations = { 'Duration < 6H': 6 * HOUR, '6H <= Duration < 12H': 12 * HOUR,
     '12H <= Duration < 24H': 24 * HOUR };
   const isLAlert = report => ['QzssDcxLAlert', 'QzssDcxMTInfo'].includes(report?.type);
+  const hasUndefinedHazard = report => report?.a4_hazard_type_raw === 0
+    || /^(?:Undefined hazard type \(Code:\s*0\)|Not used)$/i.test(String(report?.a4_hazard_type || '').trim());
   const isTraining = report => report?.is_test_data === true || report?.report_classification_no === 7
     || report?.a1_message_type === 'Test';
   const severity = report => {
@@ -54,7 +56,7 @@
       return this.sorted().filter(record => !record.isCanceling || this.now() < record.cancelScheduledAt + BANNER_MS);
     }
     receive(report) {
-      if (!isLAlert(report) || isTraining(report)) return false;
+      if (!isLAlert(report) || isTraining(report) || hasUndefinedHazard(report)) return false;
       const now = this.now();
       const id = keyOf(report);
       if (report.a1_message_type === 'All Clear') {
@@ -150,5 +152,5 @@
       this.onChange();
     }
   }
-  return { Manager, isLAlert, isTraining, keyOf, waitMs, BANNER_MS, PAGE_MS };
+  return { Manager, isLAlert, isTraining, hasUndefinedHazard, keyOf, waitMs, BANNER_MS, PAGE_MS };
 });

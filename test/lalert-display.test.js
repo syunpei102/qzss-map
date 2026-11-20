@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { Manager } = require('../public/lalert-display');
+const { Manager, hasUndefinedHazard } = require('../public/lalert-display');
 
 test('一覧はキオスクと専用配信画面だけに限定する', () => {
   const source = fs.readFileSync(require.resolve('../public/main.js'), 'utf8');
@@ -42,6 +42,19 @@ test('訓練・手動テストを除外し，深刻度と受信時刻で並べ�
   h.advance(1000);
   h.manager.receive(fixture(6, { a5_severity: 'Extreme' }));
   assert.deepEqual(h.manager.sorted().map(record => record.areaName), ['地域6', '地域5', '地域4']);
+});
+
+test('A4災害種別コード0はUpdateでも表示せず，有効な種別は表示する', () => {
+  const h = harness();
+  const undefinedHazard = fixture(1, { a1_message_type: 'Update', a4_hazard_type: 'Undefined hazard type (Code: 0)' });
+  assert.equal(hasUndefinedHazard(undefinedHazard), true);
+  assert.equal(h.manager.receive(undefinedHazard), false);
+  assert.equal(h.manager.receive(fixture(2, { a4_hazard_type_raw: 0 })), false);
+  assert.equal(h.manager.receive(fixture(3, { a4_hazard_type: 'Not used' })), false);
+  assert.equal(h.manager.records.size, 0);
+  assert.equal(hasUndefinedHazard(fixture(4)), false);
+  assert.equal(h.manager.receive(fixture(4)), true);
+  assert.equal(h.manager.records.size, 1);
 });
 
 test('同じ地域の更新は置換し，解除は10秒だけ表示して消す', () => {

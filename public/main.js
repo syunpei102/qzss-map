@@ -4613,6 +4613,7 @@ function displayStateSnapshot() {
 function renderReport(report) {
   if (LAlertDisplay.isLAlert(report)) {
     if (LAlertDisplay.isTraining(report)) return { status: 'skipped', reason: 'training-lalert' };
+    if (LAlertDisplay.hasUndefinedHazard(report)) return { status: 'skipped', reason: 'undefined-lalert-hazard' };
     if (!lalertEnabled) return { status: 'skipped', reason: 'lalert-off' };
     const decorated = { ...report, hazardNameJa: LALERT_HAZARD_JA[report.a4_hazard_type] || report.a4_hazard_type };
     return { status: lalertManager.receive(decorated) ? 'applied' : 'unchanged', reason: 'lalert-banner' };
