@@ -1,6 +1,23 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
 const { Manager } = require('../public/lalert-display');
+
+test('一覧はキオスクと専用配信画面だけに限定する', () => {
+  const source = fs.readFileSync(require.resolve('../public/main.js'), 'utf8');
+  const start = source.indexOf('const lalertFullscreenEligible =');
+  const end = source.indexOf('const lalertManager =', start);
+  const expression = source.slice(start, end).replace('const lalertFullscreenEligible =', '').trim().replace(/;$/, '');
+  const eligible = (hostname, localKiosk, device = null) => vm.runInNewContext(expression, {
+    IS_LOCAL_KIOSK: localKiosk, LOCKED_DEVICE_ID: device,
+    location: { hostname, search: '?stream=1' },
+  });
+  assert.equal(eligible('localhost', true), true);
+  assert.equal(eligible('oracle-review.eq.shum10.com', false), true);
+  assert.equal(eligible('eq.shum10.com', false, 'qzss01'), false);
+  assert.equal(eligible('eq.shum10.com', false), false);
+});
 
 function fixture(index = 1, extra = {}) {
   return { type: 'QzssDcxLAlert', a1_message_type: 'Alert', a4_hazard_type: 'Flood',

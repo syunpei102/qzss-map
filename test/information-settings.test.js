@@ -19,4 +19,8 @@ test('server notification gate follows independent category switches', () => {
       assert.equal(context.shouldNotify({disaster_category_no:cat}),expected,`${cat}/${weather}/${volcano}`);
     }
   }
+  for (const type of ['QzssDcxLAlert', 'QzssDcxMTInfo']) {
+    assert.equal(context.shouldNotify({type, a1_message_type:'Alert'}), false);
+    assert.equal(context.shouldNotify({type, a1_message_type:'All Clear'}), false);
+  }
 });

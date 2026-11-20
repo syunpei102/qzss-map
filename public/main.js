@@ -4522,9 +4522,8 @@ function applyTrainingLabel(event, report) {
 }
 
 // 画素の表示時刻とは区別し，通報が表示データへ反映されたかを記録する．
-const lalertFullscreenEligible = IS_LOCAL_KIOSK || !!LOCKED_DEVICE_ID
-  || location.hostname === 'oracle-review.eq.shum10.com'
-  || new URLSearchParams(location.search).get('stream') === '1';
+const lalertFullscreenEligible = IS_LOCAL_KIOSK
+  || location.hostname === 'oracle-review.eq.shum10.com';
 const lalertManager = new LAlertDisplay.Manager({ fullscreenEligible: lalertFullscreenEligible,
   onChange: () => renderLAlertDisplay() });
 let lalertWasFullscreen = false;

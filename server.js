@@ -245,14 +245,11 @@ function shouldNotify(report) {
   // 参照)。表示しないのに通知だけ届くと、開いても何も確認できず紛らわしい
   // ため、取消・解除(isEndSignal)以外はここでも同じ条件で通知を止める
   if (report.disaster_category_no === 6 && !isEndSignal(report) && !tsunamiInfoHasLocation(report)) return false;
-  // Lアラート(消防庁経由の標準配信QzssDcxLAlertと、自治体からの直接配信
-  // QzssDcxMTInfoの両方。地図側の判定(public/main.jsのrenderReport)と
-  // 揃える)は、Discordの/set_lalertでOFFにできる。通知には拠点(device)の
-  // 紐付けが無いため、訓練放送の通知ゲート(globalShowTrainingBroadcasts)
-  // と同じく全体設定(globalLalertEnabled)を見る
+  // Lアラートと自治体情報は画面下のバナーで伝え，プッシュ通知には使わない．
   const isLalertReport = report.type === "QzssDcxLAlert" || report.type === "QzssDcxMTInfo";
-  if (isLalertReport && !globalLalertEnabled) return false;
-  if (report.type === "QzssDcxJAlert" || isLalertReport) return true;
+  // Lアラートと自治体情報は下部バナー専用．端末へのプッシュは送らない．
+  if (isLalertReport) return false;
+  if (report.type === "QzssDcxJAlert") return true;
   return PUSH_NOTIFY_CATEGORY_NOS.has(report.disaster_category_no);
 }
 
@@ -1618,7 +1615,7 @@ function resolveShowTrainingBroadcasts(deviceId) {
 // Discordの/set_lalertで、deviceを指定すればその拠点だけ、指定しなければ
 // 全体(=上書きしていない拠点すべて)の設定を変更できる。
 // ==================================================
-let globalLalertEnabled = false;
+let globalLalertEnabled = true;
 const deviceLalertOverrides = new Map(); // device_id -> boolean
 const LALERT_ENABLED_STATE_FILE = "lalert_enabled_settings.json";
 
