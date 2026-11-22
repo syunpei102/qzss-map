@@ -29,7 +29,7 @@ test('Lアラート0件では案内を出し，受信時に明細へ切り替え
   context.renderLAlertDisplay();
   assert.equal(get('lalert_banner').hidden, false);
   assert.equal(get('lalert_banner').classList.values.has('is-empty'), true);
-  assert.match(fs.readFileSync(require.resolve('../public/index.html'), 'utf8'), /表示中のLアラートはありません/);
+  assert.match(fs.readFileSync(require.resolve('../public/index.html'), 'utf8'), /現在，自治体からの防災情報はありません/);
   manager.receive({ type: 'QzssDcxLAlert', a1_message_type: 'Alert', a4_hazard_type: 'Flood',
     a5_severity: 'Severe', ex1_target_area_code_raw: 13201, ex1_target_area_ja: '東京都八王子市',
     a11_japanese_library_ja: '避難してください' });
