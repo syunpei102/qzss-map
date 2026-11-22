@@ -4313,7 +4313,7 @@ function renderEventsPanel() {
 
   if (!visibleRecords.length) {
     // 初期HTMLと同じ待機表示を維持し，通報の終了後も空白にしない．
-    container.innerHTML = '<div class="report-card"><div class="report-badge">待機中</div><div class="report-title">受信を待っています…</div></div>';
+    container.innerHTML = '<div class="report-card is-waiting"><div class="report-badge">待機中</div><div class="report-title">受信を待っています…</div></div>';
     return;
   }
 
