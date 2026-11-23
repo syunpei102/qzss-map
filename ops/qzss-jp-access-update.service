@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh QZSS Japan IP allowlist
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/apps/qzss-proxy/update-jp-access.sh

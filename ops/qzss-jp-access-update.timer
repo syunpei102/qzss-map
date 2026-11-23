@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily QZSS Japan IP allowlist refresh
+
+[Timer]
+OnCalendar=*-*-* 19:20:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

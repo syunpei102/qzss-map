@@ -1,0 +1,51 @@
+# Country IP placeholders are populated from DB-IP Lite (CC BY 4.0).
+# Attribution: https://db-ip.com/db/lite.php ; generated CIDRs are modified data.
+# The authenticated machine endpoints remain reachable from outside JP so that
+# Discord callbacks and remote telemetry can continue to operate.
+eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
+    route {
+        @machine {
+            method POST
+            path /ingest /device/status /discord/interactions
+        }
+        handle @machine {
+            reverse_proxy 127.0.0.1:8080
+        }
+        @outside_jp not remote_ip JP_IPS
+        handle @outside_jp {
+            respond "Access is limited to Japan" 403
+        }
+        @latency path /api/youtube-latency-history /api/server-latency-history /latency.html
+        handle @latency {
+            reverse_proxy 127.0.0.1:8090
+        }
+        handle {
+            reverse_proxy 127.0.0.1:8080
+        }
+    }
+}
+
+replay.shum10.com {
+    @outside_jp not remote_ip JP_IPS
+    respond @outside_jp "Access is limited to Japan" 403
+    reverse_proxy 127.0.0.1:8090
+}
+
+status.shum10.com {
+    route {
+        @machine {
+            method POST
+            path /api/telemetry/* /api/youtube/agent
+        }
+        handle @machine {
+            reverse_proxy 127.0.0.1:8090
+        }
+        @outside_jp not remote_ip JP_IPS
+        handle @outside_jp {
+            respond "Access is limited to Japan" 403
+        }
+        @root path /
+        rewrite @root /dashboard
+        reverse_proxy 127.0.0.1:8090
+    }
+}

@@ -1,3 +1,5 @@
+# 旧例．現在の本番設定は jp-access-Caddyfile.template から
+# render-jp-caddy.py で生成する．このファイルを本番へ配置しないこと．
 eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
     @latency path /api/youtube-latency-history /api/server-latency-history /latency.html
     handle @latency {
