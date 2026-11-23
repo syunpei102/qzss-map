@@ -72,9 +72,9 @@ def main():
     if not args.apply:
         return
     # Confirm the redirect reaches the broadcast that YouTube currently marks live.
-    broadcasts = clips.request('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status&broadcastStatus=active&mine=true',
+    broadcasts = clips.request('https://www.googleapis.com/youtube/v3/liveBroadcasts?part=status&mine=true',
                                None, headers, 'GET')
-    active_ids = {item['id'] for item in json.loads(broadcasts[2]).get('items', [])}
+    active_ids = {item['id'] for item in json.loads(broadcasts[2]).get('items', []) if item.get('status', {}).get('lifeCycleStatus') == 'live'}
     target_id = redirected_live_id()
     if target_id not in active_ids:
         raise RuntimeError('Stable URL does not point to the active live broadcast')
