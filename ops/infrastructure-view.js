@@ -8,8 +8,7 @@ function features(data,role){const host=data.hosts?.[role],s=host?.latest,i=s?.i
   add('通知エンジン',infraFresh&&i.notificationEnabled===true,'通知設定とAPI応答を確認．端末への配送は未試験');
   const a=data.analysis,c=a?.counts||{},af=a&&!a.stale&&now-a.at<=30000;add('電文照合',af&&!(c.mismatch||c['decode-error']||c['missing-raw']),'受信した生電文を別プロセスで再解析',af&&(!c.matched||a.backlogBytes>0));
   add('通信品質分析',af&&a.network?.observerConnected===true,'受信間隔と遅れ・推定欠落を継続集計');
-  add('地図配信',infraFresh&&i.mapApi===true,'地図の設定API応答を確認');
-  const display=data.display,stream=data.hosts?.stream;add('描画エンジン',display&&!display.stale&&now-display.at<=60000&&!stream?.stale&&stream?.latest?.browser?.healthy===true&&stream.latest.browser.ageSeconds<=90,'配信画面の読み込みと画面監視を確認');
+  add('地図の設定取得',infraFresh&&i.mapApi===true,'サイトの設定情報を取得できるか確認．地図データの取得や各端末の描画は未確認');
   add('定期検査',infraFresh&&i.auditTimer?.active==='active'&&i.audit?.result==='success'&&i.audit.exitCode===0&&Number.isFinite(i.audit.lastFinishedAt),'夜間検査の定期実行と最終成功結果を確認');
   add('障害監視',infraFresh&&i.healthTimer?.active==='active'&&i.health?.result==='success'&&i.health.exitCode===0&&now-i.health.lastFinishedAt<900000,'監視ジョブの定期実行と15分以内の最終成功結果を確認');
   const b=s?.backgroundCompute,active=s?.services?.backgroundCompute,known=fresh&&active==='inactive'||fresh&&active==='active'&&Number.isFinite(b?.at)&&now-b.at<=45000&&['running','paused'].includes(b.state);const running=known&&active==='active'&&b.state==='running';items.push({name:'回収防止処理',label:!known?'要確認':running?'動作中':'停止中',kind:!known?'unknown':running?'ok':'neutral',note:'Oracle Cloudのアイドル判定の回避を目的に実行しています．回収防止を保証するものではありません．'});
