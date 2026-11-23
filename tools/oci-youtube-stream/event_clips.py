@@ -298,6 +298,7 @@ def request(url, data=None, headers=None, method='POST'):
 ARCHIVE_START = '[過去の情報はこちら]'
 ARCHIVE_END = '[録画一覧ここまで]'
 EDIT_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl'
+CURRENT_LIVE_URL = 'https://status.shum10.com/live'
 
 
 def archive_description(description, jobs):
@@ -416,7 +417,7 @@ def upload(path, auth_path):
                        f"録画欠落の記録：開始側 {job['pre_missing_seconds']}秒，終了側 {job['post_missing_seconds']}秒，区間内 {job['gap_seconds']}秒．\n")
         if job['test']:
             description = '手動トリガーまたはテストデータによる動作検証用の映像です．実際の災害発生を示すものではありません．\n' + description
-        description += '\nライブ配信はこちら\nhttps://www.youtube.com/live/J52ePbw92yQ\n'
+        description += '\nライブ配信はこちら\n' + CURRENT_LIVE_URL + '\n'
         metadata = {'snippet': {'title': title[:100], 'description': description, 'categoryId': '28'},
                     'status': {'privacyStatus': job['privacy'], 'selfDeclaredMadeForKids': False}}
         _, response_headers, _ = request('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',

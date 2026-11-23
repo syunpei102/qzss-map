@@ -86,6 +86,7 @@ class ClipTests(unittest.TestCase):
                 if 'uploadType=resumable' in url:
                     self.assertEqual(json.loads(data)['status']['privacyStatus'], 'unlisted')
                     self.assertIn('検証用', json.loads(data)['snippet']['title'])
+                    self.assertIn('ライブ配信はこちら\n' + clips.CURRENT_LIVE_URL, json.loads(data)['snippet']['description'])
                     return 200, {'Location':'https://www.googleapis.com/upload/session'}, b''
                 if data == b'':
                     return 308, {}, b''
