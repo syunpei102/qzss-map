@@ -87,8 +87,13 @@ def main():
         mutable['description'] = new
         api({**headers, **({'If-Match': item['etag']} if item.get('etag') else {})}, 'PUT',
             {'part': 'snippet'}, {'id': video_id, 'snippet': mutable})
-        checked = api(headers, 'GET', {'part': 'snippet,status', 'id': video_id})['items'][0]
-        if checked['snippet']['description'] != new or checked['status']['privacyStatus'] != item['status']['privacyStatus']:
+        for attempt in range(6):
+            checked = api(headers, 'GET', {'part': 'snippet,status', 'id': video_id})['items'][0]
+            if checked['snippet']['description'] == new and checked['status']['privacyStatus'] == item['status']['privacyStatus']:
+                break
+            if attempt < 5:
+                time.sleep(2)
+        else:
             raise RuntimeError('Post-update verification failed for ' + video_id)
         print('Updated and verified: ' + video_id, flush=True)
 
