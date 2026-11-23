@@ -78,7 +78,7 @@ with os.fdopen(fd,'w') as f: json.dump(data,f)
 os.replace(name,p)
 print('VMに投稿用の認証情報を保存しました．動画は限定公開で自動投稿され，配信中のライブ概要欄へ録画リンクを追記します．')
 '''
-    identity = pathlib.Path.home() / 'Downloads' / 'ssh-key-2026-11-11 (2).key'
+    identity = pathlib.Path.home() / '.ssh' / 'qzss-stream-oci.key'
     process = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15', '-i', str(identity),
                               'ubuntu@129.203.128.122', 'python3 -c ' + shlex.quote(remote)],
                              input=json.dumps(credentials), text=True)

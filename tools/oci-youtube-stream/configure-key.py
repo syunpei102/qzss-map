@@ -49,7 +49,7 @@ def main():
     key=getpass.getpass('ストリームキーを貼り付けてEnter（非表示）: ').strip()
     if not key:
         raise SystemExit('未入力のため中止しました．')
-    identity=pathlib.Path.home()/'Downloads'/'ssh-key-2026-11-11 (2).key'
+    identity=pathlib.Path.home()/'.ssh'/'qzss-stream-oci.key'
     command=['ssh','-o','BatchMode=yes','-o','ConnectTimeout=15','-i',str(identity),
              'ubuntu@129.203.128.122','sudo python3 -c '+shlex.quote(REMOTE)]
     result=subprocess.run(command,input=json.dumps({'key':key}),text=True)

@@ -28,7 +28,7 @@ python3 /opt/qzss-stream/event_clips.py trigger --label '手動での録画確�
 プロジェクト `qzss-501907` でYouTube Data API v3を有効化済み．Google Auth PlatformでOAuthクライアントを「デスクトップアプリ」として作成し，JSONをMacへダウンロードする．
 
 ```bash
-python3 /Users/syunpei/Desktop/map/tools/oci-youtube-stream/authorize-upload.py "$HOME/Downloads/qzss-youtube-client.json"
+python3 /Users/syunpei/Desktop/map/tools/oci-youtube-stream/authorize-upload.py "$HOME/.local/share/qzss-private-backup/qzss-youtube-client.json"
 ```
 
 表示されたURLをブラウザで開き，正しい投稿先チャンネルで `youtube.upload` と `youtube.force-ssl` を許可する．概要欄編集の追加権限がない既存認証では，投稿のみ継続する．認証情報はSSHの標準入力でVMへ送り，権限0600で保存する．ブラウザの自動操作は行わない．外部アプリの公開状態がTestingの場合，更新トークンは通常7日で失効するため，継続運用前にGoogle Auth Platformの公開状態・必要な審査を確認する．

@@ -48,7 +48,7 @@ tar -xzf state.tar.gz -C recovered
 
 Gitの対象コミットを取得し，サーバーはルートDockerfile，検証用はops/Dockerfileでビルドする．暗号化バックアップから復元した環境ファイル・保存状態をマウントし，8080/8090はloopbackだけに公開する．Caddyで各HTTPSホストへ転送する．実設定ファイルはGitへ登録しない．
 
-復号鍵はMacのDownloads/qzss-private-backupに保管する．動画・受信電文はVM内のみのため，VMのディスクを失った場合は復旧できない．バックアップ用サービスアカウントは専用GCSバケットへのobjectCreatorだけを持つ．
+復号鍵はMacの`~/.local/share/qzss-private-backup/`に保管する．動画・受信電文はVM内のみのため，VMのディスクを失った場合は復旧できない．バックアップ用サービスアカウントは専用GCSバケットへのobjectCreatorだけを持つ．
 
 ## 認証付き監視サイト v1.17.0
 
