@@ -5531,23 +5531,22 @@ function connectWebSocket() {
   // bootstrapの読込失敗時も，本番WebSocketへ接続しない．
   if (IS_TEST_SANDBOX) return;
   socket = new WebSocket(`${wsProtocol}//${location.host}`);
+  const openedSocket = socket;
 
   socket.addEventListener('open', () => {
+    if (socket !== openedSocket) return;
     console.log('✅ WebSocket接続できました');
     reconnectDelay = WS_RECONNECT_MIN_MS; // 次回切断時にまた素早く再接続できるよう戻す
     wsConnectedAt = Date.now();
     updateConnectionStatus('online');
     clearAllActiveEvents();
-    // ページを開いて最初の接続の時だけ、既存のアクティブな通報が
-    // まとめて再送されてくる間、地震・津波以外でカメラを動かさない
-    // 抑制をかける(isInitialLoad宣言部のコメント参照)。再接続時は
-    // 既にfalseになっているので何もしない
-    if (isInitialLoad) {
-      setTimeout(() => {
-        isInitialLoad = false;
-        schedulePatrolNext(0); // 抑制していた分、通常の巡回をすぐ始める
-      }, INITIAL_LOAD_SETTLE_MS);
-    }
+    // 初回・再接続とも再送が落ち着いてから表示先を再判定する．再接続で
+    // 古い地域表示だけが残り，巡回タイマーの次回実行まで戻らないのを防ぐ．
+    setTimeout(() => {
+      if (socket !== openedSocket || openedSocket.readyState !== WebSocket.OPEN) return;
+      isInitialLoad = false;
+      schedulePatrolNext(0);
+    }, INITIAL_LOAD_SETTLE_MS);
   });
 
   socket.addEventListener('error', (err) => {

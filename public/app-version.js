@@ -1,1 +1,1 @@
-self.QZSS_APP_VERSION = "1.26.9";
+self.QZSS_APP_VERSION = "1.26.10";
