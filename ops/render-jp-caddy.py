@@ -11,7 +11,9 @@ import pathlib
 import urllib.request
 
 DBIP_URL = "https://download.db-ip.com/free/dbip-country-lite-{month}.csv.gz"
-SELF_IPS = ("127.0.0.1/32", "::1/128", "168.138.208.223/32")
+# Tokyo VMs can use globally registered OCI address space that a country DB
+# classifies outside JP. Keep the two production VM source IPs explicit.
+SELF_IPS = ("127.0.0.1/32", "::1/128", "168.138.208.223/32", "129.203.128.122/32")
 
 
 def jp_networks(data):
@@ -47,6 +49,8 @@ def main():
         raise ValueError("Known Japanese access network is missing")
     if not any(ipaddress.ip_address("168.138.208.223") in item for item in parsed):
         raise ValueError("Known Tokyo cloud network is missing")
+    if not any(ipaddress.ip_address("129.203.128.122") in item for item in parsed):
+        raise ValueError("Tokyo YouTube stream VM is missing")
     if any(ipaddress.ip_address("8.8.8.8") in item for item in parsed):
         raise ValueError("Known non-JP network is unexpectedly included")
     template = args.template.read_text(encoding="utf-8")

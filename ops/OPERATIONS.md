@@ -183,7 +183,7 @@ eq.shum10.comはA168.138.208.223へ変更．Caddyの旧設定例はoracle-Caddyf
 
 本番Caddyは`ops/jp-access-Caddyfile.template`を`ops/render-jp-caddy.py`で展開した設定を使う．DB-IP Liteの月次CSVからJPと判定されたIPv4・IPv6範囲をCIDRへ変換し，`eq.shum10.com`，`oracle-review.eq.shum10.com`，`info.shum10.com`，`status.shum10.com`，`replay.shum10.com`の閲覧を国内IPに限定する．DB-IP Liteの著作権表示とライセンスはテンプレートとObsidianの検証記録に記載する．IP判定は位置情報の推定なのでVPN・海外ローミング・データ誤判定には限界がある．
 
-受信機の`POST /ingest`，状態送信の`POST /device/status`，Discordの`POST /discord/interactions`，監視機器の`POST /api/telemetry/*`と`POST /api/youtube/agent`は，既存のトークン／署名認証を維持したうえで国制限から除外する．YouTube上のライブ配信にはCaddyの設定は及ばない．旧`system.shum10.com`はDNSがGCPを向いたままだが，現在HTTPSで応答しない．
+受信機の`POST /ingest`，状態送信の`POST /device/status`，Discordの`POST /discord/interactions`，監視機器の`POST /api/telemetry/*`と`POST /api/youtube/agent`は，既存のトークン／署名認証を維持したうえで国制限から除外する．東京のYouTube配信VMの公開IP`129.203.128.122/32`も，DB-IPが国外と誤判定するため個別許可する．変更時は実際の送信元IPを調べて更新する．YouTube上のライブ配信にはCaddyの設定は及ばない．旧`system.shum10.com`はDNSがGCPを向いたままだが，現在HTTPSで応答しない．
 
 Oracle VMでは`qzss-jp-access-update.timer`が1日1回IP一覧を再生成する．生成が失敗した場合は現在の設定を維持し，Caddy検証とローカル地図の応答確認を通過した場合だけ更新する．確認は`systemctl status qzss-jp-access-update.timer`と`journalctl -u qzss-jp-access-update.service`．元へ戻す場合は`/home/ubuntu/apps/qzss-proxy/Caddyfile.pre-jp-20261123`をCaddyfileへ**同じファイルへ上書き**し，`docker exec qzss-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`を実行する．DockerはCaddyfileを読み取り専用でbind mountしているため，ファイルのリネーム置換はしない．
 
