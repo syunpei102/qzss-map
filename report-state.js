@@ -143,9 +143,13 @@ function updateActiveReports(entries, report, receivedAt, isEnd, lastReceivedAt 
       part = {...part, display_event_id: DisplayEvents.resolveWarningId(part, result.filter(e => e.report.type === 'QzssDcxJAlert'))};
     }
     const group = reportGroupKey(part);
+    if (!isEnd && DisplayEvents.kind(part) === 'tsunami' && result.some(entry =>
+      sameStorage(entry.report, part) && DisplayEvents.isOlderTsunamiReport(part, entry.report))) continue;
     if (isEnd) {
       if (group !== null) result = result.filter(entry => {
         if (reportScope(entry.report) !== reportScope(part)) return true;
+        if (DisplayEvents.kind(part) === 'tsunami' && DisplayEvents.kind(entry.report) === 'tsunami'
+          && DisplayEvents.isOlderTsunamiReport(part, entry.report)) return true;
         // 対象河川がない取消だけは，従来通り洪水全体を解除する．
         if (part.disaster_category_no === 11 && !part.flood_forecast_regions_raw?.length) {
           return entry.report.disaster_category_no !== 11;
@@ -192,6 +196,27 @@ class EarthquakeReceptions {
       else this.observe({ ...entry.report, raw: entry.key }, entry.at);
     }
   }
+  isCancelled(report) {
+    const id = DisplayEvents.resolveEarthquakeId(report, this.entries);
+    const entry = this.entries.find(item => item.id === id);
+    return report.disaster_category_no <= (entry?.cancelledThrough || 0);
+  }
+  cancel(report, now) {
+    const {time, epicenter} = DisplayEvents.identity(report);
+    if (!time && epicenter == null && !report.display_event_id) return false;
+    const candidates = this.entries.filter(entry => now - entry.lastSeen < 172800000);
+    const id = DisplayEvents.resolveEarthquakeId(report, candidates);
+    let entry = candidates.find(item => item.id === id);
+    if (!entry && !time && !report.display_event_id) return false;
+    if (!entry) {
+      entry = {id, at:now, phaseFirst:{}, highest:0, report, lastSeen:now};
+      this.entries.push(entry);
+    }
+    entry.cancelledThrough = Math.max(entry.cancelledThrough || 0, report.disaster_category_no);
+    entry.lastSeen = now;
+    this.entries = this.entries.slice(-5000);
+    return true;
+  }
   observe(report, now) {
     this.entries = this.entries.filter(e => now - (e.lastSeen ?? e.at) < 172800000);
     const ownTime = DisplayEvents.identity(report).time;
@@ -202,9 +227,9 @@ class EarthquakeReceptions {
       existing = {id, at:now, phaseFirst:{}, highest:0, report:{}, lastSeen:now};
       this.entries.push(existing);
     }
-    existing.lastSeen=now;
     const phase=report.disaster_category_no;
-    if (phase < existing.highest) return {rejected:true};
+    if (phase < existing.highest || phase <= existing.cancelledThrough) return {rejected:true};
+    existing.lastSeen=now;
     existing.phaseFirst[phase] ??= now;
     existing.at = Math.min(...Object.values(existing.phaseFirst));
     existing.highest = Math.max(existing.highest,phase);
@@ -216,3 +241,62 @@ class EarthquakeReceptions {
   }
 }
 module.exports.EarthquakeReceptions = EarthquakeReceptions;
+
+class TsunamiRevisions {
+  constructor(saved) {
+    this.entries = new Map(Array.isArray(saved) ? saved : []);
+  }
+
+  isOutdated(report) {
+    const base = `${reportScope(report)}|${report.disaster_category_no}|`;
+    const global = this.entries.get(base);
+    return DisplayEvents.parts(report).some(part => {
+      const region = part.tsunami_forecast_regions_raw?.[0];
+      const current = region == null ? global : this.entries.get(base + region);
+      return [current, global].some(previous =>
+        previous && DisplayEvents.isOlderTsunamiReport(part, previous));
+    });
+  }
+
+  accept(report) {
+    if (DisplayEvents.kind(report) !== 'tsunami' || report.is_test_data
+        || !Number.isFinite(Date.parse(report.report_time))) return report;
+    const base = `${reportScope(report)}|${report.disaster_category_no}|`;
+    const global = this.entries.get(base);
+    const regions = report.tsunami_forecast_regions_raw;
+    if (report.disaster_category_no === 5 && !regions?.length && DisplayEvents.cancelled(report)) {
+      const regionalEntries = [...this.entries].filter(([key]) => key !== base && key.startsWith(base));
+      if (regionalEntries.some(([, previous]) => DisplayEvents.isOlderTsunamiReport(report, previous))) {
+        const eligible = regionalEntries
+          .filter(([, previous]) => !DisplayEvents.isOlderTsunamiReport(report, previous) && !DisplayEvents.cancelled(previous))
+          .map(([key]) => Number(key.slice(base.length)));
+        if (!eligible.length) return null;
+        report = {...report, tsunami_forecast_regions_raw:eligible};
+      }
+    }
+    const accepted = [];
+    for (const part of splitReport(report)) {
+      const region = part.tsunami_forecast_regions_raw?.[0];
+      const key = region == null ? base : base + region;
+      const current = this.entries.get(key);
+      if ([current, global].some(previous => previous && DisplayEvents.isOlderTsunamiReport(part, previous))) continue;
+      if (region == null && !DisplayEvents.cancelled(part)
+          && [...this.entries].some(([id, previous]) =>
+            id.startsWith(base) && DisplayEvents.isOlderTsunamiReport(part, previous))) continue;
+      const {report_time, information_type_no, disaster_category_no, tsunami_warning_code_raw, tsunamigenic_potential_raw} = part;
+      this.entries.delete(key);
+      this.entries.set(key, {report_time, information_type_no, disaster_category_no, tsunami_warning_code_raw, tsunamigenic_potential_raw});
+      accepted.push(part);
+    }
+    while (this.entries.size > 2000) this.entries.delete(this.entries.keys().next().value);
+    if (!accepted.length) return null;
+    if (accepted.length === report.tsunami_forecast_regions_raw?.length || !report.tsunami_forecast_regions_raw?.length) return report;
+    const result = {...report};
+    for (const field of ['tsunami_forecast_regions_raw', 'tsunami_forecast_regions',
+      'tsunami_heights_raw', 'tsunami_heights', 'expected_tsunami_arrival_times']) {
+      if (Array.isArray(report[field])) result[field] = accepted.flatMap(part => part[field]);
+    }
+    return result;
+  }
+}
+module.exports.TsunamiRevisions = TsunamiRevisions;

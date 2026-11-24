@@ -69,6 +69,13 @@
   const cancelled = r => r.information_type_no===2 || r.a1_message_type==='All Clear'
     || r.disaster_category_no===5 && [1,2].includes(r.tsunami_warning_code_raw)
     || r.disaster_category_no===6 && r.tsunamigenic_potential_raw===0;
+  function isOlderTsunamiReport(incoming, current) {
+    const incomingTime = Date.parse(incoming.report_time);
+    const currentTime = Date.parse(current.report_time);
+    return Number.isFinite(incomingTime) && Number.isFinite(currentTime)
+      && (incomingTime < currentTime
+        || (incomingTime === currentTime && cancelled(current) && !cancelled(incoming)));
+  }
   function cancellationMatches(event, report, candidates) {
     if(event.kind!==kind(report) || event.scope!==scope(report)) return false;
     if(event.kind==='earthquake') {
@@ -77,6 +84,7 @@
     }
     if(event.kind==='tsunami') {
       if(event.report.disaster_category_no!==report.disaster_category_no) return false;
+      if(isOlderTsunamiReport(report,event.report)) return false;
       const codes=report.tsunami_forecast_regions_raw || [];
       return !codes.length || (event.report.tsunami_forecast_regions_raw || []).some(c=>codes.includes(c));
     }
@@ -91,7 +99,14 @@
       if(!kind(report)) return [];
       const now=this.now();this.expire(now);
       if(cancelled(report)) {
-        const ids=[...this.events.values()].filter(e=>cancellationMatches(e,report,[...this.events.values()])).map(e=>e.id);
+        const matches=[...this.events.values()].filter(e=>cancellationMatches(e,report,[...this.events.values()]));
+        for(const event of matches) {
+          const memo=this.history.get(event.id);
+          if(!memo) continue;
+          if(event.kind==='earthquake') memo.cancelledThrough=report.disaster_category_no;
+          if(event.kind==='tsunami') memo.tsunamiReport=report;
+        }
+        const ids=matches.map(e=>e.id);
         for(const id of ids)this.remove(id,false);
         if(ids.length)this.onChange({reason:'cancel',ids});
         return ids;
@@ -102,7 +117,9 @@
         const previous=this.events.get(id), phase=PHASE[part.disaster_category_no] || k;
         const memo=this.history.get(id) || {phaseFirst:{},highest:0,lastSeen:now};
         memo.lastSeen=now;
-        if(k==='earthquake' && ORDER[phase]<memo.highest)continue;
+        if(k==='earthquake' && (ORDER[phase]<memo.highest || ORDER[phase]<=memo.cancelledThrough))continue;
+        if(k==='tsunami' && memo.tsunamiReport && isOlderTsunamiReport(part,memo.tsunamiReport)) continue;
+        if(k==='tsunami') memo.tsunamiReport=part;
         const age=Math.max(0,Number(part.replay_age_ms)||0)+Math.max(0,Number(part.display_phase_age_ms)||0);
         const receivedAt=now-age;
         const phaseFirst=memo.phaseFirst[phase] ?? receivedAt;
@@ -167,5 +184,5 @@
       return [...selected,...warnings];
     }
   }
-  return {EventStore,ViewCycle,ROTATION_MS,EARTHQUAKE_TTL_MS,WARNING_TTL_MS,kind,scope,identity,sameIdentity,resolveEarthquakeId,warningId,resolveWarningId,parts,cancelled,cancellationMatches};
+  return {EventStore,ViewCycle,ROTATION_MS,EARTHQUAKE_TTL_MS,WARNING_TTL_MS,kind,scope,identity,sameIdentity,resolveEarthquakeId,warningId,resolveWarningId,parts,cancelled,cancellationMatches,isOlderTsunamiReport};
 });

@@ -187,6 +187,15 @@ eq.shum10.comはA168.138.208.223へ変更．Caddyの旧設定例はoracle-Caddyf
 
 Oracle VMでは`qzss-jp-access-update.timer`が1日1回IP一覧を再生成する．生成が失敗した場合は現在の設定を維持し，Caddy検証とローカル地図の応答確認を通過した場合だけ更新する．確認は`systemctl status qzss-jp-access-update.timer`と`journalctl -u qzss-jp-access-update.service`．元へ戻す場合は`/home/ubuntu/apps/qzss-proxy/Caddyfile.pre-jp-20261123`をCaddyfileへ**同じファイルへ上書き**し，`docker exec qzss-proxy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile`を実行する．DockerはCaddyfileを読み取り専用でbind mountしているため，ファイルのリネーム置換はしない．
 
+### IP更新処理の配置先変更
+
+1. 更新タイマーを停止する．root所有の `/etc/qzss-jp-access` をモード0755で作り，更新シェルを0755，レンダラーとテンプレートを0644で配置する．現行Caddyfileもバックアップし，新しい配置先にroot所有0644で置く．
+2. 新しいテンプレートから候補を生成し，Caddyで検証する．Caddyコンテナを既存のネットワーク設定・証明書ボリュームを保持して作り直し，`/etc/qzss-jp-access/Caddyfile` をコンテナの `/etc/caddy/Caddyfile` へ読み取り専用でマウントする．
+3. 国内の地図・WebSocket，配信VM，監視，認証付き送信入口を確認する．新しいサービスユニットを配置し，手動更新が成功してからタイマーを有効にする．更新がない日は設定の再読込を省略する．
+4. 戻す場合はタイマーを止め，root管理のCaddyfileへバックアップ内容を上書きして検証・再読込する．
+
+監視サーバーへのHTTP接続の再利用はCaddy側4秒，Node側5秒とし，Nodeが先に閉じた接続へのPOSTを避ける．
+
 ### 回収防止処理と状態表示（v1.25.3）
 
 ユーザー指定により，基盤サーバーだけに `tools/oci-background-compute/` の低優先度計算サービスを追加．回収判定や回収防止を保証する機能ではない．独立したSCHED_IDLE・CPU上限・メモリ上限付きの数値積分を行い，本来の処理のCPU20%以上・steal30%以上・空きメモリ192MiB未満・既存の受信通知監視がready以外または60秒より古い場合に休止，正常が15秒続けば再開する．しきい値と操作方法は同ディレクトリのREADMEを参照．

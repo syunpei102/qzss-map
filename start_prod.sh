@@ -47,7 +47,7 @@ if [ ! -d venv ]; then
 fi
 
 echo "📡 サーバー起動 (静的配信+WebSocket, port 8080)"
-LOCAL_STATE_ONLY=true node server.js &
+LOCAL_STATE_ONLY=true QZSS_ENABLE_FIFO=true node server.js &
 SERVER_PID=$!
 
 function cleanup() {

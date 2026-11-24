@@ -2060,6 +2060,7 @@ function returnToWholeJapanSafely() {
       return;
     }
     const view = getDefaultView();
+    lastCameraFit = null;
     map.jumpTo({ center: view.center, zoom: view.zoom });
     let settled = false;
     const finishTransition = () => {
@@ -3535,6 +3536,7 @@ function updateCameraForActiveEvents(preferredRecord) {
       focusedEventIds = new Set([preferredRecord.id]);
       if (currentPatrolCode === null && currentPatrolTrainingId === null) {
         const view = getDefaultView();
+        lastCameraFit = null;
         map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
       }
     }
@@ -3570,6 +3572,7 @@ function updateCameraForActiveEvents(preferredRecord) {
     // 有り)は、そちらがカメラを管理しているのでここでは何もしない
     // (勝手にリセットして巡回とカメラの取り合いにならないようにする)
     const view = getDefaultView();
+    lastCameraFit = null;
     map.jumpTo({ center: view.center, zoom: view.zoom }); // 急ぐ必要が無いので瞬時に戻す(軽量化)
     focusedEventIds = new Set();
   } else {
@@ -4493,6 +4496,7 @@ async function applyDeviceRegionLock() {
     if (!boundsList.length) return;
     const [minX, minY, maxX, maxY] = unionBounds(boundsList);
     lockedDefaultView = map.cameraForBounds([[minX, minY], [maxX, maxY]], { padding: 40 });
+    lastCameraFit = null;
     map.jumpTo(lockedDefaultView);
   } catch (err) {
     console.warn('拠点の地域設定の取得に失敗しました(絞り込みなしで続行):', err);

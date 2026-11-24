@@ -1,6 +1,8 @@
 const express = require("express");
-const { EarthquakeReceptions, reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const { EarthquakeReceptions, TsunamiRevisions, reportGroupKey, updateActiveReports, pruneExpiredReports, isSupersededEarthquakeReport } = require("./report-state");
+const { spawn } = require("node:child_process");
 const DisplayEvents = require("./public/display-events");
+const ReportTtl = require("./public/report-ttl");
 const InformationSettings = require("./public/information-settings");
 const TrainingReportFilter = require("./public/training-report-filter");
 const EewDisplay = require("./public/eew-display");
@@ -554,6 +556,61 @@ function deltaBodyFor(report, labels) {
 }
 
 const inFlightPushes = new Set();
+const partialPushRetries = new Map();
+
+function schedulePartialPushRetry(endpoint, sub, report, payload, options, deadline, error, attempt = 0) {
+  if (attempt >= 3 || shuttingDown) return;
+  const retryAfter = error?.headers?.['retry-after'];
+  let delay = 2000 * (2 ** attempt);
+  if (retryAfter != null) {
+    const seconds = Number(retryAfter);
+    delay = Math.max(delay, Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now() || 0);
+  }
+  const key = JSON.stringify([endpoint, payload]);
+  if (Date.now() + delay >= deadline || partialPushRetries.has(key) || partialPushRetries.size >= 10000) return;
+  const timer = setTimeout(async () => {
+    partialPushRetries.delete(key);
+    const remaining = Math.floor((deadline - Date.now()) / 1000);
+    if (remaining <= 0 || shuttingDown || pushSubscriptions.get(endpoint) !== sub) return;
+    if (!report.is_test_data && !isEndSignal(report)) {
+      const kind = DisplayEvents.kind(report);
+      if (kind === 'earthquake' && earthquakeReceptions.isCancelled(report)) return;
+      if (kind === 'tsunami' && tsunamiRevisions.isOutdated(report)) return;
+    }
+    try {
+      await webpush.sendNotification(sub, payload, {...options, TTL:remaining});
+    } catch (err) {
+      if (err?.statusCode === 404 || err?.statusCode === 410) {
+        if (pushSubscriptions.get(endpoint) === sub) {
+          pushSubscriptions.delete(endpoint);
+          persistPushSubscriptions();
+        }
+      } else if (isRetryablePushFailure(err)) {
+        schedulePartialPushRetry(endpoint, sub, report, payload, options, deadline, err, attempt + 1);
+      }
+    }
+  }, delay);
+  timer.unref();
+  partialPushRetries.set(key, {timer, report});
+}
+
+function cancelPendingPushRetries(report) {
+  const kind = DisplayEvents.kind(report);
+  for (const [key, pending] of partialPushRetries) {
+    const previous = pending.report;
+    if (isEndSignal(previous) || DisplayEvents.scope(previous) !== DisplayEvents.scope(report)) continue;
+    const matches = kind
+      ? DisplayEvents.cancellationMatches({
+        kind: DisplayEvents.kind(previous), scope: DisplayEvents.scope(previous), report: previous,
+        id: kind === 'earthquake' ? DisplayEvents.resolveEarthquakeId(previous) : DisplayEvents.warningId(previous),
+      }, report, [{report: previous, id: previous.display_event_id}])
+      : reportGroupKey(report) !== null && reportGroupKey(previous) === reportGroupKey(report);
+    if (matches) {
+      clearTimeout(pending.timer);
+      partialPushRetries.delete(key);
+    }
+  }
+}
 
 function pushDeliveryOptions(report) {
   const urgent = report.type === "QzssDcxJAlert" || [1, 2, 3, 5].includes(report.disaster_category_no);
@@ -587,10 +644,12 @@ function dispatchPush(report, body, onAllTransientFailure) {
   const payload = JSON.stringify({ title: notificationTitleFor(report), body, tag });
   const options = pushDeliveryOptions(report);
   const endpoints = [];
+  const subscriptions = [];
   const sends = [];
   const startedAt = Date.now();
   for (const [endpoint, sub] of pushSubscriptions) {
     endpoints.push(endpoint);
+    subscriptions.push(sub);
     // 1つの壊れた購読先が他の購読先への送信開始を止めない．
     sends.push(sendPushWithRetry(sub, payload, options));
   }
@@ -610,6 +669,14 @@ function dispatchPush(report, body, onAllTransientFailure) {
       }
     }
     if (removed) persistPushSubscriptions();
+    if (accepted > 0 && transientFailures > 0) {
+      for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'rejected' && isRetryablePushFailure(results[i].reason)) {
+          schedulePartialPushRetry(endpoints[i], subscriptions[i], report, payload, options,
+            startedAt + options.TTL * 1000, results[i].reason);
+        }
+      }
+    }
     if (accepted === 0 && transientFailures > 0) {
       if (onAllTransientFailure) onAllTransientFailure();
       // 受信機側へ503を返す．同じ電文の再送時も重複フィルタで落とさず再試行する．
@@ -719,6 +786,8 @@ function sendPushNotifications(report) {
 let activeReports = [];
 let earthquakeReceptions = new EarthquakeReceptions();
 const EARTHQUAKE_RECEIPTS_FILE = "earthquake_first_receipts.json";
+let tsunamiRevisions = new TsunamiRevisions();
+const TSUNAMI_REVISIONS_FILE = "tsunami_revisions.json";
 
 // 安全策: 取消・解除信号を万一受信し損ねた場合、その通報が永久に
 // activeReportsに居座り新規接続の全員に配信され続けてしまう
@@ -856,13 +925,29 @@ function handleIncomingLine(line, receivedMono = performance.now()) {
 
   // 別地震は独立して保持する．表示上の優先順位はイベント一覧から導出する．
   pruneStaleActiveReports();
+  if (DisplayEvents.kind(report) === 'tsunami') {
+    const accepted = tsunamiRevisions.accept(report);
+    if (!accepted) return;
+    if (!report.is_test_data) {
+      persistJson(TSUNAMI_REVISIONS_FILE, [...tsunamiRevisions.entries], { nonBlockingLocal: true });
+    }
+    if (accepted !== report) {
+      report = accepted;
+      line = JSON.stringify(report);
+    }
+  }
   const suppressOlderNotification = report && !isEndSignal(report) && isSupersededEarthquakeReport(activeReports, report);
 
   let displayReceivedAt = Date.now();
+  if (DisplayEvents.kind(report) === 'earthquake' && !report.is_test_data && isEndSignal(report)
+      && earthquakeReceptions.cancel(report, displayReceivedAt)) {
+    persistJson(EARTHQUAKE_RECEIPTS_FILE, earthquakeReceptions.entries, { nonBlockingLocal: true });
+  }
   if (report && [1, 2, 3].includes(report.disaster_category_no) && !report.is_test_data && !TrainingReportFilter.isOfficialTraining(report) && !isEndSignal(report)) {
     const receipt = earthquakeReceptions.observe(report, displayReceivedAt);
     if (receipt.changed) persistJson(EARTHQUAKE_RECEIPTS_FILE, earthquakeReceptions.entries, { nonBlockingLocal: true });
     if (receipt.rejected) return;
+    if (displayReceivedAt - receipt.at >= ReportTtl.ttlMsForReport(report)) return;
     report = { ...report, display_event_id: receipt.eventId,
       display_first_received_age_ms: Math.max(0, displayReceivedAt - receipt.firstAt),
       display_last_received_age_ms: 0, display_phase_age_ms: Math.max(0, displayReceivedAt - receipt.at), replay_age_ms: 0 };
@@ -875,6 +960,7 @@ function handleIncomingLine(line, receivedMono = performance.now()) {
     line = JSON.stringify(report);
   }
   const shouldPersist = isEndSignal(report) || isReplayable(report);
+  if (isEndSignal(report)) cancelPendingPushRetries(report);
   if (shouldPersist) {
     activeReports = updateActiveReports(activeReports, report, displayReceivedAt, isEndSignal(report), Date.now());
     pruneStaleActiveReports();
@@ -1506,10 +1592,13 @@ const ACTIVE_REPORTS_STATE_FILE = "active_reports.json";
 
 async function loadActiveReports() {
   earthquakeReceptions = new EarthquakeReceptions(await loadPersistedJson(EARTHQUAKE_RECEIPTS_FILE));
+  tsunamiRevisions = new TsunamiRevisions(await loadPersistedJson(TSUNAMI_REVISIONS_FILE));
   const restored = await loadPersistedJson(ACTIVE_REPORTS_STATE_FILE);
   if (Array.isArray(restored)) {
-    activeReports = restored;
+    activeReports = restored.filter(({report}) => DisplayEvents.kind(report) !== 'earthquake'
+      || report.is_test_data || !earthquakeReceptions.isCancelled(report));
     for (const entry of activeReports) {
+      if (DisplayEvents.kind(entry.report) === 'tsunami') tsunamiRevisions.accept(entry.report);
       if ([1, 2, 3].includes(entry.report?.disaster_category_no) && !entry.report.is_test_data && !TrainingReportFilter.isOfficialTraining(entry.report)) {
         earthquakeReceptions.observe(entry.report, entry.receivedAt);
       }
@@ -2059,10 +2148,16 @@ function broadcast(line) {
 // 存在する場合のみFIFOを読み続けて全クライアントへブロードキャストする。
 // 実機のないクラウド環境ではFIFOは作らないので、この経路は使われず
 // /ingest 経由の受信のみになる。
-let buffer = "";
+let fifoReader;
+let shuttingDown = false;
 
 function readFIFO() {
-  const stream = fs.createReadStream(FIFO_PATH, { encoding: "utf8" });
+  if (shuttingDown) return;
+  // FIFOのopen待ちを子プロセスに隔離し，送信元がいないときにも終了できる．
+  const reader = spawn("cat", [FIFO_PATH], { stdio: ["ignore", "pipe", "ignore"] });
+  fifoReader = reader;
+  let buffer = "";
+  const stream = reader.stdout.setEncoding("utf8");
 
   stream.on("data", (chunk) => {
     buffer += chunk;
@@ -2077,28 +2172,28 @@ function readFIFO() {
     }
   });
 
-  stream.on("end", () => {
-    console.log("🔁 FIFO再接続します...");
-    readFIFO(); // 書き込み側が閉じたら再度開き直して待ち受ける
-  });
-
-  stream.on("error", (err) => {
+  reader.on("error", (err) => {
     console.error("❌ FIFO読み取りエラー:", err);
-    setTimeout(readFIFO, 2000);
+  });
+  reader.on("close", (code) => {
+    if (shuttingDown) return;
+    if (code === 0) readFIFO();
+    else setTimeout(readFIFO, 2000);
   });
 }
 
-if (fs.existsSync(FIFO_PATH)) {
+if (process.env.QZSS_ENABLE_FIFO === 'true' && fs.statSync(FIFO_PATH, {throwIfNoEntry:false})?.isFIFO()) {
   readFIFO();
 } else {
   console.log("ℹ️ qzss_pipe が無いため、/ingest 経由の受信のみ待ち受けます");
 }
 
 // Cloud Runの停止(SIGTERM)時に，間引いていた保存を書き切ってから終了する
-let shuttingDown = false;
 process.on("SIGTERM", async () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  fifoReader?.kill();
+  for (const {timer} of partialPushRetries.values()) clearTimeout(timer);
   server.close();
   const forceExit = setTimeout(() => process.exit(1), 9000);
   try {

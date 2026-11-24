@@ -5,4 +5,4 @@ After=network-online.target docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/home/ubuntu/apps/qzss-proxy/update-jp-access.sh
+ExecStart=/etc/qzss-jp-access/update-jp-access.sh

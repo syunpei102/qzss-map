@@ -21,6 +21,7 @@ for (const localOnly of [false, true]) {
     const context = {
       LOCAL_STATE_ONLY: localOnly,
       activeReports: [],
+      DisplayEvents: require('../public/display-events'),
       isDuplicateReport: () => false,
       isEndSignal: () => false,
       isReplayable: () => true,
@@ -119,6 +120,32 @@ test('temporary provider failure retries once and lets the receiver retry the re
   assert.equal(forgotten, true);
   assert.equal(recentContentKeys.has('packet'), false);
   assert.equal(result.retryableFailure, true);
+});
+
+test('partial acceptance retries only the failed recipient and honors Retry-After', async () => {
+  const attempts = [];
+  const timers = [];
+  const context = {
+    shuttingDown: false,
+    pushSubscriptions: new Map([['first', 'first'], ['second', 'second']]),
+    notificationGroupKey: () => 'event',
+    guards: { notificationTag: () => 'warning' },
+    notificationTitleFor: () => 'warning',
+    setTimeout: (callback, delay) => { timers.push({callback, delay}); return {unref(){}}; },
+    webpush: {sendNotification: async sub => {
+      attempts.push(sub);
+      if (sub === 'second' && attempts.length === 2) throw {statusCode:429, headers:{'retry-after':'4'}};
+    }},
+    console: {log(){}, error(){}},
+  };
+  const dispatch = vm.runInNewContext(`${extract('const inFlightPushes = new Set();', 'function sendPushNotifications(report)')}\ndispatchPush`, context);
+  const result = await dispatch({is_test_data:true, disaster_category_no:1}, 'test');
+  assert.equal(result.accepted, 1);
+  assert.equal(result.retryableFailure, false);
+  assert.equal(timers.length, 1);
+  assert.equal(timers[0].delay, 4000);
+  await timers[0].callback();
+  assert.deepEqual(attempts, ['first','second','second']);
 });
 
 test('ingest keeps the request open until the push provider accepts', async () => {

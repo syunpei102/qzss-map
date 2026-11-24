@@ -2,6 +2,15 @@
 # Attribution: https://db-ip.com/db/lite.php ; generated CIDRs are modified data.
 # The authenticated machine endpoints remain reachable from outside JP so that
 # Discord callbacks and remote telemetry can continue to operate.
+(ops_proxy) {
+    reverse_proxy 127.0.0.1:8090 {
+        transport http {
+            # Node closes idle connections after 5s. Retire ours first.
+            keepalive 4s
+        }
+    }
+}
+
 eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
     route {
         @machine {
@@ -17,7 +26,7 @@ eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
         }
         @latency path /api/youtube-latency-history /api/server-latency-history /latency.html
         handle @latency {
-            reverse_proxy 127.0.0.1:8090
+            import ops_proxy
         }
         handle {
             reverse_proxy 127.0.0.1:8080
@@ -28,7 +37,7 @@ eq.shum10.com, oracle-review.eq.shum10.com, info.shum10.com {
 replay.shum10.com {
     @outside_jp not remote_ip JP_IPS
     respond @outside_jp "Access is limited to Japan" 403
-    reverse_proxy 127.0.0.1:8090
+    import ops_proxy
 }
 
 status.shum10.com {
@@ -38,7 +47,7 @@ status.shum10.com {
             path /api/telemetry/* /api/youtube/agent
         }
         handle @machine {
-            reverse_proxy 127.0.0.1:8090
+            import ops_proxy
         }
         @outside_jp not remote_ip JP_IPS
         handle @outside_jp {
@@ -46,6 +55,6 @@ status.shum10.com {
         }
         @root path /
         rewrite @root /dashboard
-        reverse_proxy 127.0.0.1:8090
+        import ops_proxy
     }
 }
